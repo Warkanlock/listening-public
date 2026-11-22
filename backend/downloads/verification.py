@@ -37,6 +37,7 @@ CLI_LENGTH_TOLERANCE = 5
 # ffprobe runs on files that come from untrusted peers; a hung probe
 # must not stall the pipeline (A2 C-04).
 PROBE_TIMEOUT = 30
+FULL_DECODE_TIMEOUT = 45
 
 # The probe cache's media shape version, owned here because probe()
 # defines the shape: runner.cached_probe re-probes entries written
@@ -111,6 +112,23 @@ _GENERIC_TAG = re.compile(r"(?:track|traccia|pista|audio)\s*\d+")
 class Verdict:
     ok: bool
     reason: str = ""
+
+
+def decode_audio(path, *, probed_duration, expected_duration):
+    """Read every frame of a verified local candidate without writing an output file."""
+    # Build the output timeline from decoded samples. A truncated stream can
+    # reach EOF without a decoder error and still advertise its original duration.
+    result = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-progress", "pipe:1",
+                             "-protocol_whitelist", "file", "-format_whitelist", "flac,mov", "-threads", "1",
+                             "-i", str(path), "-map", "0:a:0", "-af", "asetpts=N/SR/TB", "-f", "null", "-"],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                            timeout=FULL_DECODE_TIMEOUT, check=True)
+    progress = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    duration = int(progress.get("out_time_us", "0")) / 1_000_000
+    if progress.get("progress") != "end" or duration <= 0 or any(
+            value and abs(duration - float(value)) > DURATION_TOLERANCE
+            for value in (probed_duration, expected_duration)):
+        raise ValueError("Decoded audio did not reach the expected duration.")
 
 
 def probe(path, *, local_audio_only=False):

@@ -8,6 +8,7 @@ import re
 import shutil
 import socket
 import stat
+import subprocess
 import tempfile
 import time
 import uuid
@@ -32,7 +33,15 @@ class EngineError(RuntimeError):
         self.retryable = retryable
 
 
-class WorkerTimeout(EngineError):
+class EngineTimeout(EngineError):
+    """An engine operation exceeded its deadline."""
+
+
+class CandidateTimeout(EngineTimeout):
+    """A candidate timed out and released its worker so another can be tried."""
+
+
+class WorkerTimeout(CandidateTimeout):
     """The manager confirmed a worker timeout and released the operation."""
 
 
@@ -41,6 +50,23 @@ TIMEOUT_MESSAGES = {
     "fetch": "The download engine timed out while downloading a candidate.",
 }
 
+
+@contextlib.contextmanager
+def timed_stage(engine, stage, timeout, *, attempt=None):
+    started = time.monotonic()
+    outcome = "completed"
+    try:
+        yield
+    except (EngineTimeout, subprocess.TimeoutExpired):
+        outcome = "timed out"
+        raise
+    except Exception:
+        outcome = "failed"
+        raise
+    finally:
+        label = f"{stage} {attempt}" if attempt is not None else stage
+        elapsed = time.monotonic() - started
+        print(f"Download engine {engine}: {label} {outcome} in {elapsed:.3f}s (limit {timeout:.1f}s).", flush=True)
 
 
 class InsufficientDownloadSpace(Exception):
@@ -69,7 +95,7 @@ def login_wait(seconds):
 def manager_call(action, *, timeout=2, check_space=None, server_release=None, **fields):
     timeout_message = TIMEOUT_MESSAGES.get(action, "The download engine timed out.")
     if timeout <= 0:
-        raise EngineError(timeout_message)
+        raise EngineTimeout(timeout_message)
     address = os.environ.get("LISTENING_ENGINE_SOCKET")
     if not address:
         raise EngineError("The download engine manager is not configured.")
@@ -89,7 +115,7 @@ def manager_call(action, *, timeout=2, check_space=None, server_release=None, **
                     check_space()
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise EngineError(timeout_message)
+                    raise EngineTimeout(timeout_message)
                 connection.settimeout(min(1, remaining))
                 try:
                     chunk = connection.recv(8192)
@@ -272,7 +298,7 @@ def _recover_interrupted_transfers(root, state):
 
 
 @contextlib.contextmanager
-def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimate, accept, timeout):
+def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimate, accept, transfer_timeout):
     """Yield one core-owned candidate or None. A provider never gets its path."""
     staging = os.environ.get("LISTENING_ENGINE_STAGING")
     if not selection or not staging:
@@ -290,40 +316,44 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
         fcntl.flock(lock, fcntl.LOCK_EX)
         _recover_interrupted_transfers(root, state)
         check_space(estimate)
-        deadline = time.monotonic() + timeout
         sources = selected_engine_sources(selection, for_acquisition=True)
         search_budget = WORKER_TIMEOUT_SECONDS["search"] + MANAGER_RESPONSE_GRACE_SECONDS
-        result = manager_call("search", timeout=min(search_budget, deadline - time.monotonic()),
-                              engine=selection["search"], recording=recording)
+        with timed_stage(selection["search"], "search", search_budget):
+            result = manager_call("search", timeout=search_budget, engine=selection["search"], recording=recording)
         candidates = list(candidates_from(result))
         if any(candidate["source"] not in sources for candidate in candidates):
             raise EngineError("The search engine returned a candidate outside its declared sources.")
         fetch_budget = WORKER_TIMEOUT_SECONDS["fetch"] + MANAGER_RESPONSE_GRACE_SECONDS
         timed_out = None
-        for candidate in candidates:
+        remaining = transfer_timeout
+        for attempt, candidate in enumerate(candidates, 1):
             check_space(estimate)
-            remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise EngineError("The download engine reached the time limit for this recording.")
+                raise EngineTimeout("The download engine reached the transfer time limit for this recording.")
             job = uuid.uuid4().hex
             directory = root / job
             directory.mkdir(mode=0o700)
             with tempfile.TemporaryDirectory(prefix="engine-candidate-", dir=state) as copy:
                 try:
+                    budget = min(fetch_budget, remaining)
+                    started = time.monotonic()
                     try:
-                        fetched = manager_call("fetch", engine=selection["fetch"], candidate=candidate,
-                                               job=job, timeout=min(fetch_budget, remaining), check_space=check_space)
-                    except WorkerTimeout as error:
-                        # Another peer may be able to provide the same recording.
-                        timed_out = error
-                        continue
+                        with timed_stage(selection["fetch"], "transfer", budget, attempt=attempt):
+                            fetched = manager_call("fetch", engine=selection["fetch"], candidate=candidate,
+                                                   job=job, timeout=budget, check_space=check_space)
                     except EngineError as error:
                         if error.retryable:
                             raise
                         continue
+                    finally:
+                        remaining -= time.monotonic() - started
                     path = _copy_result(directory, fetched.get("file"), Path(copy),
                                         recording["formats"], check_space)
-                    if path is not None and accept(path):
+                    accepted = path is not None and accept(path)
+                except CandidateTimeout as error:
+                    timed_out = error
+                else:
+                    if accepted:
                         yield path
                         return
                 finally:

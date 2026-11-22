@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -213,11 +215,11 @@ class EngineRunnerTests(WorkspaceTestCase):
                 self.assertEqual(list(self.staging.iterdir()), [])
                 self.assertEqual(external.read_bytes(), b"not for the runner")
 
-    def make_audio(self, filename, title):
+    def make_audio(self, filename, title, *, duration=1):
         path = self.root / filename
         codec = ["-c:a", "flac"] if path.suffix == ".flac" else ["-c:a", "libmp3lame", "-b:a", "256k"]
         subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi",
-                        "-i", "anoisesrc=d=1:c=white", "-ac", "2", *codec,
+                        "-i", f"anoisesrc=d={duration}:c=white", "-ac", "2", *codec,
                         "-metadata", f"title={title}", str(path)], check=True)
         self.media[filename] = path
 
@@ -269,6 +271,46 @@ class EngineRunnerTests(WorkspaceTestCase):
         search = next(request for request in call.call_args_list if request.args == ("search",))
         self.assertGreater(search.kwargs["timeout"], engine_contract.WORKER_TIMEOUT_SECONDS["search"])
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_full_decode_timeout_keeps_the_request_queued_and_reports_the_stage(self):
+        record = self.record(1, "First Light", length=1)
+        self.write_manifest([record])
+        self.make_audio("first-light.flac", "First Light")
+        output = io.StringIO()
+        with (contextlib.redirect_stdout(output),
+              mock.patch.object(runner, "decode_audio", side_effect=subprocess.TimeoutExpired("ffmpeg", 45))):
+            _, message, reference = self.assert_download(record, status="queued")
+        self.assertIn("decoding the audio", message)
+        self.assertEqual(reference, "")
+        self.assertEqual(list(self.staging.iterdir()), [])
+        self.assertIn("search completed in", output.getvalue())
+        self.assertIn("transfer 1 completed in", output.getvalue())
+        self.assertIn("full decode timed out in", output.getvalue())
+
+        self.make_audio("second-peer.flac", "First Light")
+        self.requests.clear()
+        timeout = subprocess.TimeoutExpired("ffmpeg", runner.FULL_DECODE_TIMEOUT)
+        with mock.patch.object(runner, "decode_audio", wraps=runner.decode_audio,
+                               side_effect=[timeout, mock.DEFAULT]):
+            self.assert_download(record)
+        self.assertEqual([request["candidate"]["id"] for request in self.requests if request["action"] == "fetch"],
+                         ["first-light.flac", "second-peer.flac"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_request_rejects_a_lossless_track_truncated_at_a_complete_frame(self):
+        record = self.record(1, "First Light", length=20)
+        self.write_manifest([record])
+        self.make_audio("truncated.flac", "First Light", duration=20)
+        path = self.media["truncated.flac"]
+        packets = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                                  "-show_entries", "packet=pos,pts_time", "-of", "json", str(path)],
+                                 capture_output=True, text=True, check=True).stdout
+        packet = next(packet for packet in json.loads(packets)["packets"] if float(packet["pts_time"]) >= 12)
+        path.write_bytes(path.read_bytes()[:int(packet["pos"])])
+        self.assertTrue(runner.judge_download("First Light", 20, runner.probe(path), ".flac").ok)
+        self.assert_download(record, status="not_found")
+        self.assertEqual(list(self.staging.iterdir()), [])
+
     def test_transport_timeout_waits_for_the_manager_instead_of_starting_another_peer(self):
         record = self.record(1, "First Light", length=1)
         self.write_manifest([record])
@@ -277,7 +319,7 @@ class EngineRunnerTests(WorkspaceTestCase):
 
         def time_out_on_fetch(action, **kwargs):
             if action == "fetch":
-                raise engine_contract.EngineError("The download engine timed out while downloading a candidate.")
+                raise engine_contract.EngineTimeout("The download engine timed out while downloading a candidate.")
             return manager_call(action, **kwargs)
 
         with mock.patch.object(engine_contract, "manager_call", side_effect=time_out_on_fetch) as call:
