@@ -272,6 +272,29 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual(self.run_report()["verified"], 1)
         self.assertEqual(list(self.staging.iterdir()), [])
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_mp3_retry_downloads_and_decodes_through_the_selected_engine(self):
+        record = self.record(1, "First Light", length=2)
+        self.write_manifest([record])
+        self.make_audio("first-light.mp3", "First Light", duration=2)
+        store = runner.requests_store()
+        row, _ = store.create_or_find(1, record["artist"], record["title"], record["album"],
+                                      2, "", individual=True)
+        store.confirm_format(row["id"], "any_lossless", 0)
+        self.mode = "empty"
+        runner.run_requests()
+        self.assertEqual(store.get(row["id"])["status"], "not_found")
+
+        self.mode = "normal"
+        store.confirm_format(row["id"], "mp3", 1)
+        with mock.patch.object(runner, "decode_audio", wraps=runner.decode_audio) as decode:
+            runner.run_requests()
+            decode.assert_called_once()
+        result = store.get(row["id"])
+        self.assertEqual((result["status"], result["requested_format"]), ("downloaded", "mp3"))
+        searches = [item["recording"]["formats"] for item in self.requests if item["action"] == "search"]
+        self.assertEqual(searches, [[".flac", ".m4a"], [".mp3"]])
+
     def test_search_budget_includes_the_worker_deadline(self):
         record = self.record(1, "First Light", length=1)
         self.write_manifest([record])

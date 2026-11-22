@@ -7,9 +7,9 @@ AUDIO_FORMATS = frozenset({".mp3", ".aac", *LOSSLESS_DOWNLOAD_FORMATS})
 
 # Keep the advertised suffixes in preference order for Sockseek.
 REQUEST_SUFFIXES = {"flac": (".flac",), "alac": (".m4a",),
-                    "any_lossless": tuple(LOSSLESS_DOWNLOAD_FORMATS)}
+                    "any_lossless": tuple(LOSSLESS_DOWNLOAD_FORMATS), "mp3": (".mp3",)}
 REQUEST_FORMAT_NAMES = {"flac": "FLAC", "alac": "Apple Lossless (ALAC)",
-                        "any_lossless": "FLAC or Apple Lossless (ALAC)"}
+                        "any_lossless": "FLAC or Apple Lossless (ALAC)", "mp3": "MP3"}
 
 
 DEFAULT_BULK_DOWNLOAD_FORMAT = "mp3_preferred"

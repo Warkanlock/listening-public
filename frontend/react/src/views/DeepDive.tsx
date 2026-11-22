@@ -6,6 +6,7 @@ import { CoverArt } from "../components/Artwork";
 import { parseConnectionGraph } from "../artistConnections";
 import { DiscoveryBoard } from "./DiscoveryBoard";
 import { AddToPlaylist } from "../components/PlaylistComposer";
+import { TryMp3Button } from "../components/TryMp3Button";
 
 export type TrailStop = { kind: "artist" | "recording" | "search" | "song"; id: string; name: string; label: string; note?: string; track?: DiscoverTrack };
 type Branch = { leads: TrailStop[]; partial?: boolean; track?: DiscoverTrack; source?: { name: string; url: string } | null; request?: RequestRow | null };
@@ -57,6 +58,7 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
       <RoomIconButton primary label={requestLabel}
         icon={ready ? "play" : choosing ? "settings" : busy ? "recent" : "download"} onClick={() => void request()}
         disabled={submitting || (!ready && !choosing && (busy || !track.duration))} />
+      {!store.member && row?.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={track.title} />}
       <RoomIconButton icon="info" label="Song details" onClick={() => store.openSongInfo(track)} />
       <AddToPlaylist song={track} iconOnly />
     </div>

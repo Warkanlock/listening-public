@@ -26,6 +26,14 @@ from pathlib import Path
 from system import state_database
 from system.formats import REQUEST_SUFFIXES
 
+
+def mp3_retry(row):
+    """The request and revision that can be retried after a lossless miss."""
+    if row["status"] == "not_found" and row["requested_format"] in ("any_lossless", "flac", "alac"):
+        return {"id": row["id"], "format_revision": row["format_revision"]}
+    return None
+
+
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS requests (
         id INTEGER PRIMARY KEY,
@@ -173,16 +181,20 @@ class RequestsStore:
         if type(revision) is not int or not 0 <= revision < 2**63 - 1:
             raise ValueError("Invalid format revision")
         def work(conn):
-            self._lock_request(conn, request_id)
+            row = self._lock_request(conn, request_id)
+            if row["requested_format"] == choice and row["format_revision"] == revision + 1:
+                return dict(row), False
+            if choice == "mp3" and not mp3_retry(row):
+                raise ValueError("Try MP3 is available after a lossless search finds no copy.")
             changed = conn.execute(
                 "UPDATE requests SET requested_format=?, format_confirmed=1, status='queued', message='', "
                 "format_revision=format_revision+1, updated_at=CURRENT_TIMESTAMP "
                 "WHERE id=? AND format_revision=? AND status IN ('waiting_format','not_found','error','rejected')",
                 (choice, request_id, revision)).rowcount
-            row = conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
-            if not changed and (row["requested_format"] != choice or row["format_revision"] != revision + 1):
+            if not changed:
                 raise ValueError("This request changed. Reopen it to choose a format.")
-            return dict(row), bool(changed)
+            row = conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
+            return dict(row), True
         return self._run(work)
 
     def get(self, request_id):
@@ -349,6 +361,8 @@ class RequestsStore:
                 if row:
                     result = dict(row)
                     path = result.pop("audio_path")
+                    if retry := mp3_retry(row):
+                        result["mp3_retry"] = retry
                     if result["status"] == "downloaded" and path:
                         result["audio"] = f"/api/audio/custom/{row['id']}"
                     rows[pick] = result

@@ -240,7 +240,7 @@ internal class Room(val origin: String, val id: String, private val token: Strin
             if (item.has(key)) put(key, item.get(key))
     })
     fun confirmFormat(row: JSONObject, format: String) = request("/api/requests/format",
-        JSONObject().put("request_id", row.getInt("id")).put("format_revision", row.getInt("format_revision"))
+        JSONObject().put("request_id", row.getLong("id")).put("format_revision", row.getLong("format_revision"))
             .put("requested_format", format))
     fun heartbeat() = request("/api/device", registration(id))
     fun radioPresence(source: String?): Boolean {

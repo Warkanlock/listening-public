@@ -63,7 +63,7 @@ from devices.announcements import AnnouncementBoard
 from devices.device_store import DeviceStore, invitation_room_proof
 from devices.presence import Presence
 from downloads.download_activity import recent_events
-from downloads.requests_store import RequestsStore
+from downloads.requests_store import RequestsStore, mp3_retry
 from downloads.state_store import StateStore
 from downloads.verification import PROBE_CACHE_VERSION, probe
 from metadata.artist_connections import ArtistConnections, CONNECTION_PATH, ConnectionsBusy, valid_id
@@ -134,6 +134,8 @@ def recent_requests():
     awaiting_catalog = []
     with ROOT_LOCK:
         for row in rows:
+            if retry := mp3_retry(row):
+                row["mp3_retry"] = retry
             if row["status"] != "downloaded" or not row["audio_path"]:
                 continue
             index = row["track_index"]
@@ -2207,8 +2209,11 @@ class Handler(BaseHTTPRequestHandler):
                                             if track["musicbrainz_id"] and not track.get("track_id")])
                 for track in result["tracks"]:
                     if track_id := track.get("track_id"):
-                        if not track.get("ready") and linked.get(track_id, {}).get("status") == "not_found":
+                        request = linked.get(track_id)
+                        if not track.get("ready") and request and request["status"] == "not_found":
                             track["copy_status"] = "not_found"
+                            if retry := mp3_retry(request):
+                                track["mp3_retry"] = retry
                     elif request := picks.get(("", "", track["musicbrainz_id"])):
                         track["request"] = request
             return self.json_response(result)
@@ -2917,6 +2922,9 @@ class Handler(BaseHTTPRequestHandler):
         page = matching[offset:offset + limit]
         tracks = ([catalog.track(index, requests) for index in page] if profile is None
                   else [track for index in page if (track := member_catalog_track(index, favorite_keys)) is not None])
+        for track in tracks:
+            if track["status"] == "not_found" and (request := requests.get(track["id"])) and (retry := mp3_retry(request)):
+                track["mp3_retry"] = retry
         availability = ({"ready_genres": {genre: len(refs) for genre, refs in ready_tracks_by_genre().items()}}
                         if "mood-availability" in params.get("facets", []) else {})
         return self.json_response({"tracks": tracks,
