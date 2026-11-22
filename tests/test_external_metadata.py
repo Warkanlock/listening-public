@@ -216,6 +216,13 @@ class ArtistConnectionsTests(MetadataTestCase):
         self.album = {"id": FIXTURE_RELEASE, "title": "Night Work", "primary-type": "Album",
                       "artist-credit": [{"artist": self.band}]}
 
+    def test_artist_lookup_accepts_an_exact_unambiguous_musicbrainz_alias(self):
+        artist = {**self.person, "score": 100, "aliases": [{"name": "Ada Field"}]}
+        metadata, transport = self.make_metadata(lambda _: {"artists": [artist]})
+        result = ArtistConnections(metadata).artist_match("Ada Field")
+        self.assertEqual(result["id"], self.person["id"])
+        self.assertIn('alias:"Ada Field"', parse_qs(urlparse(transport.calls[0][0]).query)["query"][0])
+
     def test_credited_artist_leads_to_band_members_and_their_projects(self):
         edition_id = "70000000-0000-0000-0000-000000000000"
         edition = {"id": edition_id, "title": "Night Work", "status": "Official", "date": "2009-02-01"}
