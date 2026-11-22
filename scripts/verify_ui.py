@@ -399,6 +399,9 @@ def verify_request_restart(page, root, screenshot):
                         "anoisesrc=color=white:duration=2:sample_rate=44100:seed=7",
                         "-ac", "2", "-c:a", codec, "-b:a", "320k", "-metadata",
                         "title=Format fixture", "-metadata", "artist=Fixture", "-metadata", "album=Live", str(root / (codec + ".m4a"))], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=duration=2:seed=7",
+                    "-ac", "2", "-c:a", "libmp3lame", "-b:a", "320k",
+                    "-metadata", "title=Older song", "-metadata", "artist=Fixture", str(root / "older.mp3")], check=True)
     server = Server(root, app, port)
     def rows():
         return server.request("GET", "/api/requests")[1]["requests"]
@@ -408,6 +411,11 @@ def verify_request_restart(page, root, screenshot):
         page.get_by_role("heading", name="Recent requests").wait_for()
 
     calls = root / "calls.jsonl"
+    sources_url = "**/api/extensions/sources"
+    page.route(sources_url, lambda route: route.fulfill(json={
+        "inventory_available": True, "state": "ready", "installed": [],
+        "selection": {"search": "fixture-search", "fetch": "fixture-download"},
+    }))
     try:
         server.start()
         wait_for("isolated server", lambda: server.request("GET", "/")[0] == 200)
@@ -419,6 +427,11 @@ def verify_request_restart(page, root, screenshot):
         page.get_by_role("button", name="Choose format for Older song").click()
         picker.get_by_role("button", name="Later").click()
         open_requests()
+        sources = page.locator(".find-copy-sources")
+        sources.get_by_text("Find copy uses the room’s configured download sources.", exact=True).wait_for()
+        assert "fixture-search" not in sources.inner_text()
+        assert "fixture-download" not in sources.inner_text()
+        assert sources.get_by_role("button", name="View extensions").is_visible()
         form = page.get_by_role("form", name="Request a song")
         form.get_by_label("Artist").fill("Fixture")
         form.get_by_label("Song title").fill("Format fixture")
@@ -488,7 +501,30 @@ def verify_request_restart(page, root, screenshot):
         finally:
             page.unroute("**/api/discover")
             page.unroute("**/api/discover/recording/*")
+        page.get_by_role("button", name="Library", exact=True).click()
+        page.get_by_role("button", name="Choose format for Older song").click()
+        assert picker.get_by_role("radio", name="Any lossless (prefer FLAC)").is_checked()
+        assert picker.get_by_role("radio", name="MP3").count() == 0
+        picker.get_by_role("button", name="Confirm and search").click()
+        retry = page.get_by_role("button", name="Try MP3 for Older song", exact=True)
+        retry.wait_for(timeout=60000)
+        miss = next(row for row in rows() if row["title"] == "Older song")
+        assert miss["requested_format"] == "any_lossless" and miss["status"] == "not_found"
+        page.set_viewport_size({"width": 390, "height": 844})
+        try:
+            retry.click()
+            wait_for("worker to verify the per-song MP3", lambda: any(
+                r["id"] == miss["id"] and r["status"] == "downloaded" and r["requested_format"] == "mp3"
+                for r in rows()), timeout=60)
+        finally:
+            page.set_viewport_size({"width": 1440, "height": 900})
+        assert sum(r["title"] == "Older song" for r in rows()) == 1
+        assert [r["requested_format"] for r in rows() if r["title"] == "Format fixture"] == ["alac", "alac"]
+        formats = [cmd[cmd.index("--format") + 1] for cmd in map(json.loads, calls.read_text().splitlines())
+                   if "--print" in cmd and cmd[0] == "Fixture - Older song"]
+        assert formats == ["flac,m4a", "mp3"]
     finally:
+        page.unroute(sources_url)
         page.goto("about:blank")
         server.stop()
 
@@ -3079,9 +3115,12 @@ def run_browser(server, output):
                 page.wait_for_selector("text=Feeling Good", timeout=20000)
                 missing_copy = page.locator(".request-item", has_text="Unavailable Copy")
                 result = missing_copy.get_by_text("No copy found", exact=True)
+                retry = missing_copy.get_by_role("button", name="Try MP3 for Unavailable Copy", exact=True)
                 result.wait_for(state="visible")
+                retry.wait_for(state="visible")
                 page.set_viewport_size({"width": 390, "height": 844})
                 result.wait_for(state="visible")
+                retry.wait_for(state="visible")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 item.ok = True
                 item.detail = "pending and no-copy outcomes render on desktop and mobile"
@@ -3387,7 +3426,7 @@ def run_browser(server, output):
                 with tempfile.TemporaryDirectory(prefix="listening-format-room-") as root:
                     verify_request_restart(page, Path(root), output / "17-request-format.png")
                 item.ok = True
-                item.detail = "Format choice survives restart, AAC rejected, verified ALAC and a distinct Deep Dive request played by ID"
+                item.detail = "Format choice survives restart, AAC rejected, verified ALAC and Deep Dive playback, mobile per-song MP3 retry"
             except Exception as error:
                 item.detail = repr(error)
             item = surface("private-household-and-catalogs")

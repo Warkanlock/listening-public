@@ -59,6 +59,7 @@ export interface Track {
   audio: string | null;
   spotify_url: string;
   reason: string;
+  mp3_retry?: Mp3Retry;
 }
 
 export interface Mood {
@@ -206,13 +207,15 @@ export const REQUEST_FORMATS = {
   alac: "Apple Lossless (ALAC) only",
 } as const;
 
-export type RequestFormat = keyof typeof REQUEST_FORMATS;
+export type RequestFormat = keyof typeof REQUEST_FORMATS | "mp3";
+export type Mp3Retry = { id: number; format_revision: number };
 export type RequestSong = { track_id: number } | { artist: string; title: string; musicbrainz_id?: string; version?: string; performance?: string; album?: string; duration?: number };
 
 export interface RequestRow {
   musicbrainz_id?: string;
   requested_format: RequestFormat | null;
   format_revision: number;
+  mp3_retry?: Mp3Retry;
   id: number;
   track_index: number | null;
   artist: string;
