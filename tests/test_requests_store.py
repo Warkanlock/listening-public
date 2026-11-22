@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 import zlib
 
-from downloads.requests_store import RequestsStore
+from downloads.requests_store import RequestsStore, mp3_retry
 
 
 # The runner's former private DDL: a requests table and nothing else.
@@ -135,6 +135,34 @@ class LifecycleTests(StoreTestCase):
 class FormatSelectionTests(StoreTestCase):
     def create(self, *, individual=True):
         return self.store.create_or_find(1, "Artist", "Song", "Album", 200, "Song", individual=individual)
+
+    def test_mp3_retry_requires_lossless_miss_and_stays_with_one_request(self):
+        request, _ = self.create()
+        request_id = request["id"]
+        self.assertIsNone(mp3_retry(request))
+        with self.assertRaisesRegex(ValueError, "lossless search"):
+            self.store.confirm_format(request_id, "mp3", 0)
+
+        self.store.confirm_format(request_id, "alac", 0)
+        self.store.finish(request_id, "error", "Search timed out", "")
+        self.assertIsNone(mp3_retry(self.store.get(request_id)))
+        with self.assertRaisesRegex(ValueError, "lossless search"):
+            self.store.confirm_format(request_id, "mp3", 1)
+
+        self.store.finish(request_id, "not_found", "No copy found", "")
+        self.assertEqual(mp3_retry(self.store.get(request_id)), {"id": request_id, "format_revision": 1})
+        retry, released = self.store.confirm_format(request_id, "mp3", 1)
+        self.assertTrue(released)
+        self.assertEqual((retry["id"], retry["status"], retry["requested_format"]), (request_id, "queued", "mp3"))
+        self.store.finish(request_id, "not_found", "No copy found", "")
+        self.assertIsNone(mp3_retry(self.store.get(request_id)))
+        self.assertFalse(self.store.confirm_format(request_id, "mp3", 1)[1])
+        with self.assertRaisesRegex(ValueError, "lossless search"):
+            self.store.confirm_format(request_id, "mp3", 2)
+
+        other, _ = self.store.create_or_find(2, "Artist", "Other song", "Album", 200, "Other song", individual=True)
+        self.assertEqual(other["status"], "waiting_format")
+        self.assertIsNone(other["requested_format"])
 
     def test_concurrent_clicks_reopen_one_durable_waiting_request(self):
         with ThreadPoolExecutor(max_workers=6) as pool:

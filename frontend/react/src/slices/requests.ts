@@ -9,6 +9,7 @@ const requestsSignature = (rows: RequestRow[]) =>
       row.status,
       row.requested_format,
       row.format_revision,
+      row.mp3_retry,
       row.message,
       row.audio,
       row.track_index,

@@ -8,7 +8,8 @@ import org.json.JSONObject
 internal val CHANGEABLE_FORMAT = setOf("waiting_format", "not_found", "error", "rejected")
 
 internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: JSONObject?,
-                                        onPlay: ((Int) -> Unit)?, onRequest: () -> Unit, openView: ((SongDetailsView) -> Unit)?,
+                                        onPlay: ((Int) -> Unit)?, onRequest: () -> Unit, onTryMp3: (() -> Unit)?,
+                                        openView: ((SongDetailsView) -> Unit)?,
                                         onAddToPlaylist: () -> Unit) {
     val status = request?.optString("status")
     val details = listOf(item.optString("version"), item.optString("album"), item.optString("reason"),
@@ -41,6 +42,7 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
     if (status != "downloaded") {
         action("Find on YouTube") { openYouTube(this, item.optString("artist"), item.getString("title")) }
     }
+    if (onTryMp3 != null) action("Try MP3", onTryMp3)
     when {
         onPlay != null && status == "downloaded" && (request.optString("audio").isNotBlank() || request.optString("audio_path").isNotBlank()) -> action("Play") { onPlay(request.getInt("id")) }
         status in CHANGEABLE_FORMAT -> action("Choose format", onRequest)

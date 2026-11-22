@@ -119,7 +119,7 @@ def decode_audio(path, *, probed_duration, expected_duration, timeout=FULL_DECOD
     # Build the output timeline from decoded samples. A truncated stream can
     # reach EOF without a decoder error and still advertise its original duration.
     result = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-progress", "pipe:1",
-                             "-protocol_whitelist", "file", "-format_whitelist", "flac,mov", "-threads", "1",
+                             "-protocol_whitelist", "file", "-format_whitelist", "flac,mov,mp3", "-threads", "1",
                              "-i", str(path), "-map", "0:a:0", "-af", "asetpts=N/SR/TB", "-f", "null", "-"],
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                             timeout=timeout, check=True)
@@ -293,7 +293,10 @@ def recording_mismatch(media, title, artist, length, recording_id, version, perf
 
 def judge_download(expected_title, expected_length, media, suffix, requested_format="any_lossless",
                    *, recording_id="", version="", expected_artist="", performance=""):
-    """Verify the actual lossless stream and container before landing a peer transfer."""
+    """Verify the requested audio stream and container before landing a peer transfer."""
+    if requested_format == "mp3" and media is not None:
+        # Cover art and tags count toward the whole-file bitrate but not the audio floor.
+        media = {**media, "bitrate": media.get("stream_bitrate", 0)}
     verdict = judge(expected_title, expected_length, media)
     if verdict.ok:
         if recording_id:
@@ -304,7 +307,7 @@ def judge_download(expected_title, expected_length, media, suffix, requested_for
         containers = media.get("container", "").split(",")
         if suffix.lower() not in REQUEST_SUFFIXES[requested_format]:
             return Verdict(False, f"download requires {REQUEST_FORMAT_NAMES[requested_format]}")
-        expected = LOSSLESS_DOWNLOAD_FORMATS[suffix.lower()]
+        expected = ("mp3", "mp3") if requested_format == "mp3" else LOSSLESS_DOWNLOAD_FORMATS[suffix.lower()]
         if codec != expected[0] or expected[1] not in containers:
             return Verdict(False, f"download requires {REQUEST_FORMAT_NAMES[requested_format]} audio")
     return verdict
@@ -312,11 +315,5 @@ def judge_download(expected_title, expected_length, media, suffix, requested_for
 
 def judge_bulk_download(expected_title, expected_length, media, suffix):
     """Check staged bulk downloads, including transfers left by an earlier policy."""
-    if suffix.lower() != ".mp3":
-        return judge_download(expected_title, expected_length, media, suffix)
-    # Cover art and tags count toward the whole-file bitrate but not the audio floor.
-    audio = {**media, "bitrate": media.get("stream_bitrate", 0)} if media is not None else None
-    verdict = judge(expected_title, expected_length, audio)
-    if verdict.ok and (media.get("codec") != "mp3" or "mp3" not in media.get("container", "").split(",")):
-        return Verdict(False, "download requires MP3 audio")
-    return verdict
+    return judge_download(expected_title, expected_length, media, suffix,
+                          "mp3" if suffix.lower() == ".mp3" else "any_lossless")

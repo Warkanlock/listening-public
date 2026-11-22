@@ -1,10 +1,11 @@
 import { useEffect, useId, useState } from "react";
-import { api, BUSY_STATUSES, statusLabel, time, type RequestRow } from "../api";
+import { api, BUSY_STATUSES, statusLabel, time, type Mp3Retry, type RequestRow } from "../api";
 import { useStore } from "../store";
 import { CoverArt } from "./Artwork";
 import { RoomIcon } from "./RoomIcon";
 import { RoomAction } from "./RoomControls";
 import { LoadingStatus, SkeletonLines, Spinner } from "./StateCard";
+import { TryMp3Button } from "./TryMp3Button";
 
 type Target = { kind: "artist" | "album" | "release-group"; id: string | number; title?: string };
 type Related = { id: string; title: string; detail?: string; year?: string };
@@ -15,6 +16,7 @@ type Track = {
   track_id?: number; ready?: boolean; title: string; artist: string; album: string;
   duration: number; musicbrainz_id: string; version?: string; disc?: number; number?: string; request?: RequestRow; library_only?: boolean;
   copy_status?: "not_found";
+  mp3_retry?: Mp3Retry;
   listens?: number; plays?: number; cover?: string;
 };
 export type Profile = {
@@ -52,6 +54,7 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
   const busy = !!row && BUSY_STATUSES.includes(row.status);
   const format = !!row && ["waiting_format", "not_found", "error", "rejected"].includes(row.status);
   const canRequest = !!track.track_id || !!track.musicbrainz_id && track.duration > 0;
+  const retry = row ? row.mp3_retry : track.mp3_retry;
   const label = ready ? "Play" : busy && row ? statusLabel(row.status) : format ? "Choose format" : "Find a copy";
 
   async function act() {
@@ -84,7 +87,8 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
       track.listens && `${numberFormat.format(track.listens)} listens`,
       track.plays && `${numberFormat.format(track.plays)} ${track.plays === 1 ? "play" : "plays"}`,
       !ready && (row?.status ?? track.copy_status) === "not_found" && statusLabel("not_found")].filter(Boolean).join(" · ")}</small></span>
-    {(ready || !store.member && (canRequest || row)) && <RoomAction primary={ready} disabled={busy} aria-disabled={pending || undefined}
+    {!ready && !store.member && retry ? <TryMp3Button retry={retry} title={track.title} /> :
+    (ready || !store.member && (canRequest || row)) && <RoomAction primary={ready} disabled={busy} aria-disabled={pending || undefined}
       aria-busy={pending} aria-label={`${label} ${track.title}`} onClick={() => void act()}>
       <span className="music-profile-action-label" data-pending={pending}>
         <span>{label}</span>{pending && <Spinner />}

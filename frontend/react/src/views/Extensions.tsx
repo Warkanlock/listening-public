@@ -6,7 +6,7 @@ import { RoomDialogContent } from "../components/WindowContent";
 import { ExtensionsPanel, PluginResources } from "./settings/ExtensionsPanel";
 import { ExtensionIconAction, ExtensionInventory, ExtensionInventoryRow, retryTime } from "./settings/ExtensionInventory";
 
-function sourceDescription(data: ExtensionSources) {
+function sourceDescription(data: ExtensionSources, showProviders: boolean) {
   const search = data.selection?.search;
   const fetch = data.selection?.fetch;
   if (data.state === "cooldown") {
@@ -14,12 +14,17 @@ function sourceDescription(data: ExtensionSources) {
     return time ? `A source couldn’t sign in. Your requests stay queued. Find copy can retry after ${time}.` :
       "The sign-in pause has ended. Queued requests can retry.";
   }
-  if (data.state === "ready" && search && fetch)
-    return search === fetch ? `Find copy uses ${search} for search and download.` : `Find copy searches with ${search} and downloads with ${fetch}.`;
-  if (data.state === "legacy") return "Find copy uses the room’s existing downloader.";
+  if (data.state === "ready" || data.state === "legacy") {
+    if (showProviders && search && fetch)
+      return `Search: ${search} · Download: ${fetch}`;
+    return "Find copy uses the room’s configured download sources.";
+  }
   if (data.state === "unavailable") {
     const disabled = data.installed.find(engine => !engine.enabled && (engine.id === search || engine.id === fetch));
-    if (disabled) return `${disabled.id} is disabled. Find copy requests stay queued until the room owner enables a source.`;
+    if (disabled) {
+      const source = showProviders ? disabled.id : "A download source";
+      return `${source} is disabled. Find copy requests stay queued until the room owner enables a source.`;
+    }
     return "Download sources are unavailable. Check the enabled engines and their settings.";
   }
   return "The room owner can choose how to find and download missing songs.";
@@ -41,12 +46,12 @@ function useSources() {
   return settingsSlice;
 }
 
-function SourceStatus() {
+function SourceStatus({ showProviders = false }: { showProviders?: boolean }) {
   const sources = useSources();
   if (sources.sourceError) return <span role="status">{sources.sourceError}{" "}
     <button className="quiet-button" type="button" onClick={() => void sources.loadExtensionSources(true)}>Retry</button>
   </span>;
-  return <span role="status">{sources.extensionSources ? sourceDescription(sources.extensionSources) : "Checking download sources…"}</span>;
+  return <span role="status">{sources.extensionSources ? sourceDescription(sources.extensionSources, showProviders) : "Checking download sources…"}</span>;
 }
 
 function ExtensionsContent() {
@@ -62,7 +67,7 @@ function ExtensionsContent() {
       <h2>Song downloads</h2>
       <ExtensionIconAction icon="refresh" label="Refresh extensions" onClick={() => void store.settingsSlice.loadExtensionSources(true)} />
     </header>
-    <p><SourceStatus /></p>
+    <p><SourceStatus showProviders /></p>
     <p className="settings-note">The room owner installs extensions and chooses the sources used by all devices.</p>
     <PluginResources />
     {extensionSources && <>
