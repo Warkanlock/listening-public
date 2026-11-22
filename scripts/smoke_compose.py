@@ -209,6 +209,8 @@ def run_checks(args, scratch):
                 owner.json("/api/import-list", PLAYLIST)
                 verify_audio(owner, audio)
                 previous_device = pair(room, owner)
+                if owner.json("/api/stations").get("youtube_enabled") is False:
+                    owner.json("/api/extensions", {"action": "radio", "provider": "youtube", "enabled": True})
                 owner.json("/api/stations", {"stations": mixes})
                 track_id = owner.json("/api/tracks?q=Compose+fixture&filter=ready")["tracks"][0]["id"]
                 owner.json("/api/session", {"op": "play", "track_id": track_id})
