@@ -16,7 +16,8 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
             "queued" -> "Queued for download"
             "searching" -> "Searching for a copy"
             "waiting_space" -> "Waiting for storage space"
-            "not_found", "error", "rejected" -> request.optString("message")
+            "not_found" -> "No copy found"
+            "error", "rejected" -> request.optString("message")
             else -> ""
         }).filter { it.isNotBlank() }.joinToString("\n\n")
     val ui = RoomUi(this)

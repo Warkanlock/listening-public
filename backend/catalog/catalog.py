@@ -310,13 +310,13 @@ class Catalog:
 
     def status_of(self, index, request_by_track=None):
         """The status half of track() and nothing else (plan 018
-        PERF-01): the coverage status, overridden by a queued,
-        searching, or space-waiting request unless already verified.
+        PERF-01): the coverage status, overridden by a request
+        in progress or a completed miss unless already verified.
         The listing's cheap phase filters on this; track() builds on
         it, so the rule lives in exactly one place."""
         status = self.coverage.get(index, {}).get("status", "pending")
         request = (request_by_track or {}).get(index)
-        if request and request["status"] in {"waiting_format", "queued", "searching", "waiting_space"} and status != "verified":
+        if request and request["status"] in {"waiting_format", "queued", "searching", "waiting_space", "not_found"} and status != "verified":
             status = request["status"]
         return status
 

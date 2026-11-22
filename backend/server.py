@@ -2208,10 +2208,15 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                 result = music_profiles.lookup(context or kind, identity, seed, records, current.status_of, cover, history)
             if profile is None:
-                picks = requests_store().for_picks([("", "", track["musicbrainz_id"]) for track in result["tracks"]
-                                                    if track["musicbrainz_id"] and not track.get("track_id")])
+                requests = requests_store()
+                linked = requests.by_track()
+                picks = requests.for_picks([("", "", track["musicbrainz_id"]) for track in result["tracks"]
+                                            if track["musicbrainz_id"] and not track.get("track_id")])
                 for track in result["tracks"]:
-                    if request := picks.get(("", "", track["musicbrainz_id"])):
+                    if track_id := track.get("track_id"):
+                        if not track.get("ready") and linked.get(track_id, {}).get("status") == "not_found":
+                            track["copy_status"] = "not_found"
+                    elif request := picks.get(("", "", track["musicbrainz_id"])):
                         track["request"] = request
             return self.json_response(result)
         except (ConnectionsBusy, OSError, ValueError, sqlite3.Error):
