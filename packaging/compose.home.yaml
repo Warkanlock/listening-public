@@ -1,0 +1,29 @@
+# Optional override for a host with separate network binds and library folders.
+services:
+  listening-room:
+    build:
+      context: ..
+    image: listening-room:home
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      LISTENING_ROOM_PROFILE: home-server
+      LISTENING_ROOM_MUSIC_INBOX: /shares/Music
+      LISTENING_ROOM_EXPORT_DIR: /exports
+    ports:
+      - "${LISTENING_LAN_BIND:?set the private ethernet address}:8765:8765"
+      - "${LISTENING_TAILNET_BIND:?set the servers Tailscale IPv4 address}:8765:8765"
+    volumes:
+      - ${LISTENING_HOME_CONFIG_DIR:?set the host configuration directory}:/config
+      - ${LISTENING_HOME_LIBRARY_DIR:?set the host library directory}:/library
+      - type: bind
+        source: ${LISTENING_MUSIC_INBOX_HOST_PATH:?set the host music inbox}
+        target: /shares/Music
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LISTENING_OFFLINE_EXPORT_HOST_PATH:?set the host export directory}
+        target: /exports
+        bind:
+          create_host_path: false

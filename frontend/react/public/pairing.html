@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Pair again · Listening Room</title>
+  <style>
+    :root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #121815; color: #f2f3eb; }
+    body { min-height: 100vh; margin: 0; display: grid; align-items: center; }
+    main { width: min(28rem, calc(100% - 3rem)); margin: auto; padding-block: 2rem; }
+    h1 { font-size: 2.35rem; line-height: 1.1; margin-block: .6rem 1rem; }
+    p { color: #bac6ba; line-height: 1.5; }
+    label { display: block; margin-block: 1.5rem .5rem; }
+    input, button { font: inherit; padding: .75rem; border: 1px solid #69796d; border-radius: .4rem; }
+    input { box-sizing: border-box; width: 100%; background: #1e2820; color: inherit; }
+    button { margin-top: .95rem; background: #c7ddb5; color: #152117; font-weight: 650; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <p>Listening Room</p>
+    <h1>Pair this device</h1>
+    <p>This device needs a fresh invitation. Copy one from Settings → Devices on a paired admin device.</p>
+    <form>
+      <label for="invite">Pairing link</label>
+      <input id="invite" type="password" inputmode="url" autocomplete="off" required>
+      <button type="submit">Pair again</button>
+      <p role="alert"></p>
+    </form>
+  </main>
+  <script>
+    document.querySelector("form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = document.querySelector("#invite");
+      try {
+        const link = new URL(input.value.trim());
+        const tokens = link.searchParams.getAll("token");
+        if (["http:", "https:"].includes(link.protocol) && link.pathname === "/" && !link.username &&
+            !link.password && !link.hash && tokens.length === 1 && tokens[0]) {
+          const destination = new URL("/pair", link.origin);
+          destination.searchParams.set("token", tokens[0]);
+          location.replace(destination);
+          return;
+        }
+      } catch {}
+      document.querySelector("[role=alert]").textContent = "Paste a valid invitation for this room.";
+      input.focus();
+    });
+  </script>
+</body>
+</html>

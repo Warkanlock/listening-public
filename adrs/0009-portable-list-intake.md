@@ -1,0 +1,15 @@
+# 0009. Accept portable lists through a common intake
+
+Accepted. The portable SQLite collection supersedes the earlier file-only source of truth.
+
+An owner can bring a CSV, M3U, M3U8 or XSPF from any provider. Inputs reduce to an ordered list of tracks with a title and artist, plus optional album, duration and identifiers. XSPF is the interchange format. Track identity and stable order matter because queues, favorites, history and exports refer back to recordings. [Library format](../SPEC.md)
+
+A browser import copies a list once. Linking a file or watching a directory records a source that can change later. The Spotify adapter supplies another source through the same intake. Owner-provided files stay untouched. A generated sibling carries provenance so a changed or independently authored XSPF can survive the removal or regeneration of its original input. Identical reimports are idempotent. Conflicting filenames require an explicit replace or rename choice and a conflicting bundle must be identified before writing it. [List intake](../backend/library/list_intake.py)
+
+The portable collection stores its list documents and ordered memberships. Working copies for filesystem adapters can be rebuilt. List metadata supplies display names, and owner-defined overrides travel with the collection. Product UI, sample data and generic source parsing must work without personal names or Spotify credentials. A Spotify track link is offered when the track has a corresponding Spotify identity.
+
+A one-time merge creates or extends an owner-controlled list. A magnet identifies a source controlled by an adapter or watched location. It may supply tracks for a merge and cannot be selected as the destination. Persistent linking keeps the participating sources and their identities, projects their current memberships, and records the owner's choice of base order and display name. An authoritative playlist identifier can establish a match. Overlap alone produces a suggestion that can be accepted, dismissed or undone. [Playlist links](../backend/library/playlist_links.py) · [Collection ownership](0006-collection-ownership.md)
+
+The Spotify connection supports explicit owner edits by authenticated provider ID. Per-playlist unlink freezes the last mirrored membership; relink reads current Spotify membership. Creating a playlist, renaming it, adding or removing a track, and saving or unsaving a Spotify liked song are incremental provider operations. A source grouping changes only the Listening catalog projection. Neither grouping nor background polling writes a projected union to Spotify.
+
+Listeners can add recording metadata before audio is available. An owner can explicitly delegate shared playlist additions to a paired device. For Spotify this grant authorizes one incremental addition to the selected authenticated source per action. Connection management, removal and other provider operations retain their owner checks. An account's private playlist can hold an artist, title and optional album until a unique visible catalog recording supplies playback.

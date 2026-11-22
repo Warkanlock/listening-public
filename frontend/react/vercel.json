@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "git": {
+    "deploymentEnabled": { "**": false, "main": true }
+  },
+  "installCommand": "yarn install --frozen-lockfile",
+  "buildCommand": "yarn vite build --config vite.about.config.mjs",
+  "outputDirectory": "landing-dist",
+  "rewrites": [
+    { "source": "/about", "destination": "/index.html" },
+    { "source": "/about/", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "/(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }] }
+  ]
+}

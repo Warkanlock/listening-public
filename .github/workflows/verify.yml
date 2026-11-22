@@ -1,0 +1,178 @@
+name: Verify and build install images
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish_registry:
+        description: Publish a tagged release from a public repository to GHCR
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install build and fixture tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npm install -g yarn@1.22.22
+          python3 -m pip install playwright
+          python3 -m playwright install --with-deps chromium
+      - name: Build the frontend and run the fixture gates
+        run: |
+          yarn --cwd frontend/react install --frozen-lockfile
+          yarn --cwd frontend/react build
+          find backend -name '*.py' -print0 | xargs -0 python3 -m py_compile
+          python3 scripts/audit_tests.py
+          make verify-ui
+
+  install-images:
+    needs: fixture-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, arch: amd64, target: core}
+          - {runner: ubuntu-24.04, arch: amd64, target: full}
+          - {runner: ubuntu-24.04-arm, arch: arm64, target: core}
+    runs-on: ${{ matrix.runner }}
+    env:
+      ARCH: ${{ matrix.arch }}
+      TARGET: ${{ matrix.target }}
+      PREVIOUS_RELEASE_REF: ${{ vars.LISTENING_PREVIOUS_RELEASE_REF || 'public-baseline' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Free disk for the restore drill
+        if: ${{ matrix.target == 'full' }}
+        run: sudo rm -rf /usr/local/lib/android /opt/ghc
+      - name: Build the image and generate installation metadata
+        run: |
+          version=$(./listening --version)
+          image="listening-room:$version-$TARGET-$ARCH-$GITHUB_SHA"
+          printf 'RELEASE_IMAGE=%s\n' "$image" >> "$GITHUB_ENV"
+          docker buildx build --load --platform "linux/$ARCH" --target "$TARGET" \
+            --build-arg "LISTENING_ROOM_REVISION=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=$version" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" -t "$image" .
+      - name: Smoke test private access, playback, and pairing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          smoke=(python3 scripts/smoke_compose.py "$RELEASE_IMAGE" --verify-idle)
+          if [[ "$TARGET" == full ]]; then
+            docker run --rm "$RELEASE_IMAGE" /opt/sockseek/sockseek --version
+            previous=$(mktemp -d)
+            trap 'rm -rf -- "$previous"' EXIT
+            previous_commit=$(git rev-parse --verify --end-of-options "$PREVIOUS_RELEASE_REF^{commit}")
+            git archive "$previous_commit" | tar -x -C "$previous"
+            docker buildx build --load --platform linux/amd64 -t listening-room:upgrade-fixture "$previous"
+            smoke+=(--previous-image listening-room:upgrade-fixture)
+          else
+            smoke+=(--skip-restore)
+          fi
+          "${smoke[@]}"
+      - name: Save an install archive for authorized repository users
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private }}
+        run: |
+          mkdir private-install
+          archive="listening-room-$TARGET-$ARCH.tar"
+          docker save -o "private-install/$archive" "$RELEASE_IMAGE"
+          cp docker-compose.yml README.md AGENTS.md CONTRIBUTING.md SECURITY.md SPEC.md LICENSE THIRD_PARTY.md private-install/
+          cp -R docs adrs private-install/
+          for target in android macos ipad; do
+            mkdir -p "private-install/clients/$target"
+            cp "clients/$target/README.md" "private-install/clients/$target/"
+          done
+          mkdir private-install/packaging
+          cp -R packaging/compose.import.yaml packaging/compose.clients.yaml packaging/compose.engines.yaml \
+            packaging/compose.updates.yaml packaging/sockseek-pin.json packaging/wireguard private-install/packaging/
+          mkdir -p private-install/scripts private-install/backend/system private-install/examples
+          cp scripts/engine_fleet.py scripts/provision_sockseek.py scripts/update_drain.py scripts/compose_updates.py \
+            scripts/compose_update_now.py private-install/scripts/
+          cp backend/system/__init__.py backend/system/{container_updates,engine_fleet,engine_repository,engine_settings,private_files,updater}.py \
+            private-install/backend/system/
+          cp -R examples/engines private-install/examples/
+          printf 'LISTENING_IMAGE=%s\n' "$RELEASE_IMAGE" > private-install/release.env
+          cd private-install
+          sha256sum "$archive" > "$archive.sha256"
+      - uses: actions/upload-artifact@v4
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private }}
+        with:
+          name: listening-room-${{ matrix.target }}-${{ matrix.arch }}
+          path: private-install/
+          retention-days: 7
+      - name: Export the tested registry candidate
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_registry && github.event.repository.private == false && github.ref_type == 'tag' }}
+        run: |
+          set -o pipefail
+          docker save "$RELEASE_IMAGE" | gzip -1 > image.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_registry && github.event.repository.private == false && github.ref_type == 'tag' }}
+        with:
+          name: registry-${{ matrix.target }}-${{ matrix.arch }}
+          path: image.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-registry:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_registry && github.event.repository.private == false && github.ref_type == 'tag' }}
+    needs: install-images
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: publish-listening-image-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the release tag
+        run: |
+          version=$(./listening --version)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$GITHUB_REF_NAME" == "v$version" ]]
+          printf 'VERSION=%s\nIMAGE=ghcr.io/%s\n' "$version" "${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: registry-*
+          path: candidates
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the tested images
+        run: |
+          load_candidate() {
+            local target="$1" arch="$2" tag="$3"
+            local source="listening-room:$VERSION-$target-$arch-$GITHUB_SHA"
+            docker load -i "candidates/registry-$target-$arch/image.tar.gz"
+            local expected="$arch $GITHUB_SHA"
+            [[ $(docker image inspect --format '{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}}' "$source") == "$expected" ]]
+            docker tag "$source" "$IMAGE:$tag"
+          }
+          load_candidate core amd64 "$VERSION-amd64"
+          load_candidate core arm64 "$VERSION-arm64"
+          load_candidate full amd64 "$VERSION-full"
+          docker push "$IMAGE:$VERSION-amd64"
+          docker push "$IMAGE:$VERSION-arm64"
+          docker push "$IMAGE:$VERSION-full"
+          docker buildx imagetools create -t "$IMAGE:$VERSION" "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+          docker buildx imagetools inspect "$IMAGE:$VERSION-full"

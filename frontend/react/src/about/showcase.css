@@ -1,0 +1,115 @@
+.about-screens {
+  background: #f1f4e9;
+  border-block: 1px solid var(--light-rule);
+  padding-block: clamp(48px, 8vw, 126px);
+}
+.about-screens-lead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 26ch);
+  align-items: end;
+  gap: 0.7rem 2rem;
+  margin-bottom: clamp(24px, 4vw, 58px);
+}
+.about-screens-lead h2 { margin-block: 0; }
+.about-screen-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(18px, 4vw, 48px) clamp(16px, 3vw, 38px);
+}
+.about-screen-leads { grid-template-columns: minmax(0, 1.2fr) minmax(0, .82fr) minmax(0, 1fr); }
+.about-screen-grid figure { min-width: 0; }
+.about-screen-grid a {
+  display: grid;
+  place-items: center;
+  background: #dce7dc;
+  border: 1px solid #9eb3a6;
+  border-radius: 12px;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+}
+.about-screen-grid :is(a:hover, a:focus-visible) { border-color: var(--ink); }
+.about-screen-grid img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.about-screen-portrait a { grid-template-rows: minmax(0, 1fr); padding: 1rem; }
+.about-screen-portrait img { max-width: 200px; max-height: 100%; min-height: 0; }
+.about-screen-grid figcaption { padding-block: 0.75rem 0.15rem; }
+.about-screen-grid h3 { font-size: 1.12rem; letter-spacing: -0.02em; }
+.about-screen-grid p { margin-top: 0.25rem; color: #405851; line-height: 1.4; }
+.about-more-screens { margin-top: 2.5rem; border-block: 1px solid var(--light-rule); }
+.about-more-screens summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  min-height: 48px;
+  cursor: pointer;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.about-more-screens summary::after { content: "+"; font: 1.6rem/1 monospace; }
+.about-more-screens[open] summary::after { content: "−"; }
+.about-more-screens .about-screen-grid { padding-block: 1rem 1.5rem; }
+.about-entries p + p, .about-install-paths article > p + p { margin-top: 0.8rem; }
+.about-install-paths pre { margin-block: 1rem; }
+.about-steps { max-width: 62ch; padding-inline-start: 1.4rem; color: #405851; line-height: 1.55; }
+.about-steps li + li { margin-top: 0.6rem; }
+
+.about-feature-search { margin-bottom: 1.5rem; }
+.about-feature-search > label { display: block; margin-bottom: .45rem; font-weight: 700; }
+.about-feature-input { display: flex; align-items: center; gap: .6rem; }
+.about-feature-input > input {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  padding: .6rem .75rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.about-pattern-toggle {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: .4rem;
+  padding-inline: .55rem;
+  font-size: .9rem;
+  cursor: pointer;
+}
+.about-pattern-toggle input { accent-color: var(--accent-deep); }
+#feature-status { margin-top: .45rem; min-height: 1.5em; font-size: .9rem; }
+.about-install-tabs { display: flex; flex-wrap: wrap; gap: .2rem .6rem; border-bottom: 1px solid var(--light-rule); }
+.about-install-tabs button {
+  min-height: 44px;
+  padding: .45rem .55rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-weight: 650;
+}
+.about-install-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent-deep); }
+.about-install-paths article[data-install-panel] { margin: 0; padding: 1.1rem 0 .45rem; border: 0; }
+.about-install-paths :is(article[data-install-panel], .about-install-note) > a { margin-inline-end: .9rem; }
+.about-install-paths .about-install-note { border-top: 1px solid var(--light-rule); margin-top: 1rem; padding-top: 1rem; }
+.about-page :is(.about-feature-search, .about-install-tabs, [data-feature], [data-install-panel])[hidden] { display: none; }
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) and (min-width: 801px) {
+    .about-screen-grid a {
+      animation: about-screen-rise 1ms ease-out both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+  }
+}
+
+@keyframes about-screen-rise {
+  from { transform: translateY(20px); }
+  to { transform: translateY(0); }
+}
+
+@media (max-width: 700px) {
+  .about-screens-lead,.about-screen-grid { grid-template-columns: minmax(0, 1fr); }
+}

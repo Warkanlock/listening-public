@@ -1,0 +1,13 @@
+# Optional override for the listening-room service in docker-compose.yml.
+services:
+  listening-room:
+    environment:
+      LISTENING_ROOM_REQUIRE_OWNER: "1"
+      LISTENING_ROOM_UPDATE_SOCKET: /run/listening-updates/control.sock
+    volumes:
+      - type: bind
+        source: ${LISTENING_UPDATE_SOCKET_DIR:?set the private host updater socket directory}
+        target: /run/listening-updates
+        read_only: true
+        bind:
+          create_host_path: false

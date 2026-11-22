@@ -1,0 +1,10 @@
+# Example for a server that terminates its own WireGuard tunnel.
+# Use a private subnet that does not overlap your existing networks.
+[Interface]
+Address = 10.66.44.1/24
+ListenPort = 51820
+PrivateKey = <server-private-key>
+
+[Peer]
+PublicKey = <client-public-key>
+AllowedIPs = 10.66.44.2/32

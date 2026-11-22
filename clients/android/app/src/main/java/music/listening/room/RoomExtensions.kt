@@ -1,0 +1,106 @@
+package music.listening.room
+
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.view.View
+import android.widget.ScrollView
+import android.widget.Toast
+import java.text.DateFormat
+import java.util.Date
+import org.json.JSONObject
+
+private fun JSONObject.retryTime(): String? {
+    val millis = optLong("retry_at") * 1000
+    if (millis <= System.currentTimeMillis()) return null
+    val nextMinute = (millis + 59_999) / 60_000 * 60_000
+    return DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(nextMinute))
+}
+
+/** Installed sources belong to the room. Only its owner manages them. */
+internal fun Activity.showRoomExtensions(room: Room) {
+    val ui = RoomUi(this)
+    val style = SongDetailsStyle(ui)
+    val content = style.column()
+    val dialog = style.dialog(this, "Extensions", ScrollView(this).apply { addView(content) })
+    val status = ui.column().apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
+    content.addView(status)
+    var pending: MetadataRequest? = null
+    fun refresh() {
+        pending?.cancel()
+        val request = MetadataRequest()
+        pending = request
+        status.removeAllViews()
+        status.addView(style.progress("Checking room extensions…"))
+        request.future = metadataRequests.submit {
+            val response = runCatching { room.metadata("/api/extensions/sources", request::bind) }
+            runOnUiThread {
+                if (!dialog.isShowing || isDestroyed || pending !== request) return@runOnUiThread
+                pending = null
+                status.removeAllViews()
+                response.onSuccess { sources ->
+                    with(ui) {
+                        status.section(heading("Song downloads", 19f))
+                        val explanation = when (sources.optString("state")) {
+                            "ready" -> "Find copy searches and downloads through the selected sources."
+                            "cooldown" -> sources.retryTime()?.let {
+                                "A source couldn’t sign in. Your requests stay queued. Find copy can retry after $it."
+                            } ?: "The sign-in pause has ended. Refresh extensions to check again."
+                            "legacy" -> "Find copy uses the room’s existing downloader."
+                            "unconfigured" -> "The room owner can choose search and download sources in Extensions."
+                            else -> "Find copy requests stay queued while a source is unavailable. The room owner can check Extensions."
+                        }
+                        status.section(label(explanation))
+                        sources.optJSONObject("selection")?.let { selected ->
+                            for ((key, name) in listOf("search" to "Search with", "fetch" to "Download with")) {
+                                selected.optString(key).takeIf { it.isNotBlank() }?.let {
+                                    status.section(style.fact(name, it))
+                                }
+                            }
+                        }
+                        status.section(heading("Installed in this room", 19f))
+                        val installed = sources.optJSONArray("installed")
+                        if (installed == null || installed.length() == 0) {
+                            status.section(label(if (!sources.optBoolean("inventory_available")) "Installation status unavailable."
+                                else "No download extensions installed.", color = secondary))
+                        } else for (index in 0 until installed.length()) {
+                            val plugin = installed.getJSONObject(index)
+                            val retryTime = plugin.retryTime()
+                            val enabled = plugin.optBoolean("enabled")
+                            val state = when {
+                                !enabled && retryTime != null -> "Disabled · can try enabling after $retryTime"
+                                !enabled -> "Disabled"
+                                retryTime != null -> "Waiting to retry until $retryTime"
+                                plugin.optBoolean("ready") -> "Enabled"
+                                else -> "Unavailable"
+                            }
+                            status.section(style.fact(plugin.getString("id"), listOf(plugin.optString("version"), state)
+                                .filter { it.isNotBlank() }.joinToString(" · ")), gap = 6)
+                        }
+                    }
+                }.onFailure { error ->
+                    val message = when (error) {
+                        is PairingRequired, is RoomUnreachable -> error.message ?: "Connect to your room and try again."
+                        else -> "This room could not show its installed extensions. Check the connection and server version."
+                    }
+                    status.addView(ui.label(message))
+                }
+                status.addView(ui.button("Refresh extensions") { refresh() })
+            }
+        }
+    }
+    with(ui) {
+        content.section(label("The room owner can install extensions and choose sources in the browser.", color = secondary))
+        content.section(button("Open room extensions in browser") {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(room.origin + "/#extensions")))
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(this@showRoomExtensions, "Open ${room.origin}/#extensions in a browser.", Toast.LENGTH_LONG).show()
+            }
+        })
+    }
+    dialog.setOnDismissListener { pending?.cancel() }
+    dialog.show()
+    refresh()
+}

@@ -1,0 +1,13 @@
+# 0015. Use the listening command to host a room and build its clients
+
+Accepted. The public launcher supersedes earlier Yarn, shell-installer and Make entry points for owners.
+
+A user should be able to install a server once and connect its clients over a private network. The standard-library launcher resolves the installation independently of the working directory. The interactive setup prepares a host with its web client, builds Android or Mac installers, or combines those steps. Start, stop, status and restart identify the managed room and check readiness. Foreground mode serves Docker and systemd. Source installs can still use development commands. [CLI](../backend/system/cli.py) · [Onboarding](../backend/system/onboarding.py)
+
+An install can provision a pinned, checksum-verified Sockseek. The source updater only fast-forwards a clean checkout, rebuilds the frontend after a pull, and delegates package-managed updates to the relevant installer. Host credentials, configuration, worker logs, private signing keys and personal media stay outside version control. Installation and release remain separate from the decision to publish the project.
+
+A source-built Compose room can opt into browser updates. The owner API asks a host process over a private Unix socket to build a specific revision from `main` and recreate the Listening service. The host process owns Docker access and repository credentials, and retains the previous image for startup recovery. [Compose updates](../docs/private-install.md#update-a-source-built-compose-room-from-the-browser)
+
+The Android client uses native views and background playback, including a compact catalog UI for E Ink. The Apple silicon Mac client hosts the served web player in WebKit. Its DMG also carries the CLI, server runtime, frontend and audio tools for optional local hosting. Clients pair to the same catalog and queue. Installing a client to use a remote room should not start a local server. A build stages artifacts, verifies the Android signature or the mounted Mac app and publishes a versioned installer with its checksum. The personal Mac release uses ad hoc signing. [Android client](../clients/android/) · [Mac client](../clients/macos/)
+
+Historically `requests.sqlite3`, a media database, file-based lists and the application's support directory had separate lifetimes. Pre-rename support data and legacy libraries require explicit compatibility. The portable collection holds musical state and original audio. The installation still needs private host settings, credentials and disposable runtime files. Replacing the installed app must preserve the collection. [Collection ownership](0006-collection-ownership.md)

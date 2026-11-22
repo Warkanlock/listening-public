@@ -1,0 +1,10 @@
+# Opt-in host manager socket and shared staging. The worker manager stays on
+# the host. The room service receives neither Docker nor provider secrets.
+services:
+  listening-room:
+    environment:
+      LISTENING_ENGINE_SOCKET: /run/listening-engines/engine.sock
+      LISTENING_ENGINE_STAGING: /engine-staging
+    volumes:
+      - ${LISTENING_ENGINE_SOCKET_DIR:?set the host engine manager socket directory}:/run/listening-engines:ro
+      - ${LISTENING_ENGINE_STAGING_DIR:?set the shared engine staging directory}:/engine-staging
