@@ -11,6 +11,8 @@ trap 'rm -rf "$staging"' EXIT
 # Credits and Song information use curated detail crops. To update them,
 # capture the graph and recording details from a local fixture library, then
 # update their intrinsic image dimensions in about/index.html.
+# Refresh Storage separately using example paths in both the fields and help text.
+# An unmodified fixture capture shows the host's temporary workspace paths.
 while read -r filename name; do
     case "$name" in
         library|catalogs|radio) set -- -lossless ;;
@@ -31,7 +33,6 @@ done <<'SCREENS'
 11-settings-devices devices
 13-requests requests
 30-insights insights
-11-settings-storage storage
 SCREENS
 
 mkdir -p "$destination"

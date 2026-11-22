@@ -114,7 +114,7 @@ class Verdict:
     reason: str = ""
 
 
-def decode_audio(path, *, probed_duration, expected_duration):
+def decode_audio(path, *, probed_duration, expected_duration, timeout=FULL_DECODE_TIMEOUT):
     """Read every frame of a verified local candidate without writing an output file."""
     # Build the output timeline from decoded samples. A truncated stream can
     # reach EOF without a decoder error and still advertise its original duration.
@@ -122,7 +122,7 @@ def decode_audio(path, *, probed_duration, expected_duration):
                              "-protocol_whitelist", "file", "-format_whitelist", "flac,mov", "-threads", "1",
                              "-i", str(path), "-map", "0:a:0", "-af", "asetpts=N/SR/TB", "-f", "null", "-"],
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-                            timeout=FULL_DECODE_TIMEOUT, check=True)
+                            timeout=timeout, check=True)
     progress = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
     duration = int(progress.get("out_time_us", "0")) / 1_000_000
     if progress.get("progress") != "end" or duration <= 0 or any(
@@ -131,7 +131,7 @@ def decode_audio(path, *, probed_duration, expected_duration):
         raise ValueError("Decoded audio did not reach the expected duration.")
 
 
-def probe(path, *, local_audio_only=False):
+def probe(path, *, local_audio_only=False, timeout=PROBE_TIMEOUT):
     tag_entries = ",".join(("title", "artist", "album", "genre", "musicbrainz_trackid", "MusicBrainz Track Id", "version", "subtitle") + _GAIN_TAGS)
     try:
         restrictions = ["-protocol_whitelist", "file", "-format_whitelist", "mp3,flac,mov,aac"] if local_audio_only else []
@@ -141,7 +141,7 @@ def probe(path, *, local_audio_only=False):
                                  "bits_per_raw_sample,bits_per_sample,bit_rate:"
                                  f"stream_tags={tag_entries}",
                                  "-of", "json", str(path)], capture_output=True, text=True,
-                                timeout=PROBE_TIMEOUT)
+                                timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode:
