@@ -87,6 +87,9 @@ class StatusOfTests(unittest.TestCase):
             self.assertEqual(catalog.status_of(1, requests), "verified")
             # It overrides any other coverage status.
             self.assertEqual(catalog.status_of(2, requests), "queued")
+            missed = {1: {"status": "not_found"}, 2: {"status": "not_found"}}
+            self.assertEqual(catalog.track(1, missed)["status"], "verified")
+            self.assertEqual(catalog.track(2, missed)["status"], "not_found")
             # Without a request, the coverage status stands.
             self.assertEqual(catalog.status_of(2), "unmatched")
             # No coverage row at all reads as pending.

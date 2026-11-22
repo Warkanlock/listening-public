@@ -270,9 +270,13 @@ def seed_state(app):
         metadata_store.cache_put(key, json.dumps(payload), time.time())
     for title, genre in GENRES.items():
         store.set(keys[title], genre, "file")
-    RequestsStore(database).enqueue(
+    metadata_store.enqueue(
         None, "Nina Simone", "Feeling Good", "", None,
         "Nina Simone Feeling Good")
+    missing_copy = metadata_store.enqueue(
+        None, "Fixture Artist", "Unavailable Copy", "", 60,
+        "Unavailable Copy")
+    metadata_store.finish(missing_copy, "not_found", "No copy found", "")
     synced = "\n".join(
         f"[{stamp // 60:02d}:{stamp % 60:02d}.00]{text}"
         for stamp, text in ATLAS_LYRICS)
@@ -3073,11 +3077,14 @@ def run_browser(server, output):
                 page.get_by_role("button", name="Requests", exact=True).click()
                 page.get_by_role("heading", name="Recent requests").wait_for(timeout=20000)
                 page.wait_for_selector("text=Feeling Good", timeout=20000)
+                missing_copy = page.locator(".request-item", has_text="Unavailable Copy")
+                result = missing_copy.get_by_text("No copy found", exact=True)
+                result.wait_for(state="visible")
                 page.set_viewport_size({"width": 390, "height": 844})
-                page.locator(".request-item .status-pill").first.wait_for(state="visible")
+                result.wait_for(state="visible")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 item.ok = True
-                item.detail = "the pending fixture request is listed with its status"
+                item.detail = "pending and no-copy outcomes render on desktop and mobile"
                 shot(item, "13-requests.png")
             except Exception as error:
                 item.detail = str(error)

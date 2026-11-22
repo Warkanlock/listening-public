@@ -61,7 +61,8 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
       <AddToPlaylist song={track} iconOnly />
     </div>
     {!track.duration && !row && <p>A duration is needed to verify a room copy.</p>}
-    {!ready && (row?.message || busy) && <p role="status">{row?.message || requestLabel}</p>}
+    {!ready && (row?.status === "not_found" || row?.message || busy) &&
+      <p role="status">{row?.status === "not_found" ? statusLabel(row.status) : row?.message || requestLabel}</p>}
   </>;
 }
 

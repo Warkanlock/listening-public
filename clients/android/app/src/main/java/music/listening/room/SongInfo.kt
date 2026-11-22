@@ -44,6 +44,7 @@ internal fun RoomUi.showSongInfo(activity: Activity, room: Room, track: JSONObje
         "queued" -> "Queued for download"
         "searching" -> "Searching for a copy"
         "waiting_space" -> "Waiting for storage space"
+        "not_found" -> "No copy found"
         "rejected" -> "Copy failed verification"
         "unmatched" -> "No matching copy found"
         else -> "Not downloaded"

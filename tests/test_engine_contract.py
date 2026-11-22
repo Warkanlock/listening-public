@@ -59,6 +59,8 @@ class EngineRunnerTests(WorkspaceTestCase):
                 for capability, role in self.selection.items()
             ]}
         if action == "search":
+            if self.mode == "empty":
+                return {"ok": True, "candidates": []}
             if self.mode == "login":
                 return {"ok": False, "code": "login_unavailable", "error": "sensitive provider text"}
             if self.mode == "interrupted" or (self.mode == "second" and request["recording"]["id"] == "key-2"):
@@ -145,6 +147,13 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertIn("sign in", reason)
         self.assertIn("Extensions", reason)
         self.assertNotIn("sensitive provider text", reason)
+
+    def test_empty_search_finishes_without_attempting_a_transfer(self):
+        self.mode = "empty"
+        record = self.record(1, "First Light")
+        self.assertEqual(self.assert_download(record, status="not_found"), ("not_found", "No copy found", ""))
+        self.assertIn("search", [request["action"] for request in self.requests])
+        self.assertNotIn("fetch", [request["action"] for request in self.requests])
 
     def test_transient_failure_leaves_current_track_and_request_pending(self):
         record = self.record(1, "First Light")

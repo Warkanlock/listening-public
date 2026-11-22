@@ -658,7 +658,13 @@ class RoomActivity : Activity() {
                 val ready = if (local) !track.isNull("local_hash") else track.optString("status") == "verified"
                 val artist = track.optString("artist")
                 val duration = track.optDouble("duration", 0.0).toInt()
-                val subtitle = if (ready) artist else listOf(artist, if (local) "Not saved on phone" else "Not downloaded").filter { it.isNotEmpty() }.joinToString(" · ")
+                val availability = when {
+                    ready -> ""
+                    local -> "Not saved on phone"
+                    track.optString("status") == "not_found" -> "No copy found"
+                    else -> "Not downloaded"
+                }
+                val subtitle = listOf(artist, availability).filter(String::isNotEmpty).joinToString(" · ")
                 val queueAction: ((String) -> Unit)? = if (ready && !local) { op ->
                     load({ target.action(op, JSONObject().put("track_id", track.getInt("id"))) }) { snapshot ->
                         if (radioSnapshot(target.id) == null) renderPlayer(snapshot)
