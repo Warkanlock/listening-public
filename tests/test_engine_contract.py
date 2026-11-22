@@ -311,6 +311,33 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assert_download(record, status="not_found")
         self.assertEqual(list(self.staging.iterdir()), [])
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_recording_deadline_caps_verification_and_prevents_another_transfer(self):
+        record = self.record(1, "First Light", length=1)
+        self.write_manifest([record])
+        self.make_audio("first-peer.flac", "First Light")
+        self.make_audio("second-peer.flac", "First Light")
+        clock = 100
+
+        def exhaust_deadline(path, *, timeout, **durations):
+            nonlocal clock
+            self.assertEqual(timeout, 10)
+            clock += timeout
+            raise subprocess.TimeoutExpired("ffmpeg", timeout)
+
+        with (mock.patch.object(runner, "REQUEST_TIMEOUT", 10),
+              mock.patch.object(engine_contract, "time", wraps=engine_contract.time) as timings,
+              mock.patch.object(runner, "probe", wraps=runner.probe) as probe,
+              mock.patch.object(runner, "decode_audio", side_effect=exhaust_deadline)):
+            timings.monotonic.side_effect = lambda: clock
+            _, reason, _ = self.assert_download(record, status="queued")
+
+        self.assertIn("time limit for this recording", reason)
+        self.assertEqual(probe.call_args.kwargs["timeout"], 10)
+        self.assertEqual([r["candidate"]["id"] for r in self.requests if r["action"] == "fetch"],
+                         ["first-peer.flac"])
+        self.assertEqual(list(self.staging.iterdir()), [])
+
     def test_transport_timeout_waits_for_the_manager_instead_of_starting_another_peer(self):
         record = self.record(1, "First Light", length=1)
         self.write_manifest([record])
