@@ -3589,7 +3589,13 @@ def run_browser(server, output):
                 player_album.hover()
                 assert player_album.evaluate("(el) => getComputedStyle(el).cursor === 'pointer'")
                 assert player_album.evaluate("(el) => getComputedStyle(el).color") != idle_color
-                player_album.click()
+                profiles.get_by_role("button", name="Open now playing").click()
+                player_window = profiles.get_by_role("dialog", name="Now playing")
+                window_album = player_window.get_by_role("button", name="Open album Louder Than Bombs", exact=True)
+                window_album.hover()
+                assert window_album.evaluate("(el) => getComputedStyle(el).color") == "rgb(255, 255, 255)"
+                window_album.click()
+                player_window.wait_for(state="hidden")
                 profiles_panel.get_by_role("heading", name="Track list").wait_for()
                 profiles.set_viewport_size({"width": 390, "height": 844})
                 assert profiles_panel.evaluate("(el) => el.scrollWidth <= el.clientWidth + 1"), "Album track list overflows"

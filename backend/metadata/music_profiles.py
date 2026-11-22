@@ -198,15 +198,23 @@ class MusicProfiles:
             return self.connections.optional_payload("recording", identity)
         return self.connections.recording_match(seed)
 
+    def recording_context(self, seed):
+        try:
+            return self.recording(seed) or {}, None
+        except (OSError, ValueError) as error:
+            return {}, error
+
     def artist(self, identity, seed):
         if seed:
-            recording = self.recording(seed)
-            matching = artist_ids(recording or {})
+            recording, recording_error = self.recording_context(seed)
+            matching = artist_ids(recording)
             if len(matching) == 1:
                 identity = next(iter(matching))
             else:
                 artist = self.connections.artist_match(seed["artist"])
                 identity = artist["id"] if artist else ""
+            if not identity and recording_error:
+                raise recording_error
         if not identity:
             return {}
         data = self.connections.payload("artist", identity)
@@ -227,11 +235,14 @@ class MusicProfiles:
                                 for edge in graph["edges"] if edge["node"]["kind"] == "artist"]}
 
     def album(self, identity, seed):
-        recording = self.recording(seed) if seed else None
+        recording = {}
         if seed:
             if not seed.get("album"):
                 return {}
+            recording, recording_error = self.recording_context(seed)
             identity = self.connections.album_match(seed["album"], seed["artist"], recording)
+            if not identity and recording_error:
+                raise recording_error
         if not identity:
             return {}
         group = self.connections.payload("release-group", identity)
