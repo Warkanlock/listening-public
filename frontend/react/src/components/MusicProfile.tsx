@@ -14,6 +14,7 @@ type Highlights = { tracks: Track[]; albums: Release[]; releases: Release[] };
 type Track = {
   track_id?: number; ready?: boolean; title: string; artist: string; album: string;
   duration: number; musicbrainz_id: string; version?: string; disc?: number; number?: string; request?: RequestRow; library_only?: boolean;
+  copy_status?: "not_found";
   listens?: number; plays?: number; cover?: string;
 };
 export type Profile = {
@@ -81,7 +82,8 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
     <span><strong>{track.title}</strong><small>{[rank !== undefined ? track.album : track.artist,
       track.duration > 0 && time(track.duration),
       track.listens && `${numberFormat.format(track.listens)} listens`,
-      track.plays && `${numberFormat.format(track.plays)} ${track.plays === 1 ? "play" : "plays"}`].filter(Boolean).join(" · ")}</small></span>
+      track.plays && `${numberFormat.format(track.plays)} ${track.plays === 1 ? "play" : "plays"}`,
+      !ready && (row?.status ?? track.copy_status) === "not_found" && statusLabel("not_found")].filter(Boolean).join(" · ")}</small></span>
     {(ready || !store.member && (canRequest || row)) && <RoomAction primary={ready} disabled={busy} aria-disabled={pending || undefined}
       aria-busy={pending} aria-label={`${label} ${track.title}`} onClick={() => void act()}>
       <span className="music-profile-action-label" data-pending={pending}>

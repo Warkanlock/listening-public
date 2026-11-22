@@ -126,6 +126,9 @@ internal fun RoomUi.showMusicProfile(
             val number = if (track.optBoolean("library_only")) "Library" else track.optString("number")
             val title = listOf(number, track.getString("title")).filter(String::isNotBlank).joinToString(" · ")
             content.section(label(title), gap = 10)
+            val copyStatus = track.optJSONObject("request")?.optString("status") ?: track.optString("copy_status")
+            if (ref == null && copyStatus == "not_found")
+                content.section(label("No copy found", color = secondary), gap = 4)
             when {
                 ref != null -> content.section(button("Play") {
                     dialog.dismiss()

@@ -567,7 +567,7 @@ const STATUS_LABELS: Record<string, string> = {
   verified: "Ready",
   downloaded: "Ready",
   unmatched: "Search missed",
-  not_found: "Search missed",
+  not_found: "No copy found",
   pending: "Not downloaded",
   rejected: "Needs review",
   queued: "Queued",

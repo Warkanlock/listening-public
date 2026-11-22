@@ -813,7 +813,7 @@ def managed_request(selection, request_dir, row, record, title, search_title, le
     try:
         with managed_candidate(selection, recording, accept) as path:
             if path is None:
-                return "not_found", f"No verified {REQUEST_FORMAT_NAMES[choice]} copy found", ""
+                return "not_found", "No copy found", ""
             # Preserve the verified handoff across restarts using the legacy request path.
             return retain_request_file(path, path.parent, request_dir, row, record, title, length)
     except InsufficientDownloadSpace:
