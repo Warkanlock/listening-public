@@ -36,13 +36,13 @@ from catalog.media_reconciliation import (BlobIndex,
                                           dumps_migration_status,
                                           migrate_library,
                                           migration_status_record, unmigrated_files)
-from downloads.engine_contract import (EngineError, InsufficientDownloadSpace, engine_selection,
-                                       fetch_recording)
+from downloads.engine_contract import (CandidateTimeout, EngineError, InsufficientDownloadSpace,
+                                       engine_selection, fetch_recording, timed_stage)
 from downloads.requests_store import RequestsStore
 from downloads.state_store import StateStore
-from downloads.verification import (CLI_LENGTH_TOLERANCE, MIN_BITRATE_KBPS,
-                                    PROBE_CACHE_VERSION, judge, judge_bulk_download, judge_download, probe,
-                                    request_identity, title_is_generic)
+from downloads.verification import (CLI_LENGTH_TOLERANCE, FULL_DECODE_TIMEOUT, MIN_BITRATE_KBPS,
+                                    PROBE_CACHE_VERSION, PROBE_TIMEOUT, decode_audio, judge, judge_bulk_download,
+                                    judge_download, probe, request_identity, title_is_generic)
 from adapters.spotify_sync import playlist_sources
 from library.catalog_imports import is_import_list
 from library import shared_music
@@ -774,9 +774,11 @@ def engine_recording(record, search_title, suffixes, preferred):
     }
 
 
-def verified_engine_audio(path, judge_candidate):
-    facts = probe(path, local_audio_only=True)
-    return facts is not None and not title_is_generic(facts["title"]) and judge_candidate(facts).ok
+def verified_engine_audio(path, judge_candidate, remaining_time):
+    facts = probe(path, local_audio_only=True, timeout=min(PROBE_TIMEOUT, remaining_time()))
+    if facts is not None and not title_is_generic(facts["title"]) and judge_candidate(facts).ok:
+        return facts
+    return None
 
 
 def managed_candidate(selection, recording, accept):
@@ -790,10 +792,26 @@ def managed_request(selection, request_dir, row, record, title, search_title, le
     suffixes = REQUEST_SUFFIXES[choice]
     item = record or {**row, "key": f"request:{row['id']}"}
     recording = engine_recording(item, search_title, suffixes, suffixes[0][1:])
+
+    def accept(path, remaining_time):
+        facts = verified_engine_audio(path, lambda facts: judge_download(
+            title, length, facts, path.suffix, choice, **request_identity(row)), remaining_time)
+        if facts is None:
+            return False
+        try:
+            budget = min(FULL_DECODE_TIMEOUT, remaining_time())
+            with timed_stage(selection["fetch"], "full decode", budget):
+                decode_audio(path, probed_duration=facts["duration"], expected_duration=length, timeout=budget)
+        except (subprocess.CalledProcessError, ValueError):
+            return False
+        except subprocess.TimeoutExpired as error:
+            raise CandidateTimeout("Verifying the download timed out while decoding the audio.") from error
+        except OSError as error:
+            raise EngineError("The room could not start the audio decoder.") from error
+        return True
+
     try:
-        with managed_candidate(selection, recording, lambda path: verified_engine_audio(
-            path, lambda facts: judge_download(title, length, facts, path.suffix, choice, **request_identity(row))
-        )) as path:
+        with managed_candidate(selection, recording, accept) as path:
             if path is None:
                 return "not_found", f"No verified {REQUEST_FORMAT_NAMES[choice]} copy found", ""
             # Preserve the verified handoff across restarts using the legacy request path.
@@ -1077,8 +1095,9 @@ def managed_batch(selection, offset, batch, landing, advance_cursor):
     for record in batch:
         recording = engine_recording(record, simplify_title(record["title"]), formats, preferred)
         try:
-            with managed_candidate(selection, recording, lambda path: verified_engine_audio(
-                path, lambda facts: judge_bulk_download(record["title"], record["length"], facts, path.suffix)
+            with managed_candidate(selection, recording, lambda path, remaining_time: verified_engine_audio(
+                path, lambda facts: judge_bulk_download(record["title"], record["length"], facts, path.suffix),
+                remaining_time,
             )) as path:
                 if path is not None:
                     staging_id = path.parent.name
