@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<playlist version="1" xmlns="http://xspf.org/ns/0/">
+  <title>Sample list</title>
+  <trackList>
+    <track>
+      <title>Blue in Green</title>
+      <creator>Miles Davis</creator>
+      <album>Kind of Blue</album>
+      <duration>337000</duration>
+    </track>
+    <track>
+      <title>So What</title>
+      <creator>Miles Davis</creator>
+      <album>Kind of Blue</album>
+      <duration>562000</duration>
+    </track>
+    <track>
+      <title>Take Five</title>
+      <creator>The Dave Brubeck Quartet</creator>
+      <album>Time Out</album>
+      <duration>328000</duration>
+    </track>
+    <track>
+      <title>Imagine</title>
+      <creator>John Lennon</creator>
+      <album>Imagine</album>
+      <duration>183000</duration>
+    </track>
+    <track>
+      <title>Wish You Were Here</title>
+      <creator>Pink Floyd</creator>
+      <album>Wish You Were Here</album>
+      <duration>334000</duration>
+    </track>
+    <track>
+      <title>Hallelujah</title>
+      <creator>Jeff Buckley</creator>
+      <album>Grace</album>
+      <duration>413000</duration>
+    </track>
+  </trackList>
+</playlist>

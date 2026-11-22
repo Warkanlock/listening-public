@@ -1,0 +1,27 @@
+# See docs/private-install.md for setup and private network addresses.
+services:
+  listening-room:
+    image: ${LISTENING_IMAGE:-listening-room:core-local}
+    build:
+      context: .
+      target: ${LISTENING_IMAGE_TARGET:-core}
+    environment:
+      LISTENING_ROOM_ORIGIN: ${LISTENING_ROOM_ORIGIN:-}
+      LISTENING_ROOM_NETWORK: ${LISTENING_ROOM_NETWORK:-}
+      LISTENING_ROOM_LISTENBRAINZ_TOKEN: ${LISTENING_ROOM_LISTENBRAINZ_TOKEN:-}
+      LISTENING_ROOM_REQUIRE_OWNER: "1"
+    ports:
+      - target: 8765
+        published: "${LISTENING_PORT:-8765}"
+        host_ip: ${LISTENING_BIND:-127.0.0.1}
+        protocol: tcp
+    volumes:
+      - ./config:/config
+      - ${LISTENING_LIBRARY_DIR:-./library}:/library
+    healthcheck:
+      test: [CMD, /app/listening, server, status]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped

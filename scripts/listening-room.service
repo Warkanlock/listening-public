@@ -1,0 +1,15 @@
+[Unit]
+Description=Listening Room music server
+After=network.target
+
+[Service]
+Type=exec
+Environment=LISTENING_ROOM_SERVICE=systemd
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/listening server start --foreground
+UMask=0077
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

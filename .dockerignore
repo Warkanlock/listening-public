@@ -1,0 +1,23 @@
+# The build context is the app tree only: no checkout metadata, no
+# virtualenvs, no caches, no workspace or state data (plan 044; the
+# image carries no .git, and a managed build runs on the Compose host).
+.git
+.venv
+**/__pycache__
+**/node_modules
+server.log
+*.tar.gz
+# frontend/dist is deliberately NOT ignored: the image builds it
+# in the Dockerfile's frontend stage and the runtime stage copies
+# it from there, never from the context, so a stale local dist can
+# neither defeat nor shadow the in-image build.
+
+dist/clients/
+clients/
+verification/
+
+config/
+library/
+**/*.sqlite3*
+**/*.p12
+.env

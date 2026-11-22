@@ -1,0 +1,10 @@
+# Give each device its own key pair and tunnel address.
+[Interface]
+Address = 10.66.44.2/32
+PrivateKey = <client-private-key>
+
+[Peer]
+PublicKey = <server-public-key>
+AllowedIPs = 10.66.44.1/32
+Endpoint = <reachable-wireguard-hostname>:51820
+PersistentKeepalive = 25

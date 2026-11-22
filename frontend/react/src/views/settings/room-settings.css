@@ -1,0 +1,96 @@
+[data-view="settings"] .settings-tabs {
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+[data-view="settings"] .settings-tabs button {
+  padding-inline: var(--space-6);
+}
+
+[data-view="settings"] .settings-panel .settings-card {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+[data-view="settings"] .settings-panel > .settings-card {
+  margin-bottom: var(--space-13);
+}
+
+[data-view="settings"] .settings-stack {
+  gap: var(--space-13);
+}
+
+[data-view="settings"] .settings-card h3 {
+  margin-bottom: var(--space-6);
+  color: var(--text);
+  font-size: var(--font-3xl);
+  letter-spacing: var(--tracking-copy);
+}
+
+.settings-panel .room-select:has(.room-select-caption) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-10);
+}
+.settings-panel .room-select-caption {
+  flex: 1 1 12rem;
+}
+.settings-panel .room-select-caption + [data-slot="select-trigger"] {
+  flex: 0 1 13rem;
+  max-width: 100%;
+}
+.settings-panel .check-setting {
+  min-height: 44px;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+.settings-panel .room-select [data-slot="select-label"],
+.settings-panel .check-setting [data-slot="field-label"] {
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+}
+@media (max-width: 520px) {
+  .settings-panel .room-select:has(.room-select-caption) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.settings-card[data-layout="tasks"] {
+  padding-block: 0;
+}
+
+.settings-card[data-layout="tasks"] > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding-block: var(--space-8);
+}
+
+.settings-card[data-layout="tasks"] > div + div {
+  border-top: 1px solid var(--line);
+}
+
+.settings-card[data-layout="tasks"] p {
+  margin: 0;
+}
+
+.settings-card[data-layout="tasks"] button {
+  flex: none;
+}
+
+@media (max-width: 520px) {
+  [data-view="settings"] .settings-tabs {
+    padding-inline: 0;
+  }
+
+  .settings-card[data-layout="tasks"] > div {
+    align-items: start;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+}

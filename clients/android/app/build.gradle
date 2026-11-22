@@ -1,0 +1,54 @@
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+android {
+    namespace 'music.listening.room'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'music.listening.room'
+        minSdk 26
+        targetSdk 35
+        versionCode 10504
+        versionName '1.5.4'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+abstract class CopyLauncherIcon extends DefaultTask {
+    @InputFile
+    @PathSensitive(PathSensitivity.NONE)
+    abstract RegularFileProperty getArtwork()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDirectory()
+
+    @TaskAction
+    void copyIcon() {
+        def icon = outputDirectory.file('mipmap-nodpi/ic_launcher.png').get().asFile.toPath()
+        Files.createDirectories(icon.parent)
+        Files.copy(artwork.get().asFile.toPath(), icon, StandardCopyOption.REPLACE_EXISTING)
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def icon = tasks.register("copy${variant.name.capitalize()}LauncherIcon", CopyLauncherIcon) {
+            artwork.set(rootProject.layout.projectDirectory.file('../../frontend/react/public/assets/icons/icon-512.png'))
+        }
+        variant.sources.res.addGeneratedSourceDirectory(icon) { it.outputDirectory }
+    }
+}
+
+dependencies {
+    implementation 'androidx.media3:media3-exoplayer:1.6.1'
+    implementation 'androidx.media3:media3-session:1.6.1'
+    implementation 'androidx.media3:media3-datasource-okhttp:1.6.1'
+}

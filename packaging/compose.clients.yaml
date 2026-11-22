@@ -1,0 +1,12 @@
+# Optional read-only mount for the signed APK and macOS DMG from the same release.
+services:
+  listening-room:
+    environment:
+      LISTENING_ROOM_CLIENT_ARTIFACTS: /client-installers
+    volumes:
+      - type: bind
+        source: ${LISTENING_CLIENT_DIR:?set the absolute path to the release client artifacts}
+        target: /client-installers
+        read_only: true
+        bind:
+          create_host_path: false

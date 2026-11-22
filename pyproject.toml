@@ -1,0 +1,13 @@
+[tool.poetry]
+name = "listening-room"
+version = "1.5.4"
+description = "A small, self-hosted music room for one household."
+authors = ["Listening Room"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

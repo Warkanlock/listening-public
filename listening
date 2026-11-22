@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+launcher=$0
+while [ -L "$launcher" ]; do
+  target=$(readlink "$launcher")
+  case "$target" in
+    /*) launcher=$target ;;
+    *) launcher=$(dirname "$launcher")/$target ;;
+  esac
+done
+root=$(CDPATH='' cd -P "$(dirname "$launcher")" && pwd)
+interpreter="$root/.venv/bin/python"
+[ -x "$interpreter" ] || interpreter=python3
+exec "$interpreter" -I -c 'import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module("system.cli", run_name="__main__")' "$root/backend" "$@"

@@ -1,0 +1,12 @@
+# Add this to the repository-root Compose file to watch an existing music tree.
+services:
+  listening-room:
+    environment:
+      LISTENING_ROOM_MUSIC_INBOX: /imports
+    volumes:
+      - type: bind
+        source: ${LISTENING_IMPORT_DIR:?set an absolute path to a music folder}
+        target: /imports
+        read_only: true
+        bind:
+          create_host_path: false

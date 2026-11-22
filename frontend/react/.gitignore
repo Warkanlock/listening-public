@@ -1,0 +1,4 @@
+/.vercel/
+/landing-dist/
+.env*
+/node_modules
