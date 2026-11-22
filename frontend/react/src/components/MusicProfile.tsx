@@ -216,7 +216,6 @@ function ArtistOverview({ profile, open }: { profile: Profile; open: (target: Ta
         <div><dt>Library releases</dt><dd>{numberFormat.format(library?.albums ?? localAlbums.length)}</dd></div>
       </dl>}
     </header>
-    {profile.unavailable && <p className="artist-profile-note" role="status">MusicBrainz is temporarily unavailable. Your library matches are still here.</p>}
     <div className="artist-overview-columns" data-featured={!!featured}>
       <section className="artist-overview-section" aria-labelledby={`${id}-songs`}>
         <header className="artist-section-head">
@@ -343,17 +342,24 @@ export function MusicProfile({ root, cache, resetScroll }: {
     setTrail(previous => [...previous, next]);
   };
 
+  const reload = () => {
+    setFailure(null);
+    setResult(null);
+    setRetry(value => value + 1);
+  };
+
   return <section className="music-profile" aria-label="Music profile">
     {trail.length > 1 && <RoomAction icon="back" onClick={() => {
       setFailure(null);
       resetScroll();
       setTrail(previous => previous.slice(0, -1));
     }}>Back</RoomAction>}
+    {!message && profile?.unavailable && <div className="connections-panel">
+      <p role="status">MusicBrainz is temporarily unavailable. Your library matches are still here.</p>
+      <RoomAction onClick={reload}>Retry MusicBrainz</RoomAction>
+    </div>}
     {message ? <div className="connections-panel"><p role="alert">{message}</p>
-      <RoomAction onClick={() => {
-        setFailure(null);
-        setRetry(value => value + 1);
-      }}>Try again</RoomAction></div>
+      <RoomAction onClick={reload}>Try again</RoomAction></div>
       : !profile ? <>
         <header className="music-profile-head">
           <div>
@@ -379,7 +385,6 @@ export function MusicProfile({ root, cache, resetScroll }: {
           {profile.identity && <a className="room-action quiet-button" target="_blank" rel="noreferrer"
             href={`https://musicbrainz.org/${profile.edition ? "release" : "release-group"}/${profile.edition || profile.identity}`}>MusicBrainz</a>}
         </header>
-        {profile.unavailable && <p role="status">MusicBrainz is temporarily unavailable. Your library matches are still here.</p>}
         {!!profile.tracks.length && <section className="music-profile-section">
           <div className="music-profile-head">
             <h3>Track list</h3>

@@ -191,14 +191,17 @@ class ArtistConnections:
         expected = credit_key(artist)
         if not expected:
             return None
-        data = self.metadata.cached("artist-graph:name:" + artist.casefold(), 86400,
+        name = quote_search(artist)
+        query = f"artist:{name} OR alias:{name}"
+        data = self.metadata.cached("artist-graph:name:" + query.casefold(), 86400,
                                     lambda: self.metadata.musicbrainz("artist", {
-                                        "query": f"artist:{quote_search(artist)}", "fmt": "json", "limit": 6,
+                                        "query": query, "fmt": "json", "limit": 6,
                                     }))
         if not isinstance(data, dict):
             raise ValueError("MusicBrainz returned an unexpected artist search result")
         candidates = [candidate for candidate in items(data.get("artists"))
-                      if credit_key(candidate.get("name")) == expected]
+                      if credit_key(candidate.get("name")) == expected
+                      or any(credit_key(alias.get("name")) == expected for alias in items(candidate.get("aliases")))]
         if len(candidates) != 1 or not isinstance(candidates[0].get("score"), int) or candidates[0]["score"] < 90:
             return None
         return node("artist", candidates[0])
