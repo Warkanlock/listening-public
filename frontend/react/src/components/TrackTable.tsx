@@ -10,13 +10,19 @@ import { CoverArt } from "./Artwork";
 import { usePlaylistComposer } from "./PlaylistComposer";
 import { FavoriteButton } from "./FavoriteButton";
 import { StateCard, TrackLoading } from "./StateCard";
+import { TryMp3Button } from "./TryMp3Button";
 
 function TrackRow({ track }: { track: Track }) {
   const store = useStore();
   const composer = usePlaylistComposer();
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const ready = track.status === "verified";
-  const busy = BUSY_STATUSES.includes(track.status);
+  const request = store.requestRows.find(row => row.track_index === track.id);
+  const retry = request ? request.mp3_retry : track.mp3_retry;
+  const requestStatus = request?.status ?? "";
+  const status = !ready && (BUSY_STATUSES.includes(requestStatus) || requestStatus === "not_found" || requestStatus === "waiting_format")
+    ? requestStatus : track.status;
+  const busy = BUSY_STATUSES.includes(status);
   const requesting = store.requestingIds.has(track.id);
   const isPlaying = store.current?.id === track.id;
 
@@ -69,10 +75,10 @@ function TrackRow({ track }: { track: Track }) {
       </span>
       <span className="track-meta">
         <span
-          className={`status-pill ${track.status}`}
-          title={track.reason || statusLabel(track.status)}
+          className={`status-pill ${status}`}
+          title={track.reason || statusLabel(status)}
         >
-          {statusLabel(track.status)}
+          {statusLabel(status)}
         </span>
         <span className="time-cell">{time(track.duration)}</span>
       </span>
@@ -113,14 +119,16 @@ function TrackRow({ track }: { track: Track }) {
           >
             Play
           </button>
+        ) : !store.member && retry ? (
+          <TryMp3Button retry={retry} title={track.title} />
         ) : !store.member ? (
           <button
             type="button"
             disabled={busy || requesting}
-            aria-label={track.status === "waiting_format" ? `Choose format for ${track.title}` : `Find a copy of ${track.title}`}
+            aria-label={status === "waiting_format" ? `Choose format for ${track.title}` : `Find a copy of ${track.title}`}
             onClick={() => void store.requestTrack(track.id)}
           >
-            {busy ? statusLabel(track.status) : track.status === "waiting_format" ? "Choose format" : "Find copy"}
+            {busy ? statusLabel(status) : status === "waiting_format" ? "Choose format" : "Find copy"}
           </button>
         ) : null}
       </span>

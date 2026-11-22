@@ -8,6 +8,7 @@ import { REQUEST_FORMATS, statusLabel, type RequestRow } from "../api";
 import { useStore } from "../store";
 import { StateCard } from "../components/StateCard";
 import { YouTubeLink } from "../components/YouTubeLink";
+import { TryMp3Button } from "../components/TryMp3Button";
 
 const RETRYABLE = ["not_found", "error", "rejected"];
 
@@ -36,6 +37,7 @@ function RetryForm({ row }: { row: RequestRow }) {
 
 function RequestItem({ row }: { row: RequestRow }) {
   const store = useStore();
+  const format = row.requested_format === "mp3" ? "MP3" : row.requested_format && REQUEST_FORMATS[row.requested_format];
   return (
     <div className="request-item">
       <span className="request-symbol">
@@ -44,7 +46,7 @@ function RequestItem({ row }: { row: RequestRow }) {
       <span className="request-details">
         <strong>{row.title}</strong>
         <span>
-          {row.artist}{row.requested_format ? ` · ${REQUEST_FORMATS[row.requested_format]}` : ""}{row.message && row.message !== statusLabel(row.status) ? ` · ${row.message}` : ""}
+          {row.artist}{format ? ` · ${format}` : ""}{row.message && row.message !== statusLabel(row.status) ? ` · ${row.message}` : ""}
         </span>
       </span>
       <span className={`status-pill ${row.status}`}>
@@ -73,6 +75,7 @@ function RequestItem({ row }: { row: RequestRow }) {
           )}
         </>
       ) : null}
+      {row.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={row.title} />}
       {(row.status === "waiting_format" || RETRYABLE.includes(row.status)) && (
         <button type="button" className="quiet-button" onClick={() => store.requestsSlice.chooseFormat(row)}>
           {row.status === "waiting_format" ? "Choose format" : "Change format"}

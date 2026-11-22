@@ -2,13 +2,16 @@ import { RoomDialogContent } from "./WindowContent";
 import { ExtensionsContent, FindCopySources } from "../views/Extensions";
 import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogBackdrop, DialogDescription, DialogTitle } from "@ui-sdk/react/dialog";
-import { postJson, REQUEST_FORMATS, type RequestFormat, type RequestRow } from "../api";
+import { postJson, REQUEST_FORMATS, type RequestRow } from "../api";
 import { useStore } from "../store";
 import { notify } from "../toasts";
 
 export function RequestFormatPicker({ row }: { row: RequestRow }) {
   const store = useStore();
-  const [choice, setChoice] = useState<RequestFormat>(row.requested_format ?? "any_lossless");
+  type LosslessFormat = keyof typeof REQUEST_FORMATS;
+  const [choice, setChoice] = useState<LosslessFormat>(
+    row.requested_format === "mp3" ? "any_lossless" : row.requested_format ?? "any_lossless",
+  );
   const [showExtensions, setShowExtensions] = useState(false);
   const sourceReturn = useRef<HTMLButtonElement>(null);
   const restoreSourceFocus = useRef(false);
@@ -57,7 +60,7 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
         <DialogDescription>{[row.title, row.artist].filter(Boolean).join(" · ")}</DialogDescription>
         <fieldset disabled={saving}>
           <legend>Audio format to search for</legend>
-          {(Object.keys(REQUEST_FORMATS) as RequestFormat[]).map(format => (
+          {(Object.keys(REQUEST_FORMATS) as LosslessFormat[]).map(format => (
             <label key={format}>
               <input type="radio" name="requested-format" checked={choice === format}
                 onChange={() => setChoice(format)} />

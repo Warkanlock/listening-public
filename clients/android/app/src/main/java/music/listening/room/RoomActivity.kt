@@ -433,6 +433,13 @@ class RoomActivity : Activity() {
         }
     }
 
+    private fun requestMp3(target: Room, retry: JSONObject) {
+        load({ target.confirmFormat(retry, "mp3") }) {
+            message("MP3 search requested.")
+            show()
+        }
+    }
+
     private fun resetLibrary() {
         screen = Screen.LIBRARY
         playlistDetail = null
@@ -671,8 +678,11 @@ class RoomActivity : Activity() {
                         message(if (op == "play_next") "Playing next" else "Added to queue")
                     }
                 } else null
+                val retry = track.optJSONObject("mp3_retry")
                 val info = { ui.showSongInfo(this, target, track, copyAvailable = ready, queueAction = queueAction,
-                    findCopy = if (local || ready) null else { { requestCopy(target, track.getInt("id")) } },
+                    findCopy = if (local || ready) null else { {
+                        if (retry == null) requestCopy(target, track.getInt("id")) else requestMp3(target, retry)
+                    } },
                     addToPlaylist = if (local) null else { { pickPlaylist(target, SongDraft.from(track, catalogTrack = true)) } },
                     profilePlayback = if (local) null else ::send) }
                 val ref = track.musicProfileRef()
@@ -1010,7 +1020,8 @@ class RoomActivity : Activity() {
                 if (request.optString("status") in CHANGEABLE_FORMAT) choose(request)
                 else openPick(target, item, request)
             }
-        }, openView = item.creditRecordingId()?.let { ::openView },
+        }, onTryMp3 = row?.optJSONObject("mp3_retry")?.let { retry -> { requestMp3(target, retry) } },
+            openView = item.creditRecordingId()?.let { ::openView },
             onAddToPlaylist = { pickPlaylist(target, SongDraft.from(item)) })
     }
 

@@ -19,11 +19,14 @@ class BulkDownloadVerificationTests(unittest.TestCase):
         media = {"bitrate": 192_000, "stream_bitrate": 192_000, "duration": 240.0,
                  "title": "Sample song", "codec": "mp3", "container": "mp3"}
         self.assertTrue(judge_bulk_download("Sample song", 240, media, ".MP3").ok)
+        self.assertTrue(judge_download("Sample song", 240, media, ".MP3", "mp3").ok)
         self.assertFalse(judge_download("Sample song", 240, media, ".mp3").ok)
+        self.assertFalse(judge_download("Sample song", 240, media, ".m4a", "mp3").ok)
         for change in ({"stream_bitrate": 128_000}, {"stream_bitrate": 0}, {"duration": 246.0}, {"title": "Other music"},
                        {"codec": "aac"}, {"container": "mov"}):
             with self.subTest(change=change):
                 self.assertFalse(judge_bulk_download("Sample song", 240, {**media, **change}, ".mp3").ok)
+                self.assertFalse(judge_download("Sample song", 240, {**media, **change}, ".mp3", "mp3").ok)
 
 
 class DiscoveryCopyTests(unittest.TestCase):

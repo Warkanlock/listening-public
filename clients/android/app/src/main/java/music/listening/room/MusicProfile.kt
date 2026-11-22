@@ -126,7 +126,9 @@ internal fun RoomUi.showMusicProfile(
             val number = if (track.optBoolean("library_only")) "Library" else track.optString("number")
             val title = listOf(number, track.getString("title")).filter(String::isNotBlank).joinToString(" · ")
             content.section(label(title), gap = 10)
-            val copyStatus = track.optJSONObject("request")?.optString("status") ?: track.optString("copy_status")
+            val request = track.optJSONObject("request")
+            val copyStatus = request?.optString("status") ?: track.optString("copy_status")
+            val retry = request?.optJSONObject("mp3_retry") ?: track.optJSONObject("mp3_retry")
             if (ref == null && copyStatus == "not_found")
                 content.section(label("No copy found", color = secondary), gap = 4)
             when {
@@ -134,6 +136,17 @@ internal fun RoomUi.showMusicProfile(
                     dialog.dismiss()
                     if (album) playback("play_album", JSONObject().put("track_ids", JSONArray(ready)).put("track_id", ref))
                     else if (ref is Int) playback("play", JSONObject().put("track_id", ref).put("playlist", "all"))
+                }, gap = 4)
+                retry != null -> content.section(button("Try MP3") {}.apply {
+                    setOnClickListener {
+                        isEnabled = false
+                        text = "Requesting MP3…"
+                        load({ room.confirmFormat(retry, "mp3") }) { result ->
+                            text = if (result.isSuccess) "MP3 requested" else "Try MP3"
+                            isEnabled = result.isFailure
+                            if (result.isFailure) Toast.makeText(activity, "The MP3 search could not be started.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }, gap = 4)
                 track.optInt("track_id") > 0 || track.optDouble("duration", 0.0) > 0 ->
                     content.section(button("Find a copy") {}.apply {
