@@ -131,7 +131,7 @@ def decode_audio(path, *, probed_duration, expected_duration, timeout=FULL_DECOD
         raise ValueError("Decoded audio did not reach the expected duration.")
 
 
-def probe(path, *, local_audio_only=False, timeout=PROBE_TIMEOUT):
+def probe(path, *, local_audio_only=False, timeout=None):
     tag_entries = ",".join(("title", "artist", "album", "genre", "musicbrainz_trackid", "MusicBrainz Track Id", "version", "subtitle") + _GAIN_TAGS)
     try:
         restrictions = ["-protocol_whitelist", "file", "-format_whitelist", "mp3,flac,mov,aac"] if local_audio_only else []
@@ -141,7 +141,7 @@ def probe(path, *, local_audio_only=False, timeout=PROBE_TIMEOUT):
                                  "bits_per_raw_sample,bits_per_sample,bit_rate:"
                                  f"stream_tags={tag_entries}",
                                  "-of", "json", str(path)], capture_output=True, text=True,
-                                timeout=timeout)
+                                timeout=PROBE_TIMEOUT if timeout is None else timeout)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode:
