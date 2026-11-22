@@ -86,13 +86,16 @@ internal fun RoomUi.showMusicProfile(
         if (previous != null) content.section(button("Back") { dialog.dismiss(); previous() })
     }
 
-    fun render(profile: JSONObject) {
+    fun render(profile: JSONObject, retry: () -> Unit) {
         beginPage()
         content.section(heading(profile.optString("title").ifBlank { "Music profile" }, 24f))
         val caption = listOf("artist", "detail", "year", "area", "description")
             .map(profile::optString).filter(String::isNotBlank).joinToString(" · ")
         if (caption.isNotBlank()) content.section(label(caption, color = secondary))
-        if (profile.optBoolean("unavailable")) content.section(label("MusicBrainz is unavailable. Showing your library matches."))
+        if (profile.optBoolean("unavailable")) {
+            content.section(label("MusicBrainz is temporarily unavailable. Showing your library matches."))
+            content.section(button("Retry MusicBrainz", action = retry), gap = 4)
+        }
         val tracks = profile.optJSONArray("tracks") ?: JSONArray()
         val album = profile.optString("kind") == "album"
         val ready = (0 until tracks.length()).map(tracks::getJSONObject).mapNotNull(::playableProfileRef)
@@ -164,7 +167,7 @@ internal fun RoomUi.showMusicProfile(
         beginPage()
         content.section(style.loading(if (target.startsWith("artist/")) "Loading artist…" else "Loading album…"))
         load({ room.metadata("/api/music-profile/$target", it::bind) }) { result ->
-            result.onSuccess(::render).onFailure {
+            result.onSuccess { render(it, ::fetch) }.onFailure {
                 beginPage()
                 content.section(label("The profile could not load."))
                 content.section(button("Try again", action = ::fetch))

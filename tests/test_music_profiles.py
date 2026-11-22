@@ -31,7 +31,7 @@ class MusicProfilesTests(unittest.TestCase):
         self.profiles = MusicProfiles(self.connections)
 
     def test_public_album_preserves_disc_order_and_keeps_distinct_recordings(self):
-        self.connections.recording_match.return_value = {}
+        self.connections.recording_match.side_effect = OSError("recording lookup temporarily unavailable")
         self.connections.album_match.return_value = ALBUM
         self.connections.payload.return_value = {"id": ALBUM, "title": "Fixture Album",
             "artist-credit": CREDIT, "releases": [{"id": EDITION, "status": "Official"}]}
@@ -52,10 +52,22 @@ class MusicProfilesTests(unittest.TestCase):
 
     def test_an_unavailable_catalog_keeps_existing_local_tracks(self):
         self.connections.recording_match.side_effect = OSError("offline")
+        self.connections.album_match.return_value = None
         song = local(8, "One")
         result = self.profiles.lookup("album", None, song, [song], lambda _: "verified")
         self.assertTrue(result["unavailable"])
         self.assertEqual([row["track_id"] for row in result["tracks"]], [8])
+
+    def test_artist_search_can_recover_from_an_unavailable_recording_lookup(self):
+        song = local(8, "One")
+        self.connections.recording_match.side_effect = OSError("recording lookup temporarily unavailable")
+        self.connections.artist_match.return_value = {"id": ARTIST}
+        self.connections.payload.return_value = {"id": ARTIST}
+        self.connections.graph.return_value = {"root": {"title": "Fixture Band", "detail": "Group"}, "edges": []}
+        result = self.profiles.lookup("artist", None, song, [song], lambda _: "verified")
+        self.assertEqual(result["identity"], ARTIST)
+        self.assertNotIn("unavailable", result)
+        self.assertTrue(result["tracks"][0]["ready"])
 
     def test_artist_alias_keeps_library_tracks_and_uses_known_recording(self):
         song = {**local(8, "One", FIRST), "artist": "Fixture Band (original credit)"}

@@ -2937,6 +2937,16 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
   color: var(--accent-ink);
 }
 
+.now-playing-title .music-profile-byline:is(:hover, :focus-visible) {
+  color: #fff;
+  text-decoration-thickness: .12em;
+}
+
+.now-playing-title .music-profile-byline:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+
 .player-text > .player-track-trigger { display: block; min-height: 26px; max-width: 100%; }
 
 .player-text .music-profile-player-links { color: var(--quiet); font-size: var(--font-md); }
