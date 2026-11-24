@@ -34,6 +34,7 @@ import { Requests } from "./views/Requests";
 import { Extensions } from "./views/Extensions";
 import { Settings } from "./views/Settings";
 import { MoodMap } from "./views/MoodMap";
+import { ActivityMixes } from "./views/ActivityMixes";
 import { MyDevices } from "./views/MyDevices";
 import { Insights } from "./views/Insights";
 import { Hiking } from "./views/Hiking";
@@ -44,6 +45,7 @@ const NAV: { view: View; icon: RoomIconName; label: string }[] = [
   { view: "discover", icon: "discover", label: "Deep Dive" },
   { view: "radio", icon: "radio", label: "Radio" },
   { view: "moods", icon: "moods", label: "Mood map" },
+  { view: "activities", icon: "listen", label: "Activities" },
   { view: "insights", icon: "insights", label: "Insights" },
   { view: "hiking", icon: "camping", label: "Camping mode" },
   { view: "browse", icon: "catalogs", label: "Browse catalogs" },
@@ -134,7 +136,7 @@ function Sidebar({ named }: { named: boolean }) {
         <div className="nav-overflow">
           {NAV.slice(3).filter((item) => {
             if (item.view === "private-playlists" || item.view === "my-devices") return named;
-            return !store.member || item.view === "extensions" || item.view === "browse" || item.view === "moods" || item.view === "hiking" || item.view === "insights";
+            return !store.member || item.view === "extensions" || item.view === "browse" || item.view === "moods" || item.view === "activities" || item.view === "hiking" || item.view === "insights";
           }).map(navLink)}
           {(Object.keys(destinations) as (keyof typeof destinations)[]).map((key) => {
             const active = store.view === "all" && store.filter === key;
@@ -370,6 +372,7 @@ function Shell({ role }: { role: RoomRole }) {
           {store.view === "discover" ? <DeepDive /> : null}
           {store.view === "browse" ? <PublicBrowse /> : null}
           {store.view === "moods" ? <MoodMap /> : null}
+          {store.view === "activities" ? <ActivityMixes /> : null}
           {store.view === "my-devices" && named ? <MyDevices owner={role === "owner"} /> : null}
           {store.view === "private-playlists" && named ? <PrivatePlaylists owner={role === "owner"} /> : null}
           {/* Radio stays mounted once a station has started, so its

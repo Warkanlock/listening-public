@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, BUSY_STATUSES, statusLabel, time, type DiscoverTrack, type RequestRow } from "../api";
 import { useStore } from "../store";
+import { RoomAction } from "../components/RoomControls";
 import { RoomIcon, RoomIconButton } from "../components/RoomIcon";
 import { CoverArt } from "../components/Artwork";
 import { parseConnectionGraph } from "../artistConnections";
@@ -206,7 +207,9 @@ export function DeepDive() {
   const monday = weeklyEdition && new Date(weeklyEdition + "T00:00:00Z");
   const edition = monday ? Math.floor(monday.valueOf() / (7 * 86400000)) % 3 : 0;
   return <section className="view">
-    <header className="listening-view-head"><h1 ref={heading} tabIndex={-1}>Deep Dive</h1></header>
+    <header className="listening-view-head" data-align="start"><h1 ref={heading} tabIndex={-1}>Deep Dive</h1>
+      <RoomAction icon="listen" onClick={() => store.setView("activities")}>Activities</RoomAction>
+    </header>
     <div hidden={!!start}>
       <aside className="weekly-entry" data-edition={edition} aria-label="Weekly Discovery">
         <div><h2>Weekly Discovery</h2>{monday && <p>Week of <time dateTime={weeklyEdition}>

@@ -80,6 +80,7 @@ SONGS = [("atlas", "Atlas Air", "Massive Attack", "Heligoland", 65),
          ("blame", "Blame", "Tropics", "Rapture", 39)]
 GENRES = {"Atlas Air": "Electronic", "Asleep": "Rock",
           "Paradise Circus": "Electronic", "Blame": "Indie"}
+TEMPOS = {"atlas": 112, "asleep": 54, "paradise": 82, "blame": 118}
 WATCHED_SONGS = [("Blue Monday", "New Order", "Power, Corruption & Lies"),
                  ("Once in a Lifetime", "Talking Heads", "Remain in Light")]
 # Synced lyrics for Atlas Air, the session's track (plan 049): the
@@ -139,7 +140,7 @@ def build_fixture(root):
              f"sine=frequency=440:duration={secs}",
              "-codec:a", "libmp3lame", "-b:a", "320k",
              "-metadata", f"title={title}", "-metadata", f"artist={artist}",
-             "-metadata", f"album={album}", str(out)],
+             "-metadata", f"album={album}", "-metadata", f"BPM={TEMPOS[slug]}", str(out)],
             check=True, capture_output=True)
 
     lines = []
@@ -1583,7 +1584,7 @@ def verify_room_layout(browser, server, output):
             origin = library.bounding_box()
             library_style = library.evaluate("(el) => getComputedStyle(el).fontSize")
             views = [
-                ("Radio", "Radio"), ("Mood map", "How do you feel?"), ("Insights", "Insights"),
+                ("Radio", "Radio"), ("Mood map", "How do you feel?"), ("Activities", "Activities"), ("Insights", "Insights"),
                 ("Camping mode", "Camping mode"), ("Deep Dive", "Deep Dive"),
                 ("Browse catalogs", "Browse catalogs"), ("Requests", "Requests"),
                 ("Jobs", "Jobs"), ("Settings", "Settings"),
@@ -2525,6 +2526,25 @@ def run_browser(server, output):
                 verify_phone(browser, server, output, errors, warnings)
                 item.ok = True
                 item.detail = "320px and 390px touch layouts, Settings and song reflow, menu dismissal, and queue access"
+            except Exception as error:
+                item.detail = str(error)
+
+            item = surface("activity-mixes")
+            try:
+                page.get_by_role("button", name="Mood map", exact=True).click()
+                page.get_by_role("region", name="Browse by mood").get_by_role(
+                    "button", name="Activities", exact=True).click()
+                activities = page.get_by_role("region", name="Activity mixes")
+                for label, matches in [("Walking", [1, 4]), ("Studying", [3]), ("Meditation", [2])]:
+                    with page.expect_response(lambda response: response.request.method == "POST" and
+                                              response.request.post_data_json.get("op") == "play_activity") as start:
+                        activities.get_by_role("button", name=f"Play {label} mix").click(timeout=60000)
+                    expect(item, start.value.ok and start.value.json()["current_ref"] in matches,
+                           f"{label} did not play a song within its tempo range")
+                item.ok = True
+                item.detail = "All three activities played matching local tracks from the saved tempo index"
+                shot(item, "01e-activities.png")
+                page.get_by_role("button", name="Library", exact=True).click()
             except Exception as error:
                 item.detail = str(error)
 
@@ -3563,7 +3583,7 @@ def run_browser(server, output):
             try:
                 verify_room_layout(browser, server, output)
                 item.ok = True
-                item.detail = "Nine room views align with Library on desktop and phone"
+                item.detail = "Ten room views align with Library on desktop and phone"
             except Exception as error:
                 item.detail = repr(error)
             item = surface("nearby-jams")

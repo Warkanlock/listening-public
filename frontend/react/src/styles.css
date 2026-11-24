@@ -1685,6 +1685,7 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
   display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between;
   gap: var(--space-6); margin-bottom: var(--space-10);
 }
+.listening-view-head[data-align="start"] { align-items: start; }
 :is(.listening-view-head, .private-playlist-detail, .section-header) h1 {
   margin: 0; color: var(--text); font-size: var(--font-page); font-weight: var(--weight-bold);
   line-height: 1.08; letter-spacing: var(--tracking-display); overflow-wrap: anywhere;
@@ -3375,3 +3376,21 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
 .extensions-stack :is(a, button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (pointer: coarse) { .extensions-stack .settings-actions .quiet-button { min-height: 44px; } }
 .format-dialog { max-height: calc(100dvh - 28px); overflow: auto; }
+
+.activity-mixes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: var(--space-5);
+}
+.activity-mix {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+}
+.activity-mix h2 { margin: 0; font-size: var(--font-lg); }
+.activity-mix p { margin: var(--space-2) 0 0; color: var(--muted); font-size: var(--font-sm); }
