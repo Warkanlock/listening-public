@@ -177,6 +177,32 @@ class RequestsStore:
             return decode_request_row(row), True
         return self._run(work)
 
+    def queue_weekly(self, tracks):
+        """Queue a confirmed MP3/AAC choice, respecting existing manual requests."""
+        def work(conn):
+            conn.execute("BEGIN IMMEDIATE")
+            queued = 0
+            for track in tracks:
+                artist, title, recording_id = track["artist"], track["title"], track["id"]
+                if (self._active(conn, None, artist, title, recording_id)
+                        or self._active(conn, None, artist, title)):
+                    continue
+                previous = conn.execute(
+                    "SELECT * FROM requests WHERE track_index IS NULL AND musicbrainz_id=? "
+                    "ORDER BY id DESC LIMIT 1", (recording_id,)).fetchone()
+                if previous and decode_request_row(previous)["requested_format"] == "any_lossy":
+                    queued += self._queue_retry(conn, previous["id"], previous["search_title"])
+                    continue
+                search = " ".join(filter(None, (title, track["version"])))[:200]
+                conn.execute(
+                    "INSERT INTO requests (artist,title,album,length,search_title,musicbrainz_id,version,"
+                    "requested_format,format_revision,aac_revision,format_confirmed) "
+                    "VALUES (?,?,?,?,?,?,?,'mp3',1,1,1)",
+                    (artist, title, track["album"], track["seconds"], search, recording_id, track["version"]))
+                queued += 1
+            return queued
+        return self._run(work)
+
     def _lock_request(self, conn, request_id):
         """Serialize a release/retry with new intake for the same recording."""
         conn.execute("BEGIN IMMEDIATE")
@@ -361,8 +387,8 @@ class RequestsStore:
             return "track_index IS NULL AND musicbrainz_id=?", (musicbrainz_id,)
         return "track_index IS NULL AND musicbrainz_id='' AND artist=? AND title=?", (artist, title)
 
-    def for_picks(self, picks):
-        """Latest custom request per weekly pick, independent of the recent feed."""
+    def for_picks(self, picks, *, include_audio_path=False):
+        """Latest custom request per pick, independent of the recent feed."""
         if not picks:
             return {}
         def work(conn):
@@ -375,11 +401,12 @@ class RequestsStore:
                     "ORDER BY id DESC LIMIT 1", params).fetchone()
                 if row:
                     result = decode_request_row(row)
-                    path = result.pop("audio_path")
-                    if retry := mp3_retry(result):
-                        result["mp3_retry"] = retry
-                    if result["status"] == "downloaded" and path:
-                        result["audio"] = f"/api/audio/custom/{row['id']}"
+                    if not include_audio_path:
+                        path = result.pop("audio_path")
+                        if retry := mp3_retry(result):
+                            result["mp3_retry"] = retry
+                        if result["status"] == "downloaded" and path:
+                            result["audio"] = f"/api/audio/custom/{row['id']}"
                     rows[pick] = result
             return rows
         return self._run(work)
@@ -407,7 +434,7 @@ class RequestsStore:
             return dict(row) if row else None
         return self._run(work)
 
-    def downloaded_audio(self):
+    def downloaded_audio(self, *, custom_only=False):
         """Every downloaded request's id, track index, and audio path.
 
         Plan 060: report() reads this to keep blob-backed downloads
@@ -415,10 +442,11 @@ class RequestsStore:
         and to know which store keys stay referenced.
         """
         def work(conn):
+            scope = "AND track_index IS NULL " if custom_only else ""
             return [decode_request_row(row) for row in conn.execute(
                 "SELECT id, track_index, audio_path, artist, title, length, musicbrainz_id, version, performance, "
                 "requested_format, format_confirmed, format_revision, aac_revision FROM requests "
-                "WHERE status='downloaded' AND audio_path != '' ORDER BY id")]
+                f"WHERE status='downloaded' AND audio_path != '' {scope}ORDER BY id")]
         return self._run(work)
 
     # -- external metadata cache -------------------------------------------

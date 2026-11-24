@@ -246,14 +246,14 @@ class PlaybackSession:
                     return self.snapshot(output=output)
             # Read the clock without mutating it until the action is valid.
             elapsed_position = self._position()
-            if op in {"play", "play_available", "play_mood", "play_album"}:
-                ready = mood_refs if op in {"play_mood", "play_album"} else self._available(action.get("playlist", "all"))
+            if op in {"play", "play_available", "play_mood", "play_album", "play_requests"}:
+                ready = mood_refs if op in {"play_mood", "play_album", "play_requests"} else self._available(action.get("playlist", "all"))
                 if not ready:
                     raise ValueError("No ready songs match this mood" if op == "play_mood" else "No songs are ready in this playlist")
                 selected = ready[0]
                 if op == "play" or (op == "play_album" and "track_id" in action):
                     selected = action.get("track_id")
-                allowed_types = (int, str) if op == "play_album" else (int,)
+                allowed_types = (int, str) if op in {"play_album", "play_requests"} else (int,)
                 if type(selected) not in allowed_types or selected not in ready:
                     raise ValueError("That song is not ready")
                 position = ready.index(selected)
@@ -261,7 +261,7 @@ class PlaybackSession:
                              manual_count=0, history=ready[:position], position=0.0, playing=True)
                 # A mood blend already has a weighted shuffle. An explicit genre flow
                 # still takes precedence, and later transport changes work as usual.
-                if op != "play_album" and (op != "play_mood" or not action.get("blend") or state["genre_flow"]):
+                if op not in {"play_album", "play_requests"} and (op != "play_mood" or not action.get("blend") or state["genre_flow"]):
                     self._order_upcoming(state)
                 self._close_open_play(events, device_id, elapsed_position)
                 self._open_play(events, state["current"], device_id)
@@ -438,7 +438,7 @@ class PlaybackSession:
             self._flush_events(events)
             if op == "park" or (op == "pause" and sampled is not None):
                 self._outputs.clear_selection()
-            starts_here = op in {"play", "play_available", "play_request", "play_mood", "play_album", "resume", "toggle", "jump"}
+            starts_here = op in {"play", "play_available", "play_request", "play_requests", "play_mood", "play_album", "resume", "toggle", "jump"}
             manual_skip = op in {"next", "previous"} and action.get("expected_ref") is None
             if state["playing"] and (starts_here or manual_skip):
                 self._outputs.start(output)

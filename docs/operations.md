@@ -291,6 +291,14 @@ For an imported copy of the same playlist, **Settings → Sources → Playlist m
 The existing bulk-download setting still controls whether the downloader
 automatically searches new catalog entries.
 
+## Weekly Discovery
+
+Open **Deep Dive → Weekly Discovery** from the web player, Mac app or iPad app. On Android, open **Explore → Deep Dive → Weekly Discovery**.
+
+The room prepares a new edition each Monday when someone opens Weekly Discovery. It starts with artists played in the room, explores up to three artist connections, and leaves out songs already in the room’s library. Each row shows the artist trail that led to the pick.
+
+Choose **Download playlist** to queue missing copies through the room’s selected download extension. Weekly Discovery tries MP3 first and can accept AAC. The room keeps its existing download preference for other music. Once audio is verified, choose **Play downloaded songs** to start available tracks in playlist order.
+
 ## Radio
 
 Choose a library genre to shuffle verified songs on this device. In the browser and Mac app, the station plays each song once before reshuffling. Android can play a shuffled library station while connected to a room. Generated white or brown noise is available in the web player.

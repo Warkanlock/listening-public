@@ -7,6 +7,7 @@ import { parseConnectionGraph } from "../artistConnections";
 import { DiscoveryBoard } from "./DiscoveryBoard";
 import { AddToPlaylist } from "../components/PlaylistComposer";
 import { TryMp3Button } from "../components/TryMp3Button";
+import { WeeklyDiscovery } from "./WeeklyDiscovery";
 
 export type TrailStop = { kind: "artist" | "recording" | "search" | "song"; id: string; name: string; label: string; note?: string; track?: DiscoverTrack };
 type Branch = { leads: TrailStop[]; partial?: boolean; track?: DiscoverTrack; source?: { name: string; url: string } | null; request?: RequestRow | null };
@@ -194,6 +195,7 @@ export function DeepDive() {
     <header className="listening-view-head"><div><h1 ref={heading} tabIndex={-1}>Deep Dive</h1>
       <p>{start ? "Follow a connection to a recording outside your library." : "Discover music through the room’s listening and this week’s music press."}</p></div></header>
     <div hidden={!!start}>
+      <WeeklyDiscovery />
       <DiscoveryBoard onOpen={(stop, button) => { origin.current = button; setStart(stop); }} />
     </div>
     {start && <Explorer start={start} tracks={store.discoverState === "ready" ? store.discover?.tracks ?? [] : []} onBack={() => setStart(null)} />}
