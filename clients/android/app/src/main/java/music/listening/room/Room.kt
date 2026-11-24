@@ -226,6 +226,7 @@ internal class Room(val origin: String, val id: String, private val token: Strin
     fun requestCatalogCopy(id: Int) = request("/api/requests", JSONObject().put("track_id", id))
     fun addPlaylistSong(song: JSONObject) = request("/api/playlists/add-song", song, output = id)
     fun metadata(path: String, onCall: (Call) -> Unit) = request(path, onCall = onCall)
+    fun extensionHealth(onCall: (Call) -> Unit) = request("/api/extensions/health", JSONObject(), onCall = onCall)
     fun pickRequest(item: JSONObject): JSONObject? {
         val artist = item.getString("artist")
         val title = item.getString("title")

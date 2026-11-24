@@ -26,8 +26,9 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
     val content = style.column()
     val dialog = style.dialog(this, "Extensions", ScrollView(this).apply { addView(content) }, backLabel = backLabel)
     val status = ui.column().apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
-    content.addView(status)
+    val health = ui.column().apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
     var pending: MetadataRequest? = null
+    var checking: MetadataRequest? = null
     fun refresh() {
         pending?.cancel()
         val request = MetadataRequest()
@@ -90,10 +91,52 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
         }
     }
     with(ui) {
+        val checkButton = iconButton("Run extensions health check", Mark.CHECK) {}
+        checkButton.setOnClickListener {
+            checkButton.isEnabled = false
+            val request = MetadataRequest()
+            checking = request
+            health.removeAllViews()
+            health.addView(style.progress("Checking download sources…"))
+            request.future = metadataRequests.submit {
+                val result = runCatching { room.extensionHealth(request::bind).getJSONArray("checks") }
+                runOnUiThread {
+                    if (!dialog.isShowing || isDestroyed || checking !== request) return@runOnUiThread
+                    checking = null
+                    checkButton.isEnabled = true
+                    health.removeAllViews()
+                    result.onSuccess { checks ->
+                        for (index in 0 until checks.length()) {
+                            val check = checks.getJSONObject(index)
+                            val state = when (check.optString("state")) {
+                                "ready" -> "Passed"
+                                "failed" -> "Needs attention"
+                                else -> "Unverified"
+                            }
+                            health.section(style.fact(check.optString("label"), "$state · ${check.optString("message")}"))
+                        }
+                        refresh()
+                    }.onFailure { error ->
+                        health.addView(label(when (error) {
+                            is PairingRequired, is RoomUnreachable -> error.message ?: "Connect to your room and try again."
+                            else -> "Couldn’t run the check. Check your room server version and try again."
+                        }))
+                    }
+                }
+            }
+        }
+        content.section(row(8).apply {
+            addView(heading("Extensions health check", 19f), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(checkButton)
+        })
+        health.addView(label("Check the sources Find copy uses.", color = secondary))
+        content.section(health)
+        content.section(line())
         content.addView(row(8).apply {
             addView(heading("Song downloads", 19f), LinearLayout.LayoutParams(0, -2, 1f))
             addView(iconButton("Refresh extensions", Mark.REFRESH) { refresh() })
-        }, 0)
+        })
+        content.addView(status)
         content.section(button("Open room extensions in browser") {
             try {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(room.origin + "/#extensions")))
@@ -102,7 +145,7 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
             }
         })
     }
-    dialog.setOnDismissListener { pending?.cancel() }
+    dialog.setOnDismissListener { pending?.cancel(); checking?.cancel() }
     dialog.show()
     refresh()
 }

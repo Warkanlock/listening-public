@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.ImageButton
 import android.widget.Toast
 import android.widget.ScrollView
 import org.json.JSONObject
@@ -50,40 +51,42 @@ internal fun RoomUi.showSongInfo(activity: Activity, room: Room, track: JSONObje
         else -> "Not downloaded"
     })
     fact("Audio codec", track.optString("codec"))
-    val actions = column()
     val dialog = style.dialog(activity, title, ScrollView(context).apply { addView(content) }, artist)
     if (canExplore) content.section(style.navigation(view, hasAlbum) {
         dialog.dismiss()
         openView(it)
     })
     val trackId = track.musicProfileRef()
-    if (trackId != null && profilePlayback != null) {
-        content.section(button("Open artist") {
+    val actions = buildList<ImageButton> {
+        fun action(name: String, mark: Mark, click: () -> Unit) = add(iconButton(name, mark) {
             dialog.dismiss()
-            showMusicProfile(activity, room, "artist/$trackId", profilePlayback)
-        }, gap = 6)
-        if (track.optString("album").isNotBlank()) content.section(button("Open album track list") {
-            dialog.dismiss()
-            showMusicProfile(activity, room, "album/$trackId", profilePlayback)
-        }, gap = 6)
-    }
-    content.section(facts)
-    if (queueAction != null) {
-        actions.section(button("Play next") { dialog.dismiss(); queueAction("play_next") }, gap = 6)
-        actions.section(button("Add to queue") { dialog.dismiss(); queueAction("enqueue") }, gap = 6)
-    }
-    if (addToPlaylist != null) actions.section(button("Add to playlist") { dialog.dismiss(); addToPlaylist() }, gap = 6)
-    if (!copyAvailable) {
-        if (findCopy != null) {
-            val label = if (track.optJSONObject("mp3_retry") == null) "Find a copy" else "Try MP3"
-            actions.section(button(label, solid = true) { dialog.dismiss(); findCopy() }, gap = 6)
-            actions.section(row().apply {
-                addView(iconButton("View extensions", Mark.EXTENSIONS) { activity.showRoomExtensions(room) })
-            }, gap = 6)
+            click()
+        })
+        if (queueAction != null) {
+            action("Play next", Mark.QUEUE_NEXT) { queueAction("play_next") }
+            action("Add to queue", Mark.QUEUE_ADD) { queueAction("enqueue") }
         }
-        actions.section(button("Find on YouTube") { openYouTube(context, artist, title) }, gap = 6)
+        if (!copyAvailable && findCopy != null) {
+            when {
+                track.optJSONObject("mp3_retry") != null -> action("Try MP3", Mark.REFRESH, findCopy)
+                track.optString("status") == "waiting_format" -> action("Choose format", Mark.SETTINGS, findCopy)
+                else -> action("Find a copy", Mark.DOWNLOAD, findCopy)
+            }
+        }
+        if (addToPlaylist != null) action("Add to playlist", Mark.PLAYLIST_ADD, addToPlaylist)
+        if (!copyAvailable) {
+            add(iconButton("Find on YouTube", Mark.YOUTUBE) { openYouTube(context, artist, title) })
+            if (findCopy != null) add(iconButton("View extensions", Mark.EXTENSIONS) { activity.showRoomExtensions(room) })
+        }
+        if (trackId != null && profilePlayback != null) {
+            action("Open artist", Mark.ARTIST) { showMusicProfile(activity, room, "artist/$trackId", profilePlayback) }
+            if (track.optString("album").isNotBlank()) action("Open album track list", Mark.ALBUM) {
+                showMusicProfile(activity, room, "album/$trackId", profilePlayback)
+            }
+        }
     }
-    if (actions.childCount > 0) content.section(actions, gap = 6)
+    if (actions.isNotEmpty()) content.section(actionStrip(actions), gap = 8)
+    content.section(facts)
     dialog.show()
 }
 

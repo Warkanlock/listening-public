@@ -38,7 +38,9 @@ class Handler(socketserver.StreamRequestHandler):
                 response = self.server.fleet.acquire(request, self.connection)
             else:
                 response = self.server.fleet.manage(request, self.connection)
-        except (ConnectionError, BlockingIOError):
+        except BlockingIOError:
+            response = {"ok": False, "code": "busy", "retryable": True}
+        except ConnectionError:
             response = {"ok": False, "error": "The worker is busy or cancelled.", "retryable": True}
         except WorkerDeadlineExceeded:
             response = {"ok": False, "code": "timeout", "retryable": True}

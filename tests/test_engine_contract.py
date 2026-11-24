@@ -52,7 +52,7 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.requests.append(request)
         action = request["action"]
         if action == "status":
-            return {"ok": True, "engines": [
+            return {"ok": True, "health_check": self.mode != "old-manager", "engines": [
                 {"id": role, "capabilities": [capability], "enabled": True, "ready": True,
                  "sources": {capability: ["unrelated" if self.mode == "incompatible" and capability == "fetch"
                                           else "fixture"]}}
@@ -68,6 +68,10 @@ class EngineRunnerTests(WorkspaceTestCase):
             source = "undeclared" if self.mode == "undeclared" else "fixture"
             return {"ok": True, "candidates": [{"source": source, "id": name}
                                                for name in self.media]}
+        if action == "health":
+            if self.mode == "health-busy" and request["engine"] == self.selection["fetch"]:
+                return {"ok": False, "code": "busy", "error": "sensitive provider text"}
+            return {"ok": True}
         if action == "fetch" and request["candidate"]["id"] == "slow-peer.mp3":
             return {"ok": False, "code": "timeout", "retryable": True}
         folder = self.staging / request["job"]
@@ -106,6 +110,19 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual(engine_contract.source_summary(settings)["state"], "unavailable")
         self.assertEqual(engine_contract.source_summary({})["state"], "legacy")
         self.assertEqual(engine_contract.source_summary({"download_engines": {}})["state"], "unconfigured")
+
+    def test_health_checks_selected_providers_without_searching_or_transferring(self):
+        self.mode = "health-busy"
+        result = engine_contract.extension_health({"download_engines": self.selection}, legacy_ready=False)
+        self.assertEqual([check["state"] for check in result["checks"][-2:]], ["ready", "unverified"])
+        self.assertEqual([request["action"] for request in self.requests], ["status", "health", "health"])
+        self.assertNotIn("sensitive provider text", str(result))
+
+    def test_health_never_runs_the_legacy_manager_test_action(self):
+        self.mode = "old-manager"
+        result = engine_contract.extension_health({"download_engines": self.selection}, legacy_ready=False)
+        self.assertEqual(result["checks"][-1]["state"], "unverified")
+        self.assertEqual([request["action"] for request in self.requests], ["status"])
 
     def test_selected_source_pause_prevents_search_when_only_the_fetcher_is_paused(self):
         engines = self.respond({"action": "status"})["engines"]
@@ -315,6 +332,22 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual((result["status"], result["requested_format"]), ("downloaded", "any_lossy"))
         search = next(item["recording"] for item in self.requests if item["action"] == "search")
         self.assertEqual((search["formats"], search["preferred_format"]), ([".mp3", ".m4a"], "mp3"))
+        self.assertEqual(runner.probe(self.library / result["audio_path"])["codec"], "aac")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_broad_request_searches_all_formats_once_and_lands_a_verified_aac(self):
+        record = self.record(1, "First Light", length=2)
+        self.write_manifest([record])
+        self.make_audio("first-light.m4a", "First Light", duration=2)
+        store = runner.requests_store()
+        row, _ = store.create_or_find(1, record["artist"], record["title"], record["album"],
+                                      2, "", individual=True)
+        store.confirm_format(row["id"], "any_format", 0)
+        runner.run_requests()
+        result = store.get(row["id"])
+        self.assertEqual((result["status"], result["requested_format"]), ("downloaded", "any_format"))
+        search, = (item["recording"] for item in self.requests if item["action"] == "search")
+        self.assertEqual(search["formats"], [".flac", ".m4a", ".mp3"])
         self.assertEqual(runner.probe(self.library / result["audio_path"])["codec"], "aac")
 
     def test_search_budget_includes_the_worker_deadline(self):

@@ -37,6 +37,10 @@ class EngineTimeout(EngineError):
     """An engine operation exceeded its deadline."""
 
 
+class EngineBusy(EngineError):
+    """The worker is already in use by another request."""
+
+
 class CandidateTimeout(EngineTimeout):
     """A candidate timed out and released its worker so another can be tried."""
 
@@ -48,6 +52,7 @@ class WorkerTimeout(CandidateTimeout):
 TIMEOUT_MESSAGES = {
     "search": "The download engine timed out while searching.",
     "fetch": "The download engine timed out while downloading a candidate.",
+    "health": "The extension timed out during its health check.",
 }
 
 
@@ -138,6 +143,8 @@ def manager_call(action, *, timeout=2, check_space=None, server_release=None, **
     if not isinstance(response, dict):
         raise EngineError("The download engine returned an invalid response.")
     if response.get("ok") is not True:
+        if response.get("code") == "busy":
+            raise EngineBusy("The extension is busy. Try again after the current operation.")
         if response.get("code") == "timeout":
             raise WorkerTimeout(timeout_message)
         if response.get("code") == "login_unavailable":
@@ -215,6 +222,57 @@ def source_summary(settings):
         if selection:
             summary["state"] = "unavailable"
     return summary
+
+
+def extension_health(settings, *, legacy_ready):
+    """Check the active download path without requesting or transferring a song."""
+    checks = []
+
+    def report(label, state, message):
+        checks.append({"label": label, "state": state, "message": message})
+
+    tools = bool(shutil.which("ffprobe") and shutil.which("ffmpeg"))
+    report("Audio verification", "ready" if tools else "failed",
+           "Audio verification tools are available." if tools else "Install FFmpeg on the room server.")
+    selection = engine_selection(settings)
+    if selection is None:
+        report("Existing downloader", "unverified" if legacy_ready else "failed",
+               "Setup is present. Sign-in was not tested." if legacy_ready else "Check the download setup in Settings.")
+        return {"checks": checks}
+    if not selection:
+        report("Download sources", "failed", "Choose search and download sources in Extensions.")
+        return {"checks": checks}
+    staging = os.environ.get("LISTENING_ENGINE_STAGING")
+    root = Path(staging) if staging else None
+    staging_ready = root is not None and root.is_dir() and not root.is_symlink() and os.access(root, os.W_OK | os.X_OK)
+    report("Download storage", "ready" if staging_ready else "failed",
+           "Download staging is writable." if staging_ready else "The room cannot write to the download staging folder.")
+    try:
+        status = manager_call("status")
+        engines = status.get("engines")
+        _compatible_sources(engines, selection)
+    except EngineError as error:
+        report("Download sources", "failed", str(error))
+        return {"checks": checks}
+    if status.get("health_check") is not True:
+        report("Download sources", "unverified", "Update the room’s engine manager to run provider checks.")
+        return {"checks": checks}
+    for engine in dict.fromkeys(selection.values()):
+        roles = [label for role, label in (("search", "Search"), ("fetch", "Download")) if selection[role] == engine]
+        label = f"{' and '.join(roles)} · {engine}"
+        if deadline := selected_retry_at(engines, {"selected": engine}):
+            report(label, "failed", str(login_wait(max(1, deadline - int(time.time())))))
+            continue
+        try:
+            manager_call("health", engine=engine,
+                         timeout=WORKER_TIMEOUT_SECONDS["test"] + MANAGER_RESPONSE_GRACE_SECONDS)
+        except EngineBusy as error:
+            report(label, "unverified", str(error))
+        except EngineError as error:
+            report(label, "failed", str(error))
+        else:
+            report(label, "ready", "The extension passed its setup check.")
+    return {"checks": checks}
 
 
 def engines_ready(settings, *, server_release=None, for_acquisition=False):
@@ -334,6 +392,7 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
         with timed_stage(selection["search"], "search", search_budget):
             result = manager_call("search", timeout=search_budget, engine=selection["search"], recording=recording)
         candidates = list(candidates_from(result))
+        print(f"Download engine {selection['search']}: returned {len(candidates)} candidate(s).", flush=True)
         if any(candidate["source"] not in sources for candidate in candidates):
             raise EngineError("The search engine returned a candidate outside its declared sources.")
         fetch_budget = WORKER_TIMEOUT_SECONDS["fetch"] + MANAGER_RESPONSE_GRACE_SECONDS

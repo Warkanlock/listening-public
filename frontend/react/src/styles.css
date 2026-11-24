@@ -3306,6 +3306,9 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
 .extension-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
 .extension-row > :first-child { min-width: 0; }
 .extension-radio { padding-block: var(--space-6); border-block-start: 1px solid var(--line); }
+.extension-health-results { list-style: none; margin: 0; padding: 0; }
+.extension-health-results li { display: grid; gap: var(--space-2); padding-block: var(--space-4); border-block-start: 1px solid var(--line); }
+.extension-health-results span { color: var(--muted); font-size: var(--font-sm); }
 .extension-resources { display: flex; flex-wrap: wrap; gap: 0 var(--space-7); margin-block-start: var(--space-5); }
 .extension-resources a {
   display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px;

@@ -202,6 +202,7 @@ export function isBulkDownloadFormat(value: string | null): value is BulkDownloa
 }
 
 export const REQUEST_FORMATS = [
+  { key: "any_format", label: "Any supported format (FLAC, ALAC, MP3 or AAC)" },
   { key: "any_lossless", label: "Any lossless (prefer FLAC)" },
   { key: "flac", label: "FLAC only" },
   { key: "alac", label: "Apple Lossless (ALAC) only" },
@@ -288,6 +289,10 @@ export interface ExtensionSources {
   retry_at?: number;
   state: "ready" | "legacy" | "unconfigured" | "unavailable" | "cooldown";
 }
+
+export type ExtensionHealth = {
+  checks: { label: string; state: "ready" | "failed" | "unverified"; message: string }[];
+};
 
 export interface Settings {
   collection: { path: string; bytes: number; list_workspace: string; export_folder: string } | null;
