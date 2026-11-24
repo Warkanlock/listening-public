@@ -11,6 +11,7 @@ import csv
 import gzip
 import hmac
 import ipaddress
+from itertools import islice
 import json
 import logging
 import math
@@ -46,7 +47,7 @@ from catalog.media_reconciliation import (MIGRATION_STATUS_IDLE,
 from catalog.catalog_store import CatalogStore
 from catalog.collection_projection import ListProjection
 from catalog.favorites import FavoritesStore
-from catalog import moods
+from catalog import activity_mixes, moods
 from catalog.genres import GenreStore, canonical_genre, group_genre_flow, source_label
 from playback.playback import PlaybackSession
 from playback.jams import JamDirectory, nearby_network
@@ -1135,6 +1136,11 @@ def ready_tracks_by_genre():
 
 
 def selected_playback_tracks(body, *, custom=True):
+    if body.get("op") == "play_activity":
+        index = current_activity_index()
+        if index is None:
+            raise ValueError("Activity mixes are getting ready. Try again shortly.")
+        return index.queue(body.get("activity"))
     if body.get("op") == "play_mood":
         return mood_queue(body)
     if body.get("op") == "play_requests":
@@ -1174,6 +1180,75 @@ def mood_queue(body):
     if not refs:
         raise moods.EmptyMix("No ready songs match this mood")
     return refs
+
+
+ACTIVITY_SCAN = threading.Event()
+ACTIVITY_INDEX = None
+EMPTY_ACTIVITY_INDEX = activity_mixes.MixIndex((), {})
+
+
+def current_activity_index():
+    with ROOT_LOCK:
+        if ACTIVITY_INDEX is not None:
+            records, coverage, access, index = ACTIVITY_INDEX
+            if records is catalog.records and coverage is catalog.coverage and access is MEDIA:
+                return index
+        ACTIVITY_SCAN.set()
+    return None
+
+
+def publish_activity_index(records, coverage, access, items, tempos):
+    global ACTIVITY_INDEX
+    index = activity_mixes.MixIndex(items, tempos)
+    with ROOT_LOCK:
+        if records is catalog.records and coverage is catalog.coverage and access is MEDIA:
+            ACTIVITY_INDEX = (records, coverage, access, index)
+
+
+def activity_tools_ready():
+    return bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+
+
+def activity_watchdog():
+    """Analyze one file at a time after the first visit to Activities."""
+    ACTIVITY_SCAN.wait()
+    retry = {}
+    while True:
+        ACTIVITY_SCAN.clear()
+        processed = 0
+        try:
+            if not update_draining():
+                with ROOT_LOCK:
+                    records, coverage, library, access = catalog.records, catalog.coverage, LIBRARY, MEDIA
+                    database = host_database(DB, STATE)
+                media = access.store()
+                items = activity_mixes.unique_recordings(
+                    activity_mixes.recordings(records, coverage, library, has_media=media is not None))
+                tempos = activity_mixes.read_tempos(database)
+                publish_activity_index(records, coverage, access, items, tempos)
+                now = time.monotonic()
+                retry = {key: until for key, until in retry.items() if until > now}
+                pending = (item for item in items
+                           if item.identity not in tempos and item.identity not in retry)
+                if activity_tools_ready():
+                    for item in islice(pending, 24):
+                        if update_draining():
+                            break
+                        processed += 1
+                        try:
+                            bpm = activity_mixes.recording_tempo(item, media)
+                        except (ValueError, EOFError, subprocess.CalledProcessError):
+                            bpm = None
+                        except (OSError, sqlite3.Error, subprocess.TimeoutExpired):
+                            retry[item.identity] = time.monotonic() + 300
+                            continue
+                        activity_mixes.save_tempo(database, item.identity, bpm)
+                        tempos[item.identity] = bpm
+                if processed:
+                    publish_activity_index(records, coverage, access, items, tempos)
+        except (OSError, sqlite3.Error):
+            WATCHDOG_LOGGER.warning("Activity tempo analysis could not read the library. Will retry.")
+        ACTIVITY_SCAN.wait(5 if processed == 24 else 45)
 
 
 def _ref_genre(ref):
@@ -1415,7 +1490,7 @@ def is_public_static(relative):
     return relative in DIST_PUBLIC or relative.startswith("assets/")
 
 
-MEMBER_GET = {"/api/room", "/api/overview", "/api/tracks", "/api/settings", "/api/session", "/api/radio/search", "/api/radio/library", "/api/stations",
+MEMBER_GET = {"/api/room", "/api/overview", "/api/tracks", "/api/settings", "/api/session", "/api/activities", "/api/radio/search", "/api/radio/library", "/api/stations",
               "/api/status", "/api/activity", "/api/discovery/sources", "/api/extensions/sources", "/api/hiking", "/api/insights",
               "/api/jams", "/api/jams/session"}
 JAM_ROUTES = {"/api/jams", "/api/jams/session"}
@@ -2498,6 +2573,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/extensions/sources":
             return self.json_response(source_summary(SETTINGS))
+        if path == "/api/activities":
+            current = current_activity_index()
+            index = current or EMPTY_ACTIVITY_INDEX
+            return self.json_response({"activities": index.choices(), "indexed": index.indexed, "total": index.total,
+                                       "preparing": current is None, "analysis_available": activity_tools_ready()})
         if path in JAM_ROUTES:
             return self._jam_request(path, parse_qs(parsed.query))
         if path in PERSONAL_ROUTES:
@@ -4339,6 +4419,7 @@ def run_listener(httpd, control):
     MEDIA.release_playback_buffer()
     requests_store().initialize()
     threading.Thread(target=maintenance_watchdog, daemon=True, name="library-watchdog").start()
+    threading.Thread(target=activity_watchdog, daemon=True, name="activity-tempos").start()
     print(f"State database: {DB} (SQLite is the source of state)", flush=True)
     print(f"Listening room: http://127.0.0.1:{httpd.server_port}", flush=True)
     try:
