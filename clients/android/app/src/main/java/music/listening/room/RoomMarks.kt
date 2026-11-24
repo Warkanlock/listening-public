@@ -12,7 +12,7 @@ import android.graphics.drawable.Drawable
 internal enum class Mark {
     ROOM, LIBRARY, EXPLORE, RADIO, PLAYING, INSIGHTS, PLAY, PAUSE, PREVIOUS, NEXT, SHUFFLE,
     SETTINGS, BROWSE, INFO, MAGNET, BACK, FORWARD, CLOSE, ALBUM, EXTERNAL, FOLDER, QUEUE, POSITION, MORE, EXPAND,
-    EXTENSIONS, SEARCH, REFRESH, DOWNLOAD
+    EXTENSIONS, SEARCH, REFRESH, DOWNLOAD, PLAYLIST_ADD, QUEUE_ADD, QUEUE_NEXT, YOUTUBE, ARTIST, CHECK
 }
 
 internal class RoomMark(private val mark: Mark, private val baseColor: Int, private val size: Int) : Drawable() {
@@ -36,6 +36,7 @@ internal class RoomMark(private val mark: Mark, private val baseColor: Int, priv
         }
         pen.style = Paint.Style.STROKE
         when (mark) {
+            Mark.CHECK -> { line(5, 12, 10, 17); line(10, 17, 19, 7) }
             Mark.ROOM, Mark.PLAYING -> {
                 line(3, 10, 3, 14); line(7, 6, 7, 18); line(12, 2, 12, 22)
                 line(17, 7, 17, 17); line(21, 10, 21, 14)
@@ -82,6 +83,27 @@ internal class RoomMark(private val mark: Mark, private val baseColor: Int, priv
                 line(15, 20, 20, 20); line(20, 20, 20, 15)
             }
             Mark.QUEUE -> { line(4, 6, 20, 6); line(4, 12, 20, 12); line(4, 18, 14, 18) }
+            Mark.PLAYLIST_ADD -> {
+                line(10, 4, 10, 17); line(10, 4, 16, 6)
+                c.drawOval(3f, 15f, 10f, 20f, pen)
+                line(13, 15, 22, 15); line(18, 11, 18, 19)
+            }
+            Mark.QUEUE_ADD -> {
+                line(3, 5, 13, 5); line(3, 10, 13, 10); line(3, 15, 13, 15); line(3, 20, 10, 20)
+                line(15, 16, 22, 16); line(19, 12, 19, 20)
+            }
+            Mark.QUEUE_NEXT -> {
+                line(4, 5, 12, 5); line(4, 18, 12, 18); line(4, 11, 21, 11)
+                line(16, 6, 21, 11); line(21, 11, 16, 16)
+            }
+            Mark.YOUTUBE -> {
+                c.drawRoundRect(3f, 5f, 21f, 19f, 3f, 3f, pen)
+                triangle(10, 8, 16, 12, 10, 16)
+            }
+            Mark.ARTIST -> {
+                c.drawCircle(12f, 7.5f, 3.5f, pen)
+                c.drawArc(4f, 14f, 20f, 26f, 180f, 180f, false, pen)
+            }
             Mark.POSITION -> { line(3, 12, 11, 12); c.drawCircle(14f, 12f, 3f, pen); line(17, 12, 21, 12) }
             Mark.MORE -> {
                 pen.style = Paint.Style.FILL

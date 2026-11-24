@@ -57,7 +57,7 @@ from playback.play_events import PlayEventsStore
 from playback import radio_resume
 from playback.radio import (PROVIDERS, RADIO_PRESETS, SOMAFM_CHANNELS, clean_live_stations, clean_stations,
                             live_catalog, live_stations_from, provider_enabled, source_enabled, stations_from)
-from downloads.engine_contract import EngineError, engine_selection, engines_ready, manager_call, source_summary
+from downloads.engine_contract import EngineError, engine_selection, engines_ready, extension_health, manager_call, source_summary
 from system import client_artifacts
 from devices.announcements import AnnouncementBoard
 from devices.device_store import DeviceStore, invitation_room_proof
@@ -1420,7 +1420,10 @@ MEMBER_GET = {"/api/room", "/api/overview", "/api/tracks", "/api/settings", "/ap
               "/api/jams", "/api/jams/session"}
 JAM_ROUTES = {"/api/jams", "/api/jams/session"}
 PERSONAL_ROUTES = {"/api/my/playlists", "/api/my/session", "/api/my/radio"}
-MEMBER_POST = {"/api/radio/presence", "/api/session", "/api/favorites", "/api/device", "/api/discovery/search", "/api/jams"} | PERSONAL_ROUTES
+EXTENSION_HEALTH = "/api/extensions/health"
+EXTENSION_HEALTH_LOCK = threading.Lock()
+MEMBER_POST = {"/api/radio/presence", "/api/session", "/api/favorites", "/api/device", "/api/discovery/search", "/api/jams",
+               EXTENSION_HEALTH} | PERSONAL_ROUTES
 MEMBER_TRACK_URL = re.compile(r"/api/(audio|metadata|lyrics)/([1-9][0-9]{0,9})")
 PRIVATE_PLAYLIST = re.compile(r"private:([a-f0-9]{32})")
 
@@ -2401,6 +2404,19 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, sqlite3.Error):
             return self.error_json("Weekly Discovery is temporarily unavailable.", HTTPStatus.SERVICE_UNAVAILABLE)
 
+    def _extension_health(self, body):
+        if not isinstance(body, dict) or body:
+            return self.error_json("Send an empty health check request.")
+        if not EXTENSION_HEALTH_LOCK.acquire(blocking=False):
+            return self.error_json("A health check is already running. Try again shortly.", HTTPStatus.CONFLICT)
+        try:
+            with ROOT_LOCK:
+                settings = dict(SETTINGS)
+                legacy_ready = engine_selection(settings) is None and download_ready()
+            return self.json_response(extension_health(settings, legacy_ready=legacy_ready))
+        finally:
+            EXTENSION_HEALTH_LOCK.release()
+
     def _extensions(self, body=None):
         if not self._is_owner():
             return self.error_json("Only the room owner can manage extensions.", HTTPStatus.FORBIDDEN)
@@ -3114,7 +3130,7 @@ class Handler(BaseHTTPRequestHandler):
         profile = self._member_profile() if not account_action else None
         if profile is not None and self.path not in MEMBER_POST:
             return self.error_json("This action is unavailable to household members.", HTTPStatus.FORBIDDEN)
-        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {weekly_discovery.PATH, "/api/radio/presence", "/api/radio/somafm", "/api/extensions", "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
+        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {weekly_discovery.PATH, "/api/radio/presence", "/api/radio/somafm", "/api/extensions", EXTENSION_HEALTH, "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
                              "/api/sync", "/api/import-csv", "/api/import-list", "/api/import-bundle", "/api/device", "/api/devices/revoke", "/api/devices/offline", "/api/devices/invites", "/api/pairing/rotate",
                              "/api/announcements", "/api/process", "/api/jobs", "/api/open-source", "/api/playlists/merge",
                              "/api/playlists/add-song", "/api/discovery/import", "/api/devices/playlist-access",
@@ -3283,6 +3299,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 return self.error_json("Choose an extension action.")
             return self._extensions(body)
+        if self.path == EXTENSION_HEALTH:
+            return self._extension_health(body)
         if self.path == "/api/radio/somafm":
             return self._somafm(save=True, body=body)
         if self.path == "/api/stations":

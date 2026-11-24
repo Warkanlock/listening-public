@@ -51,6 +51,18 @@ class PublicDiscoveryTests(ServerFixture, TestCase):
         for cookie in (member, device):
             self.assertEqual(self.call("GET", "/api/extensions", cookie=cookie)[0], 403)
 
+    def test_paired_devices_and_members_can_check_health_without_managing_extensions(self):
+        path = "/api/extensions/health"
+        self.assertEqual(self.call("POST", path, {})[0], 401)
+        with mock.patch.dict(server.SETTINGS, {"download_engines": {}}):
+            for cookie in (self.sign_in("discover-member"), self.lan_device_cookie(), self.sign_in("discover-owner")):
+                self.assertEqual(self.call("POST", path, {}, cookie, origin="https://unrelated.example")[0], 403)
+                self.assertEqual(self.call("POST", path, {"engine": "unknown"}, cookie)[0], 400)
+                status, _, body = self.call("POST", path, {}, cookie)
+                self.assertEqual(status, 200, body)
+                self.assertEqual(json.loads(body)["checks"][-1]["state"], "failed")
+                self.assertEqual(server.SETTINGS["download_engines"], {})
+
     def test_owner_can_add_music_source_and_members_can_discover_it(self):
         sources = "/api/discovery/sources"
         browse = "/api/discovery/search"

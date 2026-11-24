@@ -2,22 +2,29 @@
 
 # Sockseek filters advertised filename extensions. The downloaded stream
 # must also match the codec and container identified by ffprobe.
-LOSSLESS_DOWNLOAD_FORMATS = {".flac": ("flac", "flac"), ".m4a": ("alac", "mov")}
-LOSSY_DOWNLOAD_FORMATS = {".mp3": ("mp3", "mp3"), ".m4a": ("aac", "mov")}
-AUDIO_FORMATS = frozenset({".mp3", ".aac", *LOSSLESS_DOWNLOAD_FORMATS})
+FLAC = (".flac", "flac", "flac")
+ALAC = (".m4a", "alac", "mov")
+MP3 = (".mp3", "mp3", "mp3")
+AAC = (".m4a", "aac", "mov")
+LOSSLESS_DOWNLOAD_FORMATS = (FLAC[0], ALAC[0])
+AUDIO_FORMATS = frozenset({MP3[0], ".aac", *LOSSLESS_DOWNLOAD_FORMATS})
 
 # The first suffix is the search preference sent to the configured provider.
 REQUEST_AUDIO_FORMATS = {
-    "flac": {".flac": LOSSLESS_DOWNLOAD_FORMATS[".flac"]},
-    "alac": {".m4a": LOSSLESS_DOWNLOAD_FORMATS[".m4a"]},
-    "any_lossless": LOSSLESS_DOWNLOAD_FORMATS,
-    "mp3": {".mp3": LOSSY_DOWNLOAD_FORMATS[".mp3"]},
-    "any_lossy": LOSSY_DOWNLOAD_FORMATS,
+    "flac": (FLAC,),
+    "alac": (ALAC,),
+    "any_lossless": (FLAC, ALAC),
+    "mp3": (MP3,),
+    "any_lossy": (MP3, AAC),
+    "any_format": (FLAC, ALAC, MP3, AAC),
 }
-REQUEST_SUFFIXES = {choice: tuple(formats) for choice, formats in REQUEST_AUDIO_FORMATS.items()}
+REQUEST_SUFFIXES = {
+    choice: tuple(dict.fromkeys(suffix for suffix, _, _ in formats))
+    for choice, formats in REQUEST_AUDIO_FORMATS.items()
+}
 REQUEST_FORMAT_NAMES = {"flac": "FLAC", "alac": "Apple Lossless (ALAC)",
                         "any_lossless": "FLAC or Apple Lossless (ALAC)", "mp3": "MP3",
-                        "any_lossy": "MP3 or AAC"}
+                        "any_lossy": "MP3 or AAC", "any_format": "FLAC, Apple Lossless (ALAC), MP3 or AAC"}
 
 
 DEFAULT_BULK_DOWNLOAD_FORMAT = "mp3_preferred"

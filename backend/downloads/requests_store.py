@@ -37,11 +37,14 @@ def mp3_retry(row):
 def decode_request_row(row):
     """Read the request format while keeping its stored value compatible with older rooms."""
     result = dict(row)
-    # Older rooms read "mp3". The revision ties the AAC preference to the
-    # selection that set it, including after an older room edits the request.
+    # An older room reads the narrower fallback. Revisions bind expanded
+    # choices to the confirmation that set them, even after an older room edits it.
     aac_revision = result.pop("aac_revision", None)
     if aac_revision is not None and result["requested_format"] == "mp3" and aac_revision == result["format_revision"]:
         result["requested_format"] = "any_lossy"
+    broad_revision = result.pop("broad_revision", None)
+    if result["requested_format"] == "any_lossless" and broad_revision == result["format_revision"]:
+        result["requested_format"] = "any_format"
     return result
 
 
@@ -60,6 +63,7 @@ SCHEMA = (
         requested_format TEXT DEFAULT 'any_lossless',
         format_revision INTEGER NOT NULL DEFAULT 0,
         aac_revision INTEGER,
+        broad_revision INTEGER,
         format_confirmed INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'queued',
         message TEXT NOT NULL DEFAULT '',
@@ -105,7 +109,7 @@ class RequestsStore:
         """
         conn = state_database.connect(self.path, SCHEMA, row_factory=sqlite3.Row)
         try:
-            required = {"format_confirmed", "version", "musicbrainz_id", "performance", "aac_revision", "resolved_at"}
+            required = {"format_confirmed", "version", "musicbrainz_id", "performance", "aac_revision", "broad_revision", "resolved_at"}
             if not required <= {col[1] for col in conn.execute("PRAGMA table_info(requests)")}:
                 # Another server or runner may be upgrading the same room.
                 conn.execute("BEGIN IMMEDIATE")
@@ -118,6 +122,8 @@ class RequestsStore:
                     conn.execute("ALTER TABLE requests ADD COLUMN format_confirmed INTEGER NOT NULL DEFAULT 0")
                 if "aac_revision" not in columns:
                     conn.execute("ALTER TABLE requests ADD COLUMN aac_revision INTEGER")
+                if "broad_revision" not in columns:
+                    conn.execute("ALTER TABLE requests ADD COLUMN broad_revision INTEGER")
                 if "resolved_at" not in columns:
                     conn.execute("ALTER TABLE requests ADD COLUMN resolved_at TEXT")
                     conn.execute("UPDATE requests SET resolved_at=updated_at "
@@ -230,12 +236,14 @@ class RequestsStore:
             row = decode_request_row(self._lock_request(conn, request_id))
             if row["requested_format"] == choice and row["format_revision"] == revision + 1:
                 return row, False
-            stored_format, aac_revision = ("mp3", revision + 1) if choice == "any_lossy" else (choice, None)
+            stored_format = {"any_lossy": "mp3", "any_format": "any_lossless"}.get(choice, choice)
             changed = conn.execute(
-                "UPDATE requests SET requested_format=?, aac_revision=?, format_confirmed=1, status='queued', message='', "
+                "UPDATE requests SET requested_format=?, aac_revision=?, broad_revision=?, "
+                "format_confirmed=1, status='queued', message='', "
                 "format_revision=format_revision+1, updated_at=CURRENT_TIMESTAMP "
                 "WHERE id=? AND format_revision=? AND status IN ('waiting_format','not_found','error','rejected')",
-                (stored_format, aac_revision, request_id, revision)).rowcount
+                (stored_format, revision + 1 if choice == "any_lossy" else None,
+                 revision + 1 if choice == "any_format" else None, request_id, revision)).rowcount
             if not changed:
                 raise ValueError("This request changed. Reopen it to choose a format.")
             row = conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
@@ -300,6 +308,7 @@ class RequestsStore:
         return bool(conn.execute(
             "UPDATE requests SET search_title=?, status='queued', message='', "
             "aac_revision=CASE WHEN aac_revision=format_revision THEN format_revision+1 END, "
+            "broad_revision=CASE WHEN broad_revision=format_revision THEN format_revision+1 END, "
             "updated_at=CURRENT_TIMESTAMP, format_revision=format_revision+1 "
             "WHERE id=? AND status IN ('not_found','error','rejected')",
             (search_title, request_id)).rowcount)
@@ -412,7 +421,7 @@ class RequestsStore:
             for pick in picks:
                 condition, params = self._pick_condition(*pick)
                 row = conn.execute(
-                    "SELECT id, artist, title, status, message, requested_format, format_revision, aac_revision, "
+                    "SELECT id, artist, title, status, message, requested_format, format_revision, aac_revision, broad_revision, "
                     f"audio_path, musicbrainz_id, version, performance, length, album, track_index FROM requests WHERE {condition} "
                     "ORDER BY id DESC LIMIT 1", params).fetchone()
                 if row:
@@ -461,7 +470,7 @@ class RequestsStore:
             scope = "AND track_index IS NULL " if custom_only else ""
             return [decode_request_row(row) for row in conn.execute(
                 "SELECT id, track_index, audio_path, artist, title, length, musicbrainz_id, version, performance, "
-                "requested_format, format_confirmed, format_revision, aac_revision FROM requests "
+                "requested_format, format_confirmed, format_revision, aac_revision, broad_revision FROM requests "
                 f"WHERE status='downloaded' AND audio_path != '' {scope}ORDER BY id")]
         return self._run(work)
 

@@ -363,7 +363,7 @@ class Fleet:
         if action == "status":
             installed = list(self.engines.values())
             running = self.running_containers() if any(engine["enabled"] for engine in installed) else frozenset()
-            return {"ok": True, "engines": [
+            return {"ok": True, "health_check": True, "engines": [
                 {**engine, "retry_at": self.retry_at(engine["id"]), "configured_settings": engine_settings.saved_keys(
                     self.state / engine["id"] / "credentials", engine.get("settings", [])),
                  "ready": engine["enabled"] and self.compatible(engine, release)
@@ -375,6 +375,8 @@ class Fleet:
         identity = request.get("engine")
         if not isinstance(identity, str) or not IDENTITY.fullmatch(identity):
             raise ValueError("Choose an engine.")
+        if action == "health":
+            return self.check_health(identity, release, connection)
         with self.lock:
             directory = self.state / identity
             directory.mkdir(mode=0o700, exist_ok=True)
@@ -383,6 +385,17 @@ class Fleet:
                 if action == "configure":
                     return self.configure(identity, request.get("settings"), release)
                 return self.change(identity, action, connection, release)
+
+    def check_health(self, identity, release, connection):
+        if identity not in self.engines:
+            raise ValueError("Install a compatible engine first.")
+        with (self.state / identity / ".operation").open("a") as lease:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            current = self.engines.get(identity)
+            if (not current or not current["enabled"] or not self.compatible(current, release)
+                    or self.container(identity) not in self.running_containers()):
+                raise ValueError("Enable a compatible engine.")
+            return self.acquire_worker(identity, {"version": 1, "action": "test"}, connection)
 
     def configure(self, identity, updates, release):
         engine = self.engines.get(identity)

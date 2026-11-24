@@ -149,6 +149,14 @@ internal class RoomUi(private val context: Context) {
             setOnClickListener { action() }
         }
 
+    fun actionStrip(actions: List<ImageButton>, alignEnd: Boolean = false) = HorizontalScrollView(context).apply {
+        isFillViewport = true
+        addView(row(6).apply {
+            gravity = (if (alignEnd) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
+            actions.forEach { addView(it, LinearLayout.LayoutParams(dp(48), dp(48))) }
+        }, FrameLayout.LayoutParams(-2, -2))
+    }
+
     fun transport(previous: ImageButton, play: ImageButton, next: ImageButton) = row(16).apply {
         gravity = Gravity.CENTER
         addView(previous, LinearLayout.LayoutParams(dp(48), dp(48)))
