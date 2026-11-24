@@ -464,7 +464,7 @@ The full amd64 server image ships with Sockseek at `/opt/sockseek/sockseek`. Add
 
 When a song has no playable copy, **Find on YouTube** opens an artist-and-title search from its details. You can also use it on a failed request or a Deep Dive pick.
 
-For an individual song, choose **Find copy** or enter its artist and title in **Requests**. The room saves the request immediately. Select **FLAC only**, **Apple Lossless (ALAC) only**, or **Any lossless (prefer FLAC)** and choose **Confirm and search**. **Later** keeps the song under **Requests → Choose format**, including after a restart. A retry keeps the selected format. After an unsuccessful search, **Change format** lets you confirm a different choice.
+For an individual song, choose **Find copy** or enter its artist and title in **Requests**. The room saves the request immediately. Choose **Confirm and search** to use the selected format. New requests start with **Any lossless (prefer FLAC)** selected. You can also choose **FLAC only**, **Apple Lossless (ALAC) only**, or **MP3 only**. Close the picker to choose later from **Requests**, including after a restart. After an unsuccessful search, **Change format** lets you choose again. **Try MP3** is a shortcut after a lossless search finds no copy.
 
 Bulk downloads prefer MP3 among matching results and also accept FLAC or Apple Lossless (ALAC in M4A). Change the room default in **Settings → Downloads**. In **Jobs**, choose a format for one run and the playlists to search. The room default applies to future batches when a job uses **Room default**. A job with a format override keeps that choice while queued and running. Existing recordings stay in their original format.
 

@@ -12,9 +12,10 @@ with (root / "calls.jsonl").open("a", encoding="utf8") as calls:
     calls.write(json.dumps(args) + "\n")
 if "--print" in args:
     assert "--song" in args and args[args.index("--input-type") + 1] == "string"
-    if args[0] == "Fixture - Older song":
+    if args[0] in {"Fixture - Older song", "Fixture - Direct song"}:
+        title = args[0].removeprefix("Fixture - ")
         print(json.dumps([{"User": {"Username": "mp3", "HasFreeUploadSlot": True},
-                           "File": {"Filename": "Music/Older song.mp3"}}]
+                           "File": {"Filename": f"Music/{title}.mp3"}}]
                          if args[args.index("--format") + 1] == "mp3" else []))
         sys.exit()
     assert args[0] in {"Fixture - Format fixture", "Fixture - Format fixture Live"}
@@ -25,9 +26,9 @@ if "--print" in args:
         for codec, speed in [("aac", 10), ("alac", 5)]]))
 elif args[0].startswith("slsk://"):
     codec = args[0].split("/")[2]
-    name = "Older song.mp3" if codec == "mp3" else "Format fixture.m4a"
+    name = Path(unquote_plus(args[0])).name if codec == "mp3" else "Format fixture.m4a"
     assert unquote_plus(args[0]).endswith("/Music/" + (name if codec == "mp3" else "Format fixture + 100%.m4a"))
-    source = "older.mp3" if codec == "mp3" else codec + ".m4a"
+    source = name if codec == "mp3" else codec + ".m4a"
     shutil.copyfile(root / source, Path(args[args.index("--output-dir") + 1]) / name)
 else:
     sys.exit("Unexpected Sockseek command")

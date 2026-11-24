@@ -1460,10 +1460,14 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 
 .format-dialog { width: min(390px, calc(100vw - 28px)); padding: var(--space-10); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-dialog-md); }
 .format-dialog [data-slot="dialog-title"] { margin: 0; font-size: var(--font-4xl); font-weight: var(--weight-bold); }
-.format-dialog fieldset { margin: var(--space-8) 0; padding: 0; border: 0; }
+.format-dialog-header { display: flex; align-items: center; gap: var(--space-4); }
+.format-dialog .format-dialog-header { justify-content: space-between; }
+.format-dialog fieldset { margin: var(--space-6) 0; padding: 0; border: 0; }
 .format-dialog legend { margin-bottom: var(--space-3); color: var(--muted); }
-.format-dialog label { display: flex; align-items: center; gap: var(--space-5); min-height: 44px; }
+.format-dialog label { display: flex; align-items: center; gap: var(--space-5); min-height: 44px; cursor: pointer; }
 .format-dialog input { accent-color: var(--accent); }
+.format-dialog .find-copy-sources { flex-wrap: nowrap; justify-content: space-between; font-size: var(--font-sm); }
+.format-dialog-footer { display: flex; justify-content: flex-end; padding-block-start: var(--space-5); border-top: 1px solid var(--line); }
 
 .nav-core, .nav-overflow { display: contents; }
 .playlist-banner-art, .tablet-player-toggle, .tablet-progress { display: none; }
@@ -3170,6 +3174,8 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
   border-radius: var(--radius-lg); box-shadow: var(--shadow-dialog-md);
 }
 .extensions-dialog [data-slot="dialog-title"] { margin: 0 var(--space-12) var(--space-6) 0; }
+.extensions-dialog .format-dialog-header { margin-block-end: var(--space-6); }
+.extensions-dialog .format-dialog-header [data-slot="dialog-title"] { margin: 0; }
 [data-view="extensions"] > .settings-card, .extensions-stack { max-width: 810px; }
 .extensions-stack {
   --picker-bg: var(--card); --picker-menu: var(--card); --picker-text: var(--text);

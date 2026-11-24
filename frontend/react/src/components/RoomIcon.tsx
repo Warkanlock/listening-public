@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef } from "react";
+import type { ComponentPropsWithRef } from "react";
 
 const paths = {
   back: "M20 12H4m7-7-7 7 7 7",
@@ -71,7 +71,7 @@ export function RoomIcon({ name }: { name: RoomIconName }) {
 }
 
 export function RoomIconButton({ icon, label, primary = false, ...props }:
-  Omit<ComponentPropsWithoutRef<"button">, "children" | "className"> &
+  Omit<ComponentPropsWithRef<"button">, "children" | "className"> &
   { icon: RoomIconName; label: string; primary?: boolean }) {
   const appearance = primary ? "primary-action icon-control" : "quiet-button icon-control";
   return <button type="button" className={appearance}

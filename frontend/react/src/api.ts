@@ -201,13 +201,14 @@ export function isBulkDownloadFormat(value: string | null): value is BulkDownloa
   return value !== null && Object.hasOwn(BULK_DOWNLOAD_FORMATS, value);
 }
 
-export const REQUEST_FORMATS = {
-  any_lossless: "Any lossless (prefer FLAC)",
-  flac: "FLAC only",
-  alac: "Apple Lossless (ALAC) only",
-} as const;
+export const REQUEST_FORMATS = [
+  { key: "any_lossless", label: "Any lossless (prefer FLAC)" },
+  { key: "flac", label: "FLAC only" },
+  { key: "alac", label: "Apple Lossless (ALAC) only" },
+  { key: "mp3", label: "MP3 only" },
+] as const;
 
-export type RequestFormat = keyof typeof REQUEST_FORMATS | "mp3";
+export type RequestFormat = (typeof REQUEST_FORMATS)[number]["key"];
 export type Mp3Retry = { id: number; format_revision: number };
 export type RequestSong = { track_id: number } | { artist: string; title: string; musicbrainz_id?: string; version?: string; performance?: string; album?: string; duration?: number };
 

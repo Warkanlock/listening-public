@@ -2,7 +2,7 @@ import { FindCopySources } from "./Extensions";
 import { rememberMusicSearch } from "../recentMusicSearches";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { RoomAction, RoomSelect } from "../components/RoomControls";
-import { RoomIcon, type RoomIconName } from "../components/RoomIcon";
+import { RoomIcon, RoomIconButton, type RoomIconName } from "../components/RoomIcon";
 import { AddToPlaylist } from "../components/PlaylistComposer";
 import { useStore } from "../store";
 import { api, postJson } from "../api";
@@ -179,11 +179,11 @@ function Results({ state, run, canImport }: { state: Search; canImport: boolean;
     </section>)}
     {(query.page > 0 || groups.some(group => group.more)) &&
       <nav className="discovery-pages" aria-label="Discovery pages">
-        <RoomAction type="button" disabled={query.page === 0}
-          onClick={() => run({ ...query, page: query.page - 1 })}>Previous page</RoomAction>
+        <RoomIconButton icon="back" label="Previous page" disabled={query.page === 0}
+          onClick={() => run({ ...query, page: query.page - 1 })} />
         <span>Page {query.page + 1}</span>
-        <RoomAction type="button" disabled={!groups.some(group => group.more)}
-          onClick={() => run({ ...query, page: query.page + 1 })}>Next page</RoomAction>
+        <RoomIconButton icon="forward" label="Next page" disabled={!groups.some(group => group.more)}
+          onClick={() => run({ ...query, page: query.page + 1 })} />
       </nav>}
   </div>;
 }
