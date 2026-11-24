@@ -65,7 +65,8 @@ SCHEMA = (
         message TEXT NOT NULL DEFAULT '',
         audio_path TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TEXT
     )""",
     "CREATE TABLE IF NOT EXISTS external_cache (key TEXT PRIMARY KEY, body TEXT NOT NULL, saved_at REAL NOT NULL)",
     "CREATE INDEX IF NOT EXISTS external_cache_age ON external_cache (saved_at)",
@@ -104,7 +105,7 @@ class RequestsStore:
         """
         conn = state_database.connect(self.path, SCHEMA, row_factory=sqlite3.Row)
         try:
-            required = {"format_confirmed", "version", "musicbrainz_id", "performance", "aac_revision"}
+            required = {"format_confirmed", "version", "musicbrainz_id", "performance", "aac_revision", "resolved_at"}
             if not required <= {col[1] for col in conn.execute("PRAGMA table_info(requests)")}:
                 # Another server or runner may be upgrading the same room.
                 conn.execute("BEGIN IMMEDIATE")
@@ -117,6 +118,10 @@ class RequestsStore:
                     conn.execute("ALTER TABLE requests ADD COLUMN format_confirmed INTEGER NOT NULL DEFAULT 0")
                 if "aac_revision" not in columns:
                     conn.execute("ALTER TABLE requests ADD COLUMN aac_revision INTEGER")
+                if "resolved_at" not in columns:
+                    conn.execute("ALTER TABLE requests ADD COLUMN resolved_at TEXT")
+                    conn.execute("UPDATE requests SET resolved_at=updated_at "
+                                 "WHERE status IN ('downloaded','not_found','rejected','error')")
                 for column in ("musicbrainz_id", "version", "performance"):
                     if column not in columns:
                         conn.execute(f"ALTER TABLE requests ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
@@ -265,7 +270,7 @@ class RequestsStore:
         """Record a request's outcome: status, message, and audio path."""
         def work(conn):
             conn.execute("UPDATE requests SET status=?, message=?, audio_path=?, "
-                         "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                         "updated_at=CURRENT_TIMESTAMP, resolved_at=CURRENT_TIMESTAMP WHERE id=?",
                          (status, message, audio_path, request_id))
         self._run(work)
 
@@ -343,6 +348,17 @@ class RequestsStore:
             return [decode_request_row(row) for row in conn.execute(
                 "SELECT * FROM requests WHERE status='waiting_format' OR id IN "
                 "(SELECT id FROM requests ORDER BY id DESC LIMIT ?) ORDER BY id DESC", (limit,))]
+        return self._run(work)
+
+    def download_activity(self):
+        """Recent resolved attempts and recent downloads, in outcome order."""
+        def work(conn):
+            def read(where, limit):
+                return [decode_request_row(row) for row in conn.execute(
+                    f"SELECT * FROM requests WHERE {where} "
+                    "ORDER BY coalesce(resolved_at, updated_at) DESC, id DESC LIMIT ?", (limit,))]
+            return (read("status IN ('downloaded','not_found','rejected','error')", 48),
+                    read("status='downloaded' AND message!='Already in the library'", 32))
         return self._run(work)
 
     def by_track(self):

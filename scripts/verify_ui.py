@@ -2243,7 +2243,9 @@ def verify_discovery_trail(page, screenshot):
         source = {"name": "Bandcamp", "url": "https://fixture.bandcamp.com/track/frequencies"}
         route.fulfill(json={"leads": [lead, producer] if key == studio else [], "source": source if key == live else None})
 
-    page.route("**/api/discover", lambda route: route.fulfill(json={"week": "2026-W47", "tracks": shelf}))
+    page.route("**/api/discover", lambda route: route.fulfill(json={"week": "2026-W47", "weekly_edition": "2026-11-23", "tracks": shelf}))
+    page.route("**/api/discover/weekly", lambda route: route.fulfill(json={"week": "2026-11-23", "state": "ready",
+        "can_request": True, "tracks": [{"id": seed, "title": "Weekly edition track", "artist": "Fixture Ensemble", "depth": 2}]}))
     page.route("**/api/discover/*/*", branch)
     activity = {"liked": [{"id": 1, "artist": "Massive Attack", "title": "Atlas Air"}],
                 "played": [{"id": 2, "artist": "The Smiths", "title": "Asleep"}]}
@@ -2268,6 +2270,15 @@ def verify_discovery_trail(page, screenshot):
         first.wait_for()
         board.get_by_role("region", name="Recently liked").get_by_role("button", name=re.compile("Atlas Air")).wait_for()
         board.get_by_role("link", name=re.compile("announce a live session")).wait_for()
+        cards = board.get_by_role("region", name="Recordings to hear").get_by_role("button")
+        assert cards.count() == len(shelf)
+        page.get_by_text("Week of Nov 23", exact=True).wait_for()
+        page.get_by_role("button", name="Open Weekly Discovery").click()
+        page.get_by_role("heading", name="Weekly Discovery").wait_for()
+        page.get_by_text("Weekly edition track", exact=True).wait_for()
+        assert not board.is_visible()
+        page.get_by_role("button", name="Back to Deep Dive").click()
+        first.wait_for()
         screenshot()
         liked = board.get_by_role("region", name="Recently liked").get_by_role("button", name=re.compile("Atlas Air"))
         liked.click()
@@ -2344,6 +2355,7 @@ def verify_discovery_trail(page, screenshot):
         page.set_viewport_size({"width": 1440, "height": 900})
         page.emulate_media(reduced_motion="no-preference")
         page.unroute("**/api/discover")
+        page.unroute("**/api/discover/weekly")
         page.unroute("**/api/discover/*/*")
         for pattern in ("**/api/connections/song/1", "**/api/discover/activity", "**/api/discover/press", "**/api/discover/matches?*", "**/api/search?q=Fixture*"):
             page.unroute(pattern)
@@ -3162,6 +3174,32 @@ def run_browser(server, output):
                 shot(item, "13-requests.png")
             except Exception as error:
                 item.detail = str(error)
+
+            item = surface("recent-downloads")
+            try:
+                download = {"id": 902, "track_index": 1, "title": "Verified fixture copy", "artist": "Fixture",
+                            "audio": "/api/audio/1"}
+                request_data = {"requests": [], "downloads": [download], "outcomes": []}
+                page.route("**/api/requests", lambda route: route.fulfill(json=request_data))
+                with page.expect_response(lambda response: response.url.endswith("/api/requests")):
+                    page.get_by_role("button", name="Refresh requests").click()
+                request_data["outcomes"] = [{"key": "fixture/902", "title": download["title"], "status": "downloaded"}]
+                page.get_by_role("button", name="Refresh requests").click()
+                page.get_by_text("Verified fixture copy · Ready to play", exact=True).wait_for()
+                page.get_by_role("button", name="Library", exact=True).click()
+                recent = page.get_by_role("region", name="Recent downloads")
+                play = recent.get_by_role("button", name="Play Verified fixture copy")
+                play.wait_for()
+                with page.expect_request(lambda request: request.url.endswith("/api/session") and request.method == "POST") as sent:
+                    play.click()
+                assert sent.value.post_data_json["track_id"] == 1 and sent.value.post_data_json["op"] == "play"
+                page.get_by_role("button", name="Pause", exact=True).first.click()
+                item.ok = True
+                item.detail = "Find Copy outcome notices and direct playback in the Library shelf"
+            except Exception as error:
+                item.detail = str(error)
+            finally:
+                page.unroute("**/api/requests")
 
             # -- Your listening (plan 050 step 5) -------------------------
             # The seeded history plus whatever the live session added

@@ -47,12 +47,20 @@ function Tile({ title, tone, children }: { title: string; tone?: string; childre
 }
 
 function RecordingPicks({ tracks, onOpen }: { tracks: DiscoverTrack[]; onOpen: OpenTrail }) {
-  const picks = [...tracks].sort((a, b) => Number(!!b.version) - Number(!!a.version)).slice(0, 3);
-  return <Tile title="Recordings to hear" tone="recordings">
-    {picks.map(track => <BoardLink key={track.musicbrainz_id} title={track.title}
-      note={[track.artist, track.version || track.album].filter(Boolean).join(" · ")} cover={track.cover}
-      onClick={button => onOpen({ kind: "recording", id: track.musicbrainz_id, name: track.title, label: "Weekly recording pick", track }, button)} />)}
-  </Tile>;
+  const picks = [...tracks].sort((a, b) => Number(!!b.version) - Number(!!a.version)).slice(0, 12);
+  return <section className="discovery-recordings" aria-label="Recordings to hear">
+    <h2>Recordings to hear</h2>
+    <ul>{picks.map(track => <li key={track.musicbrainz_id}>
+      <button className="discovery-recording" type="button" onClick={event => onOpen({
+        kind: "recording", id: track.musicbrainz_id, name: track.title, label: "Recording", track,
+      }, event.currentTarget)}>
+        {track.cover && <span className="discovery-recording-art"><CoverArt cover={track.cover} fallback={null} /></span>}
+        <span className="discovery-recording-info"><strong>{track.title}</strong>
+          <small>{[track.artist, track.version || track.album].filter(Boolean).join(" · ")}</small></span>
+        <RoomIcon name="chevronRight" />
+      </button>
+    </li>)}</ul>
+  </section>;
 }
 
 export function DiscoveryBoard({ onOpen }: { onOpen: OpenTrail }) {
@@ -76,7 +84,9 @@ export function DiscoveryBoard({ onOpen }: { onOpen: OpenTrail }) {
   const related = (story: Story) => artists.some(artist => words(story.title).includes(artist));
   const stories = [...(press.data?.stories ?? [])].sort((a, b) => Number(related(b)) - Number(related(a))).slice(0, 3);
   const weeklyFailed = store.discoverState === "error" || store.discoverState === "failed";
-  return <div className="discovery-board" role="region" aria-label="Discovery board">
+  return <div role="region" aria-label="Discovery board">
+    {tracks.length > 0 && <RecordingPicks tracks={tracks} onOpen={onOpen} />}
+    <div className="discovery-board">
     <Tile title="Artist trails" tone="trails">
       {shelf?.week && <p className="board-edition">{shelf.week.replace(/^(\d{4})-W(\d{2})$/, "Week $2 · $1")}</p>}
       {[...roots].map(([id, root]) => <BoardLink key={id} title={root.name} note={`Explore ${[...root.leads].slice(0, 2).join(" · ")}`}
@@ -89,7 +99,6 @@ export function DiscoveryBoard({ onOpen }: { onOpen: OpenTrail }) {
           onClick={button => onOpen({ kind: "song", id: String(song.id), name: song.title, note: song.artist, label: `Recently liked · ${song.artist}` }, button)} />)}</> :
         <BoardStatus loading={!activity.data} failed={activity.failed} retry={activity.retry} empty="Like a song to explore its credits here." />}
     </Tile>
-    {tracks.length > 0 && <RecordingPicks tracks={tracks} onOpen={onOpen} />}
     <Tile title="Recently played">
       {activity.data?.played.length ? <><p>Explore recordings beyond the room’s library.</p>
         {activity.data.played.map(song => <BoardLink key={song.id} title={song.artist} note={song.title}
@@ -110,5 +119,6 @@ export function DiscoveryBoard({ onOpen }: { onOpen: OpenTrail }) {
         <><p>Public music searches from this device will appear here.</p>
           <button className="board-browse" type="button" onClick={() => store.setView("browse")}><RoomIcon name="search" /> Browse catalogs</button></>}
     </Tile>
+    </div>
   </div>;
 }

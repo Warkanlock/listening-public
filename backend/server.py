@@ -128,9 +128,10 @@ def requests_store():
     return RequestsStore(DB)
 
 
-def recent_requests():
+def recent_requests(rows=None, *, check_audio=False):
     """Expose Play only after the playback catalog can resolve an indexed request."""
-    rows = requests_store().recent(80)
+    if rows is None:
+        rows = requests_store().recent(80)
     awaiting_catalog = []
     with ROOT_LOCK:
         for row in rows:
@@ -159,7 +160,34 @@ def recent_requests():
                     continue
                 row.update(status="searching" if preparing else "pending",
                            message="Preparing playback" if preparing else "No playable copy in the library")
+        if check_audio:
+            library, media_access = LIBRARY, MEDIA
+            paths = [(row, row["audio_path"] if row["track_index"] is None else
+                      catalog.coverage.get(row["track_index"], {}).get("path")) for row in rows if row.get("audio")]
+    if check_audio:
+        media = media_access.store()
+        available = {path: stored_audio_available(path, library, media) for path in {value for _, value in paths}}
+        for row, path in paths:
+            if not available[path]:
+                row.pop("audio")
     return rows
+
+
+def download_activity():
+    outcomes, downloads = requests_store().download_activity()
+    rows = {row["id"]: row for row in (*outcomes, *downloads)}
+    recent_requests(list(rows.values()), check_audio=True)
+    recent = {}
+    for item in downloads:
+        row = rows[item["id"]]
+        if row.get("audio"):
+            identity = row["audio"] if row["track_index"] is not None else row["musicbrainz_id"] or row["audio_path"]
+            recent.setdefault(identity, {name: row[name] for name in
+                              ("id", "title", "artist", "track_index", "audio")})
+    return {"downloads": list(recent.values())[:8], "outcomes": [
+        {"key": f"{row['id']}/{row['status']}/{row['format_revision']}/{row['resolved_at'] or row['updated_at']}",
+         "title": row["title"], "status": row["status"]}
+        for item in outcomes if (row := rows[item["id"]]).get("audio") or row["status"] in {"not_found", "rejected", "error"}]}
 
 
 def catalog_store():
@@ -2802,7 +2830,7 @@ class Handler(BaseHTTPRequestHandler):
                 tracks = [item for item in shelf["tracks"] if not known.contains(item)]
                 keys = [(item["artist"], item["title"], item["musicbrainz_id"]) for item in tracks]
                 picks = requests_store().for_picks(keys)
-                return self.json_response({**shelf, "tracks": [
+                return self.json_response({**shelf, "weekly_edition": weekly.week(), "tracks": [
                     {**item, "request": picks.get(key)} for item, key in zip(tracks, keys)]})
             except (OSError, urllib.error.HTTPError, ValueError, TimeoutError):
                 return self.error_json("Deep Dive is unavailable right now", HTTPStatus.SERVICE_UNAVAILABLE)
@@ -2947,6 +2975,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.get_tracks(parse_qs(parsed.query), profile)
         if path == "/api/requests":
             params = parse_qs(parsed.query, keep_blank_values=True)
+            if "activity" in params:
+                return self.json_response(download_activity())
             if "title" in params:
                 pick = (params.get("artist", [""])[0], params["title"][0])
                 if not pick[1] or any(len(value) > 200 for value in pick):
@@ -2955,7 +2985,7 @@ class Handler(BaseHTTPRequestHandler):
                     pick += (params["musicbrainz_id"][0],)
                 row = requests_store().for_picks([pick]).get(pick)
                 return self.json_response({"requests": [row] if row else []})
-            return self.json_response({"requests": recent_requests()})
+            return self.json_response({"requests": recent_requests(), **download_activity()})
         if path.startswith("/api/replica/audio/"):
             return self.serve_audio(path.replace("/api/replica/", "/api/", 1), replica=True)
         if path.startswith("/api/audio/"):
