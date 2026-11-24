@@ -180,7 +180,7 @@ copying the library and application folders.
 | Downloads | Connect Soulseek and choose whether to download new songs automatically. |
 | Spotify | Connect, sync, or disconnect your Spotify account. |
 | Playback | Set crossfade and volume normalization on this device. |
-| Radio | Manage the room’s saved YouTube mixes. |
+| Radio | Choose the room’s SomaFM stations and manage saved YouTube mixes. |
 | Devices | Pair browsers, name them, and send announcements. |
 | Sharing | Offer a folder back to Soulseek with Nicotine+. |
 | Storage | Change the Library folder and export or import host settings. |
@@ -295,7 +295,9 @@ automatically searches new catalog entries.
 
 Choose a library genre to shuffle verified songs on this device. In the browser and Mac app, the station plays each song once before reshuffling. Android can play a shuffled library station while connected to a room. Generated white or brown noise is available in the web player.
 
-Room owners can enable **YouTube mixes** and **SomaFM** independently in **Settings → Extensions** or with `listening extensions radio`. For a YouTube mix, add the videos in the room's Radio settings. Configuring a YouTube API key also enables search for a room that has opted into YouTube. Disabling a provider hides its stations and blocks starting or resuming them. Saved station definitions are available again when that provider is re-enabled.
+Room owners can enable **YouTube mixes** and **SomaFM** independently in **Settings → Extensions** or with `listening extensions radio`. To choose SomaFM channels, open **Radio → Manage SomaFM** or **Settings → Radio**. Add a channel, use the menu next to a station to change its stream, or remove a station, then choose **Save SomaFM settings**. On Android, the Radio shortcut opens the room’s settings in your browser.
+
+For a YouTube mix, add the videos in the room’s Radio settings. Configuring a YouTube API key also enables search for a room that has opted into YouTube. Disabling a provider hides its stations and blocks starting or resuming them. Saved station definitions are available again when that provider is re-enabled.
 
 ## Browse catalogs
 
