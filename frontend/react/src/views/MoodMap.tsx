@@ -156,8 +156,11 @@ export function MoodMap() {
       <h1>How do you feel?</h1>
       <p>Tap to play. Drag between moods to blend them.</p>
     </div>
-      {selection && <RoomAction icon="settings" aria-expanded={settingsOpen} aria-controls="mood-settings"
-        onClick={() => setSettingsOpen(open => !open)}>Map settings</RoomAction>}
+      <div className="settings-actions">
+        <RoomAction icon="listen" onClick={() => store.setView("activities")}>Activities</RoomAction>
+        {selection && <RoomAction icon="settings" aria-expanded={settingsOpen} aria-controls="mood-settings"
+          onClick={() => setSettingsOpen(open => !open)}>Map settings</RoomAction>}
+      </div>
     </header>
     {mix && point ? <div className="mood-layout">
       <section className="mood-settings" id="mood-settings" aria-label="Map settings" hidden={!settingsOpen}>

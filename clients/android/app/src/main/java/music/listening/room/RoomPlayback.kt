@@ -229,7 +229,7 @@ class RoomPlayback : MediaSessionService() {
             val homeWifi = intent.getBooleanExtra("home_wifi", false)
             if (op != "snapshot") intentSequence++
             when (op) {
-                "play_mood" -> tuneMood(body)
+                "play_mood", "play_activity" -> tuneMix(op, body)
                 "radio_start" -> Room.load(this, homeWifi = homeWifi)?.let {
                     startLibraryRadio(it, body.getString("genre"))
                 }
@@ -270,11 +270,11 @@ class RoomPlayback : MediaSessionService() {
         return super.onStartCommand(intent, flags, startId)
     }
 
-    private fun tuneMood(fields: JSONObject) {
+    private fun tuneMix(op: String, fields: JSONObject) {
         val target = room ?: return
         val sequence = intentSequence
         network.execute {
-            val result = runCatching { target.action("play_mood", fields) }
+            val result = runCatching { target.action(op, fields) }
             main.post {
                 if (closed || sequence != intentSequence) return@post
                 result.onSuccess { value ->

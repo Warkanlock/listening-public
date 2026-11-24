@@ -433,7 +433,7 @@ export class SessionSlice {
   ): Promise<boolean> {
     if (!this.presenceActive) return false;
     if (this.followingJam) {
-      if (op === "pause" || ["play", "play_available", "play_request", "play_requests", "play_mood", "play_album"].includes(op)) {
+      if (op === "pause" || ["play", "play_available", "play_request", "play_requests", "play_mood", "play_album", "play_activity"].includes(op)) {
         this.leaveJam();
         if (op === "pause") return true;
       } else {
@@ -467,7 +467,7 @@ export class SessionSlice {
       fields = { ...fields, position: sampled, expected_version: playing.version,
         expected_occurrence: playing.occurrence, expected_ref: playing.current_ref };
     }
-    const startsMusic = ["play", "play_available", "play_request", "play_requests", "play_mood", "play_album", "jump", "next", "previous", "resume"].includes(op)
+    const startsMusic = ["play", "play_available", "play_request", "play_requests", "play_mood", "play_album", "play_activity", "jump", "next", "previous", "resume"].includes(op)
       && fields.expected_ref == null;
     const selectsHere = op === "outputs" && Array.isArray(fields.devices) && fields.devices.includes(this.outputId);
     const applyLocal = () => {

@@ -59,6 +59,7 @@ export type View =
   | "discover"
   | "browse"
   | "moods"
+  | "activities"
   | "my-devices"
   | "requests"
   | "jobs"
