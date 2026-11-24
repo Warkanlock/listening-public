@@ -27,6 +27,7 @@ from catalog.genres import GENRE_SCHEMA
 from catalog.moods import SCHEMA as MOOD_SCHEMA
 from catalog.lengths import LENGTHS_SCHEMA
 from downloads.requests_store import SCHEMA as REQUEST_SCHEMA
+from downloads.requests_store import decode_request_row
 from downloads.verification import judge_claim, probe
 from library.library_protocol import SUPPORTED
 from catalog import legacy_spoken
@@ -184,7 +185,7 @@ def _request_claim(db, kind, idx):
     if kind != "request":
         return None
     cursor = db.execute("SELECT * FROM requests WHERE id=?", (idx,))
-    return dict(zip((column[0] for column in cursor.description), cursor.fetchone()))
+    return decode_request_row(zip((column[0] for column in cursor.description), cursor.fetchone()))
 
 
 def _files_and_claims(db, library):

@@ -28,6 +28,19 @@ class BulkDownloadVerificationTests(unittest.TestCase):
                 self.assertFalse(judge_bulk_download("Sample song", 240, {**media, **change}, ".mp3").ok)
                 self.assertFalse(judge_download("Sample song", 240, {**media, **change}, ".mp3", "mp3").ok)
 
+    def test_lossy_requests_accept_mp3_and_aac_with_a_verified_audio_bitrate(self):
+        media = {"bitrate": 300_000, "stream_bitrate": 200_000, "duration": 240.0,
+                 "title": "Sample song", "codec": "aac", "container": "mov,mp4,m4a"}
+        self.assertTrue(judge_download("Sample song", 240, media, ".M4A", "any_lossy").ok)
+        mp3 = {**media, "codec": "mp3", "container": "mp3"}
+        self.assertTrue(judge_download("Sample song", 240, mp3, ".mp3", "any_lossy").ok)
+        self.assertFalse(judge_download("Sample song", 240, media, ".m4a", "mp3").ok)
+        self.assertFalse(judge_download("Sample song", 240, media, ".m4a", "any_lossless").ok)
+        for change in ({"codec": "alac"}, {"container": "aac"}, {"stream_bitrate": 191_999},
+                       {"duration": 245.6}, {"title": "Different recording"}, {"title": "Track 7"}, {"title": ""}):
+            with self.subTest(change=change):
+                self.assertFalse(judge_download("Sample song", 240, {**media, **change}, ".m4a", "any_lossy").ok)
+
 
 class DiscoveryCopyTests(unittest.TestCase):
     def test_title_words_alone_are_not_version_evidence(self):
