@@ -1977,6 +1977,23 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
   .now-playing-controls { gap: var(--space-6); }
 }
 
+.weekly-discovery {
+  padding: clamp(16px, 2vw, 28px); margin-bottom: var(--space-10);
+  border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-tint);
+}
+.weekly-discovery-header { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: var(--space-6); }
+.weekly-discovery-header h2 { margin: 0 0 var(--space-3); font-size: clamp(1.4rem, 2.6vw, 2.25rem); letter-spacing: var(--tracking-tight); }
+.weekly-discovery-header p { margin: 0; color: var(--muted); max-width: 54ch; }
+.weekly-discovery-actions { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.weekly-discovery-tracks { margin: var(--space-7) 0; padding: 0; list-style: none; border-block-start: 1px solid var(--line); }
+.weekly-discovery-tracks li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-5);
+  align-items: center; min-height: 48px; padding-block: var(--space-3); border-block-end: 1px solid var(--line);
+}
+.weekly-discovery-tracks strong, .weekly-discovery-tracks small { display: block; overflow-wrap: anywhere; }
+.weekly-discovery-tracks small { color: var(--muted); }
+.weekly-discovery-tracks li > small { text-align: end; max-width: 12ch; }
+
 /* Variable-height columns keep the reading and tab order together. */
 .discovery-board { columns: 19rem 3; column-gap: clamp(12px, 1.6vw, 24px); }
 .discovery-tile {

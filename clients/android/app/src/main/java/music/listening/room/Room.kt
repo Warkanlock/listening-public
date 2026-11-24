@@ -2,6 +2,7 @@ package music.listening.room
 
 import android.content.Context
 import android.os.Build
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpCookie
@@ -214,6 +215,8 @@ internal class Room(val origin: String, val id: String, private val token: Strin
     }
 
     fun get(path: String) = request(path)
+    fun requestWeeklySongs(ids: List<String>) =
+        request("/api/discover/weekly", JSONObject().put("ids", JSONArray(ids)))
     fun searchCatalog(query: JSONObject, onCall: (Call) -> Unit) =
         request("/api/discovery/search", query, onCall = onCall)
     fun importCatalogSong(item: JSONObject) = request("/api/discovery/import", JSONObject()
