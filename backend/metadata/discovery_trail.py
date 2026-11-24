@@ -77,9 +77,12 @@ class LibraryRecordings:
     def __init__(self, records):
         self.ids = set()
         self.legacy = {}
+        self.song_titles = set()
         for row in records:
             if not row.get("active", True):
                 continue
+            key = (credit_key(row["artist"]), credit_key(row["title"]))
+            self.song_titles.add(key)
             identity = row.get("musicbrainz_id")
             if not valid_id(identity):
                 uri = (row.get("uri") or row.get("identifier") or "").lower()
@@ -88,8 +91,12 @@ class LibraryRecordings:
             if valid_id(identity):
                 self.ids.add(identity)
             else:
-                key = (credit_key(row["artist"]), credit_key(row["title"]))
                 self.legacy.setdefault(key, []).append(row)
+
+    def contains_song(self, track):
+        """Match the song regardless of a different edition's recording ID."""
+        key = (credit_key(track["artist"]), credit_key(track["title"]))
+        return key in self.song_titles or self.contains(track)
 
     def contains(self, track):
         if track["musicbrainz_id"] in self.ids:
