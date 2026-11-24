@@ -238,6 +238,26 @@ class FormatSelectionTests(StoreTestCase):
         self.assertTrue(released)
         self.assertEqual((second["requested_format"], second["status"]), ("mp3", "queued"))
 
+    def test_aac_preference_survives_restarts_and_new_retries_with_a_compatible_stored_format(self):
+        pending, _ = self.create()
+        request_id = pending["id"]
+        row, released = self.store.confirm_format(request_id, "any_lossy", 0)
+        self.assertTrue(released)
+        self.assertEqual(row["requested_format"], "any_lossy")
+        self.assertEqual(self.store.confirm_format(request_id, "any_lossy", 0), (row, False))
+        self.store.finish(request_id, "not_found", "No copy found", "")
+        self.assertTrue(self.store.retry(request_id, "Broader search"))
+        reopened = RequestsStore(self.path)
+        self.assertEqual(reopened.queued(1)[0]["requested_format"], "any_lossy")
+        self.store.finish(request_id, "downloaded", "Ready to play", "song.m4a")
+        self.assertEqual(reopened.downloaded_audio()[0]["requested_format"], "any_lossy")
+        with closing(sqlite3.connect(self.path)) as old_room, old_room:
+            self.assertEqual(old_room.execute(
+                "SELECT requested_format FROM requests WHERE id=?", (request_id,)).fetchone(), ("mp3",))
+            old_room.execute("UPDATE requests SET requested_format='mp3', format_revision=format_revision+1 WHERE id=?",
+                             (request_id,))
+        self.assertEqual(reopened.get(request_id)["requested_format"], "mp3")
+
 
 class LookupTests(StoreTestCase):
     """The server's former call patterns, through the store's operations."""

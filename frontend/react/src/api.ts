@@ -205,6 +205,7 @@ export const REQUEST_FORMATS = [
   { key: "any_lossless", label: "Any lossless (prefer FLAC)" },
   { key: "flac", label: "FLAC only" },
   { key: "alac", label: "Apple Lossless (ALAC) only" },
+  { key: "any_lossy", label: "MP3 or AAC (prefer MP3)" },
   { key: "mp3", label: "MP3 only" },
 ] as const;
 

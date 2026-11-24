@@ -18,6 +18,11 @@ if "--print" in args:
                            "File": {"Filename": f"Music/{title}.mp3"}}]
                          if args[args.index("--format") + 1] == "mp3" else []))
         sys.exit()
+    if args[0] == "Fixture - AAC fallback":
+        formats = args[args.index("--format") + 1].split(",")
+        print(json.dumps([{"User": {"Username": "aac-fallback", "HasFreeUploadSlot": True},
+                           "File": {"Filename": "Music/AAC fallback.m4a"}}] if "m4a" in formats else []))
+        sys.exit()
     assert args[0] in {"Fixture - Format fixture", "Fixture - Format fixture Live"}
     # Prefer the fast AAC peer: both advertise an identical M4A filename.
     print(json.dumps([
@@ -26,9 +31,10 @@ if "--print" in args:
         for codec, speed in [("aac", 10), ("alac", 5)]]))
 elif args[0].startswith("slsk://"):
     codec = args[0].split("/")[2]
-    name = Path(unquote_plus(args[0])).name if codec == "mp3" else "Format fixture.m4a"
-    assert unquote_plus(args[0]).endswith("/Music/" + (name if codec == "mp3" else "Format fixture + 100%.m4a"))
-    source = name if codec == "mp3" else codec + ".m4a"
+    individual = codec in {"mp3", "aac-fallback"}
+    name = Path(unquote_plus(args[0])).name if individual else "Format fixture.m4a"
+    assert unquote_plus(args[0]).endswith("/Music/" + (name if individual else "Format fixture + 100%.m4a"))
+    source = name if individual else codec + ".m4a"
     shutil.copyfile(root / source, Path(args[args.index("--output-dir") + 1]) / name)
 else:
     sys.exit("Unexpected Sockseek command")
