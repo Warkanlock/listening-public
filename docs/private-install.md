@@ -144,7 +144,7 @@ docker compose exec listening-room /app/listening account revoke-stream-key KEY_
 
 The CLI displays the key at creation. The adapter supports ping, artist and album browsing, song search, shared playlists, and original audio with byte-range seeking. Key access is limited to verified music. Use the key over private HTTPS or your VPN, and configure any proxy to omit or redact the query string on `/rest/` requests. OpenSubsonic carries the key in that query string. [OpenSubsonic API key authentication](https://opensubsonic.github.io/docs/extensions/apikeyauth/)
 
-For connection drops, set **Buffer ahead** in Listening's playback settings on the device. The web player, Mac app and Android room app keep the current track and one to three upcoming tracks while the player is open. For OpenSubsonic players, use the player's own offline downloads or queue prefetch settings.
+For connection drops, set **Buffer ahead** in Listening's playback settings on the device. The web player, Mac app and Android room app keep the current track and one to three upcoming tracks while the player is open. On Android, this buffering uses unmetered Wi-Fi or Ethernet. For OpenSubsonic players, use the player's own offline downloads or queue prefetch settings.
 
 ## Choose how devices reach the room
 
