@@ -44,7 +44,12 @@ internal class QueueAudioBuffer(context: Context) {
             if (url !in wanted || files[url]?.isFile != true) files.remove(url)?.delete()
         }
         if (fetching !in wanted) transfer?.cancel()
-        if (!filling && wanted.any { it !in files && it !in unavailable }) {
+        if (wanted.none { it !in files && it !in unavailable }) return
+        if (!room.network.allowsQueueBuffering()) {
+            transfer?.cancel()
+            return
+        }
+        if (!filling) {
             filling = true
             worker.execute { fill(room) }
         }
@@ -54,6 +59,7 @@ internal class QueueAudioBuffer(context: Context) {
         val attempted = mutableSetOf<String>()
         try {
             while (true) {
+                if (!room.network.allowsQueueBuffering()) return
                 val (url, remaining) = synchronized(this) {
                     val next = wanted.firstOrNull { it !in files && it !in unavailable && it !in attempted } ?: return
                     next to LIMIT - files.values.sumOf(File::length)
@@ -83,7 +89,8 @@ internal class QueueAudioBuffer(context: Context) {
     }
 
     private fun download(room: Room, url: String, remaining: Long): File? {
-        val call = room.network.newCall(Request.Builder().url(url).header("Cookie", room.cookieHeader).build())
+        val request = Request.Builder().url(url).header("Cookie", room.cookieHeader).build()
+        val call = room.network.newQueueBufferingCall(request)
         synchronized(this) {
             if (closed || url !in wanted) return null
             fetching = url
