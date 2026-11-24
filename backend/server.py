@@ -69,7 +69,7 @@ from downloads.verification import PROBE_CACHE_VERSION, probe
 from metadata.artist_connections import ArtistConnections, CONNECTION_PATH, ConnectionsBusy, valid_id
 from metadata.music_profiles import PROFILE_PATH, MusicProfiles
 from metadata.external_metadata import ExternalMetadata
-from metadata import discovery_board, discovery_trail
+from metadata import discovery_board, discovery_trail, weekly_discovery
 from library.library_protocol import (SUPPORTED, canonicalize_directory, canonicalize_source, migrate_legacy_lists, parse_list,
                               playlist_title, portable_m3u8, read_list, track_key, write_csv, write_xspf,
                               xspf_files)
@@ -990,6 +990,16 @@ def resolve_ref(ref):
     return audio_resolution.resolve_ref(ref, catalog, requests_store())
 
 
+def stored_audio_available(path, library, media):
+    if is_blob_ref(path):
+        return media is not None and media.has(blob_key(path))
+    return audio_resolution.resolve_stored(path, library) is not None
+
+
+def weekly_audio_format(row):
+    return row["requested_format"] in {"any_lossy", "mp3"}
+
+
 # The descriptive probe fields the player's quality readout and the
 # Normalize setting consume (plan 042 stage 6): the file's codec,
 # sample rate, and bit depth, and its ReplayGain values. Descriptive
@@ -1099,6 +1109,15 @@ def ready_tracks_by_genre():
 def selected_playback_tracks(body, *, custom=True):
     if body.get("op") == "play_mood":
         return mood_queue(body)
+    if body.get("op") == "play_requests":
+        ids = body.get("request_ids")
+        if (not custom or not isinstance(ids, list) or not 1 <= len(ids) <= weekly_discovery.MAX_TRACKS
+                or any(type(item) is not int or not 0 < item < 10**18 for item in ids)):
+            raise ValueError("Choose verified requests from the weekly playlist.")
+        store, media = requests_store(), MEDIA.store()
+        return [f"custom-{item}" for item in dict.fromkeys(ids)
+                if (row := store.downloaded_custom(item)) and weekly_audio_format(row)
+                and stored_audio_available(row["audio_path"], LIBRARY, media)]
     if body.get("op") != "play_album":
         return None
     refs = body.get("track_ids")
@@ -1233,6 +1252,7 @@ spotify = None  # Built by init().
 
 metadata = None  # Built by init().
 artist_connections = None
+weekly = None
 
 
 updater = None  # Built by init().
@@ -2289,6 +2309,70 @@ class Handler(BaseHTTPRequestHandler):
                       "channels": SOMAFM_CHANNELS, "stations": live_stations_from(SETTINGS)}
         return self.json_response(result)
 
+    def _weekly_discovery(self, body=None):
+        try:
+            if body is not None:
+                if not isinstance(body, dict):
+                    raise ValueError("Choose weekly discovery tracks.")
+                ids = body.get("ids")
+                if (not isinstance(ids, list) or not 1 <= len(ids) <= weekly_discovery.MAX_TRACKS
+                        or not all(valid_id(identity) for identity in ids)):
+                    raise ValueError("Choose weekly discovery tracks.")
+                ids = set(ids)
+                if not download_ready():
+                    return self.error_json("Set up a download source in Extensions first.",
+                                           HTTPStatus.SERVICE_UNAVAILABLE)
+                with ROOT_LOCK:
+                    if update_draining():
+                        return self.error_json("The room is restarting. Try again shortly.",
+                                               HTTPStatus.SERVICE_UNAVAILABLE)
+                    store = requests_store()
+                    cache = RequestsStore(host_database(DB, STATE))
+                    tracks = weekly.saved(cache, str(ROOT), weekly.week())
+                    if not tracks or ids - {track["id"] for track in tracks}:
+                        return self.error_json("Reload the current weekly playlist before requesting tracks.",
+                                               HTTPStatus.CONFLICT)
+                    known = metadata.discovery_index(catalog)
+                    downloaded = discovery_trail.LibraryRecordings(store.downloaded_audio(custom_only=True))
+                    queued = store.queue_weekly([track for track in tracks
+                                                 if track["id"] in ids and not known.contains_song(track)
+                                                 and not downloaded.contains_song(track)])
+                if queued:
+                    start_worker("requests", force=True)
+                return self.json_response({"queued": queued, "existing": len(ids) - queued})
+
+            with ROOT_LOCK:
+                store = requests_store()
+                cache = RequestsStore(host_database(DB, STATE))
+                current = catalog
+                library, media = LIBRARY, MEDIA.store()
+                snapshot = weekly.status(cache, store, str(ROOT), current, play_events)
+            tracks = snapshot["tracks"]
+            result = []
+            if tracks:
+                by_recording = [(track["artist"], track["title"], track["id"]) for track in tracks]
+                legacy = [key[:2] for key in by_recording]
+                rows = store.for_picks([*by_recording, *legacy], include_audio_path=True)
+                known = metadata.discovery_index(current)
+                downloaded = discovery_trail.LibraryRecordings(store.downloaded_audio(custom_only=True))
+                for track, key in zip(tracks, by_recording):
+                    row = rows.get(key) or rows.get(key[:2])
+                    request = {field: row[field] for field in ("id", "status")} if row else None
+                    if row and row["status"] == "downloaded":
+                        if not stored_audio_available(row["audio_path"], library, media):
+                            request["status"] = "missing"
+                        elif weekly_audio_format(row):
+                            request["audio"] = f"/api/audio/custom/{row['id']}"
+                    result.append({**track, "request": request, "in_library": (
+                        known.contains_song(track) or downloaded.contains_song(track)
+                    )})
+            return self.json_response({**snapshot, "tracks": result,
+                                       "can_request": bool(tracks) and download_ready()})
+        except ValueError as error:
+            return self.error_json(str(error))
+        except (OSError, sqlite3.Error):
+            return self.error_json("Weekly Discovery is temporarily unavailable.", HTTPStatus.SERVICE_UNAVAILABLE)
+
     def _extensions(self, body=None):
         if not self._is_owner():
             return self.error_json("Only the room owner can manage extensions.", HTTPStatus.FORBIDDEN)
@@ -2704,6 +2788,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error_json("MusicBrainz search is unavailable right now", HTTPStatus.SERVICE_UNAVAILABLE)
         if path == "/api/discover/activity":
             return self.json_response(discovery_board.listening_activity(catalog, favorites, play_events))
+        if path == weekly_discovery.PATH:
+            return self._weekly_discovery()
         if path == "/api/discover/press":
             try:
                 return self.json_response(discovery_board.weekly_press(metadata))
@@ -2998,7 +3084,7 @@ class Handler(BaseHTTPRequestHandler):
         profile = self._member_profile() if not account_action else None
         if profile is not None and self.path not in MEMBER_POST:
             return self.error_json("This action is unavailable to household members.", HTTPStatus.FORBIDDEN)
-        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {"/api/radio/presence", "/api/radio/somafm", "/api/extensions", "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
+        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {weekly_discovery.PATH, "/api/radio/presence", "/api/radio/somafm", "/api/extensions", "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
                              "/api/sync", "/api/import-csv", "/api/import-list", "/api/import-bundle", "/api/device", "/api/devices/revoke", "/api/devices/offline", "/api/devices/invites", "/api/pairing/rotate",
                              "/api/announcements", "/api/process", "/api/jobs", "/api/open-source", "/api/playlists/merge",
                              "/api/playlists/add-song", "/api/discovery/import", "/api/devices/playlist-access",
@@ -3045,6 +3131,10 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 return self.error_json("Send a JSON object.")
             return self._personal_data(self.path, {}, body)
+        if self.path == weekly_discovery.PATH:
+            if not isinstance(body, dict):
+                return self.error_json("Choose weekly discovery tracks.")
+            return self._weekly_discovery(body)
         if self.path == "/api/discovery/import":
             if not self._can_add_room_song():
                 return self.error_json("Ask the room owner for playlist access to import songs.", HTTPStatus.FORBIDDEN)
@@ -4074,7 +4164,7 @@ def init(config_path=None):
     """
     global CONFIG, CONFIG_PATH, SETTINGS, ROOT, STATE, LIBRARY, PLAYLIST_OUTPUT
     global DB, RUNNER_LOG
-    global SUPERVISOR, REFRESH, MEDIA, catalog, playback, play_events, favorites, spotify, metadata, updater, jobs, device_store, artist_connections
+    global SUPERVISOR, REFRESH, MEDIA, catalog, playback, play_events, favorites, spotify, metadata, updater, jobs, device_store, artist_connections, weekly
     global owner_auth, member_profiles, ROOM_ORIGIN, REQUIRE_OWNER, jams, UPDATE_DRAIN_UNTIL, RADIO_PLAYERS, music_profiles
     jams = JamDirectory()
     REQUIRE_OWNER = os.environ.get("LISTENING_ROOM_REQUIRE_OWNER") == "1"
@@ -4130,6 +4220,7 @@ def init(config_path=None):
                           lambda: source_dir(), spotify_library_changed, on_remove=spotify_source_removed, database=DB)
     metadata = ExternalMetadata(lambda: RequestsStore(host_database(DB, STATE)))
     artist_connections = ArtistConnections(metadata)
+    weekly = weekly_discovery.WeeklyDiscovery(metadata, artist_connections)
     music_profiles = MusicProfiles(artist_connections)
     updater = Updater(REPO_ROOT)
     jobs = Jobs(queue=JobQueue(host_database(DB, STATE)), worker_running=worker_running,
