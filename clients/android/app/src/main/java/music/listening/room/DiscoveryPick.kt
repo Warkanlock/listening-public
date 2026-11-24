@@ -1,7 +1,12 @@
 package music.listening.room
 
 import android.app.Activity
-import android.app.AlertDialog
+import android.content.res.ColorStateList
+import android.view.Gravity
+import android.view.View
+import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import org.json.JSONObject
 
@@ -52,20 +57,56 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
         status !in listOf("queued", "searching", "waiting_space", "downloaded") -> action("Find a copy", onRequest)
     }
     if (status != "downloaded") with(ui) {
-        info.section(button("View download sources") { showRoomExtensions(room) }, gap = 6)
+        info.section(row().apply {
+            addView(iconButton("View extensions", Mark.EXTENSIONS) { showRoomExtensions(room) })
+        }, gap = 6)
     }
     window.show()
 }
 
 internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm: (String) -> Unit) {
-    val keys = listOf("any_lossless", "flac", "alac")
-    var selected = keys.indexOf(row.optString("requested_format")).coerceAtLeast(0)
-    AlertDialog.Builder(this).setTitle("Choose format")
-        .setSingleChoiceItems(arrayOf("Any lossless (prefer FLAC)", "FLAC only", "Apple Lossless (ALAC) only"), selected) { _, i -> selected = i }
-        .setNeutralButton("Extensions", null)
-        .setNegativeButton("Later", null)
-        .setPositiveButton("Confirm and search") { _, _ -> confirm(keys[selected]) }.show().apply {
-            // Keep the chosen format and the request open while checking sources.
-            getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { showRoomExtensions(room) }
-        }
+    val options = listOf(
+        "any_lossless" to "Any lossless (prefer FLAC)", "flac" to "FLAC only",
+        "alac" to "Apple Lossless (ALAC) only", "mp3" to "MP3 only",
+    )
+    val ui = RoomUi(this)
+    val style = SongDetailsStyle(ui)
+    val content = style.column()
+    val dialog = style.dialog(this, "Choose format", ScrollView(this).apply { addView(content) },
+        artist = listOf(row.optString("title"), row.optString("artist")).filter { it.isNotBlank() }.joinToString(" · "),
+        closeLabel = "Later")
+    val choices = RadioGroup(this)
+    val ids = options.map { View.generateViewId() }
+    for ((index, option) in options.withIndex()) choices.addView(RadioButton(this).apply {
+        id = ids[index]
+        text = option.second
+        textSize = 16f
+        setTextColor(ui.ink)
+        buttonTintList = ColorStateList.valueOf(ui.accent)
+        minimumHeight = ui.dp(48)
+    }, RadioGroup.LayoutParams(-1, -2))
+    choices.check(ids[options.indexOfFirst { it.first == row.optString("requested_format") }.coerceAtLeast(0)])
+    with(ui) {
+        content.section(label("Audio format to search for", color = secondary), gap = 4)
+        content.section(choices)
+        content.section(row(8).apply {
+            addView(label("Download sources are configured in Extensions.", 14f, secondary), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconButton("View extensions", Mark.EXTENSIONS) { showRoomExtensions(room, backLabel = "Back to format") })
+        })
+        content.section(line(), gap = 8)
+        content.section(row().apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            addView(button("Search", solid = true) {
+                val selected = options[ids.indexOf(choices.checkedRadioButtonId)].first
+                dialog.dismiss()
+                confirm(selected)
+            }.apply {
+                contentDescription = "Confirm and search"
+                val search = mark(Mark.SEARCH, 18, onAccent).apply { setTintList(textColors) }
+                setCompoundDrawablesRelative(search, null, null, null)
+                compoundDrawablePadding = dp(6)
+            })
+        })
+    }
+    dialog.show()
 }

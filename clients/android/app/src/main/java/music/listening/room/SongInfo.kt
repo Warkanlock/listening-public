@@ -77,7 +77,9 @@ internal fun RoomUi.showSongInfo(activity: Activity, room: Room, track: JSONObje
         if (findCopy != null) {
             val label = if (track.optJSONObject("mp3_retry") == null) "Find a copy" else "Try MP3"
             actions.section(button(label, solid = true) { dialog.dismiss(); findCopy() }, gap = 6)
-            actions.section(button("View download sources") { activity.showRoomExtensions(room) }, gap = 6)
+            actions.section(row().apply {
+                addView(iconButton("View extensions", Mark.EXTENSIONS) { activity.showRoomExtensions(room) })
+            }, gap = 6)
         }
         actions.section(button("Find on YouTube") { openYouTube(context, artist, title) }, gap = 6)
     }
