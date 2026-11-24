@@ -183,19 +183,39 @@ function Explorer({ tracks, start, onBack }: { tracks: DiscoverTrack[]; start: T
 export function DeepDive() {
   const store = useStore();
   const [start, setStart] = useState<TrailStop | null>(null);
+  const [weekly, setWeekly] = useState(false);
   const origin = useRef<HTMLElement | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   useLayoutEffect(() => {
-    if (!start && origin.current) {
+    if (weekly) heading.current?.focus();
+    if (!start && !weekly && origin.current) {
       (origin.current.isConnected ? origin.current : heading.current)?.focus();
       origin.current = null;
     }
-  }, [start]);
+  }, [start, weekly]);
+  if (weekly) return <section className="view">
+    <header className="listening-view-head">
+      <div className="weekly-page-title">
+        <RoomIconButton icon="back" label="Back to Deep Dive" onClick={() => setWeekly(false)} />
+        <h1 ref={heading} tabIndex={-1}>Weekly Discovery</h1>
+      </div>
+    </header>
+    <WeeklyDiscovery />
+  </section>;
+  const weeklyEdition = store.discover?.weekly_edition;
+  const monday = weeklyEdition && new Date(weeklyEdition + "T00:00:00Z");
+  const edition = monday ? Math.floor(monday.valueOf() / (7 * 86400000)) % 3 : 0;
   return <section className="view">
-    <header className="listening-view-head"><div><h1 ref={heading} tabIndex={-1}>Deep Dive</h1>
-      <p>{start ? "Follow a connection to a recording outside your library." : "Discover music through the room’s listening and this week’s music press."}</p></div></header>
+    <header className="listening-view-head"><h1 ref={heading} tabIndex={-1}>Deep Dive</h1></header>
     <div hidden={!!start}>
-      <WeeklyDiscovery />
+      <aside className="weekly-entry" data-edition={edition} aria-label="Weekly Discovery">
+        <div><h2>Weekly Discovery</h2>{monday && <p>Week of <time dateTime={weeklyEdition}>
+          {monday.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}</time></p>}</div>
+        <RoomIconButton icon="chevronRight" label="Open Weekly Discovery" onClick={() => {
+          origin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          setWeekly(true);
+        }} />
+      </aside>
       <DiscoveryBoard onOpen={(stop, button) => { origin.current = button; setStart(stop); }} />
     </div>
     {start && <Explorer start={start} tracks={store.discoverState === "ready" ? store.discover?.tracks ?? [] : []} onBack={() => setStart(null)} />}

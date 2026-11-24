@@ -43,15 +43,15 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
                 response.onSuccess { sources ->
                     with(ui) {
                         val explanation = when (sources.optString("state")) {
-                            "ready" -> "Find copy searches and downloads through the selected sources."
+                            "ready" -> null
                             "cooldown" -> sources.retryTime()?.let {
-                                "A source couldn’t sign in. Your requests stay queued. Find copy can retry after $it."
-                            } ?: "The sign-in pause has ended. Refresh extensions to check again."
+                                "A source couldn’t sign in. Retry after $it."
+                            } ?: "Refresh to check the download source."
                             "legacy" -> "Find copy uses the room’s existing downloader."
                             "unconfigured" -> "The room owner can choose search and download sources in Extensions."
-                            else -> "Find copy requests stay queued while a source is unavailable. The room owner can check Extensions."
+                            else -> "A download source is unavailable. Requests stay queued."
                         }
-                        status.section(label(explanation))
+                        explanation?.let { status.section(label(it)) }
                         sources.optJSONObject("selection")?.let { selected ->
                             for ((key, name) in listOf("search" to "Search with", "fetch" to "Download with")) {
                                 selected.optString(key).takeIf { it.isNotBlank() }?.let {
@@ -94,7 +94,6 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
             addView(heading("Song downloads", 19f), LinearLayout.LayoutParams(0, -2, 1f))
             addView(iconButton("Refresh extensions", Mark.REFRESH) { refresh() })
         }, 0)
-        content.section(label("The room owner can install extensions and choose sources in the browser.", color = secondary))
         content.section(button("Open room extensions in browser") {
             try {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(room.origin + "/#extensions")))
