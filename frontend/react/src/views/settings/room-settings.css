@@ -21,6 +21,59 @@
   gap: var(--space-13);
 }
 
+.settings-panel {
+  --picker-bg: var(--card);
+  --picker-menu: var(--card);
+  --picker-text: var(--text);
+  --picker-hover: var(--hover);
+  --picker-check: var(--accent-ink);
+  font-family: var(--font-family);
+}
+
+.settings-panel :is(input, textarea, select, button) {
+  font-family: inherit;
+}
+
+.settings-panel .settings-card [data-slot="field"]:not(.check-setting) {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.settings-panel .settings-card :is([data-slot="field-label"], [data-slot="select-label"], summary) {
+  color: var(--muted);
+  font-size: var(--font-md);
+  font-weight: var(--weight-medium);
+}
+
+.settings-panel .settings-card > [data-slot="field"],
+.settings-panel .settings-card details > [data-slot="field"] {
+  max-width: 760px;
+  margin-block: var(--space-5);
+}
+
+.settings-panel .settings-card :is([data-slot="field"], .path-field) > [data-slot="input"],
+.settings-panel .room-select [data-slot="select-trigger"] {
+  border-color: var(--input-line);
+  color: var(--text);
+  font-size: var(--font-md);
+}
+
+.settings-panel .settings-card :is([data-slot="field"], .path-field) > [data-slot="input"] {
+  min-width: 0;
+  min-height: 44px;
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--input-line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  font-weight: var(--weight-normal);
+}
+
+.settings-panel .settings-card summary {
+  cursor: pointer;
+}
+
 [data-view="settings"] .settings-card h3 {
   margin-bottom: var(--space-6);
   color: var(--text);
@@ -47,10 +100,11 @@
   gap: var(--space-8);
 }
 .settings-panel .room-select [data-slot="select-label"],
-.settings-panel .check-setting [data-slot="field-label"] {
+.settings-panel .check-setting [data-slot="field-label"],
+.settings-panel .check-setting > span {
   color: var(--text);
-  font: inherit;
-  font-size: 1rem;
+  font-size: var(--font-base);
+  font-weight: var(--weight-medium);
 }
 @media (max-width: 520px) {
   .settings-panel .room-select:has(.room-select-caption) {

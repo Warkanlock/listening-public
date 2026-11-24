@@ -234,13 +234,13 @@ class RoomPlayback : MediaSessionService() {
                     startLibraryRadio(it, body.getString("genre"))
                 }
                 "radio_live" -> Room.load(this, homeWifi = homeWifi)?.let { target ->
-                    startLiveRadio(target, body.getString("name"), body.getString("title"), body.getString("url"))
+                    startLiveRadio(target, body.getString("name"))
                 }
                 "radio_resume" -> Room.load(this, homeWifi = homeWifi)?.let { target ->
                     RadioHistory.read(this, target.id)?.let { history ->
                         when (history.source) {
                             RadioSource.LIBRARY -> startLibraryRadio(target, history.name, history.ref)
-                            RadioSource.LIVE -> startLiveRadio(target, history.name, history.title, history.ref)
+                            RadioSource.LIVE -> startLiveRadio(target, history.name)
                             RadioSource.YOUTUBE -> Unit
                         }
                     }
@@ -313,51 +313,52 @@ class RoomPlayback : MediaSessionService() {
         return epoch
     }
 
-    private fun startLiveRadio(target: Room, name: String, title: String, ref: String) {
-        val stream = RadioHistory.liveUri(ref) ?: return
-        val history = RadioHistory(RadioSource.LIVE, name, ref, title, "SomaFM")
+    private fun startLiveRadio(target: Room, name: String) {
         val sequence = intentSequence
-        checkLiveAccess(target, history) { allowed ->
-            if (intentSequence != sequence) return@checkLiveAccess
-            if (!allowed) {
+        fetchLiveStation(target, name) { station ->
+            if (intentSequence != sequence) return@fetchLiveStation
+            if (station == null) {
                 notifyActivity("This live station is unavailable. Check the room’s Radio extensions.")
-                return@checkLiveAccess
+            } else {
+                playLiveStation(target, station)
             }
-            beginRadio(target, RadioSource.LIVE, name)
-            val item = MediaItem.Builder().setMediaId(ref).setUri(stream)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist("SomaFM").build()).build()
-            // A public radio stream never receives the room's cookie or private routing.
-            val sources = DefaultMediaSourceFactory(this).setDataSourceFactory(DefaultDataSource.Factory(this))
-            player.setMediaSource(sources.createMediaSource(item))
-            player.prepare()
-            player.play()
-            scheduleLiveCheck()
-            notifyActivity()
         }
     }
 
-    private fun checkLiveAccess(target: Room, history: RadioHistory, result: (Boolean) -> Unit) {
+    private fun playLiveStation(target: Room, station: RadioHistory) {
+        val stream = RadioHistory.liveUri(station.ref) ?: return
+        beginRadio(target, RadioSource.LIVE, station.name)
+        val item = MediaItem.Builder().setMediaId(station.ref).setUri(stream)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(station.title).setArtist(station.artist).build()).build()
+        // A public radio stream never receives the room's cookie or private routing.
+        val sources = DefaultMediaSourceFactory(this).setDataSourceFactory(DefaultDataSource.Factory(this))
+        player.setMediaSource(sources.createMediaSource(item))
+        player.prepare()
+        player.play()
+        scheduleLiveCheck()
+        notifyActivity()
+    }
+
+    private fun fetchLiveStation(target: Room, name: String, result: (RadioHistory?) -> Unit) {
         network.execute {
-            val allowed = runCatching { history.available(target.get("/api/stations")) }.getOrDefault(false)
-            main.post { if (!closed) result(allowed) }
+            val station = runCatching { RadioHistory.liveStation(target.get("/api/stations"), name) }.getOrNull()
+            main.post { if (!closed) result(station) }
         }
     }
 
-    private fun verifyLiveSession(onAllowed: () -> Unit) {
+    private fun verifyLiveSession(onAllowed: (RadioHistory) -> Unit) {
         val target = radioRoom ?: return
-        val item = player.currentMediaItem ?: return
         val epoch = playbackEpoch
-        val history = RadioHistory(RadioSource.LIVE, radioName, item.mediaId, "", "")
-        checkLiveAccess(target, history) { allowed ->
-            if (playbackEpoch != epoch) return@checkLiveAccess
-            if (!allowed) {
+        fetchLiveStation(target, radioName) { station ->
+            if (playbackEpoch != epoch) return@fetchLiveStation
+            if (station == null) {
                 leaveRadio()
                 notifyActivity("This live station is unavailable. Check the room’s Radio extensions.")
-            } else onAllowed()
+            } else onAllowed(station)
         }
     }
 
-    private val liveCheck = Runnable { verifyLiveSession(::scheduleLiveCheck) }
+    private val liveCheck = Runnable { verifyLiveSession { scheduleLiveCheck() } }
 
     private fun scheduleLiveCheck() {
         main.removeCallbacks(liveCheck)
@@ -464,7 +465,13 @@ class RoomPlayback : MediaSessionService() {
                         notifyActivity()
                     }
                 }
-                if (radioSource == RadioSource.LIVE) verifyLiveSession(play) else play()
+                if (radioSource == RadioSource.LIVE) {
+                    verifyLiveSession { station ->
+                        if (intentSequence != sequence) return@verifyLiveSession
+                        if (player.currentMediaItem?.mediaId == station.ref) play()
+                        else radioRoom?.let { playLiveStation(it, station) }
+                    }
+                } else play()
             }
             "pause" -> player.pause()
             "next" -> if (radioSource == RadioSource.LIBRARY) player.seekToNextMediaItem()

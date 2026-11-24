@@ -12,8 +12,9 @@ import {
 import { useStore } from "../store";
 import type { NoiseProfile } from "../radioNoise";
 import { useRadioEngine } from "../radioEngine";
-import type { LiveRadio } from "../api";
+import { isHost, type LiveRadio } from "../api";
 import { StateCard } from "../components/StateCard";
+import { RoomAction } from "../components/RoomControls";
 
 type Choice =
   | { kind: "library"; name: string; count: number }
@@ -41,6 +42,7 @@ export function Radio() {
   const hostRef = useRef<HTMLDivElement>(null);
   useRadioEngine(store, hostRef);
   const [filter, setFilter] = useState("");
+  const [showLive, setShowLive] = useState(false);
   const radio = store.radioSlice;
   const background = store.view !== "radio";
   const sounding = store.radioSounding;
@@ -63,7 +65,7 @@ export function Radio() {
 
   function play(choice: Choice) {
     if (choice.kind === "library" || choice.kind === "youtube") return void radio.playStation(choice.kind, choice.name);
-    if (choice.kind === "live") return radio.startLive(choice.name, choice.stream);
+    if (choice.kind === "live") return void radio.startLive(choice.name);
     if (choice.kind === "noise") return radio.startNoise(choice.name, choice.profile);
   }
 
@@ -82,7 +84,8 @@ export function Radio() {
   const byRelevance = (a: Choice, b: Choice) => rank(a) - rank(b) || a.name.localeCompare(b.name);
   const otherMatches = query ? [...library, ...live, ...noise].filter(matches).sort(byRelevance) : [];
   const mixResults = query ? saved.filter(matches).sort(byRelevance) : saved;
-  const otherResults = query ? otherMatches.slice(0, resultLimit) : [...library.slice(0, 2), ...live.slice(0, 2)];
+  const otherResults = otherMatches.slice(0, resultLimit);
+  const canManage = isHost(store.settings);
 
   function stationList(choices: Choice[], label: string, mixes = false) {
     return (
@@ -109,6 +112,7 @@ export function Radio() {
             <h1>Radio</h1>
             <p>Shuffle a genre from your library or tune into an enabled station.</p>
           </div>
+          {canManage && <RoomAction icon="settings" onClick={() => store.openRadioSettings()}>Manage SomaFM</RoomAction>}
         </header>
       )}
       <div
@@ -235,6 +239,19 @@ export function Radio() {
               </form>
               {radio.tuningGenre && <p role="status">Loading songs for {radio.tuningGenre}…</p>}
               {radio.tuneError && <p className="radio-failed" role="alert">{radio.tuneError}</p>}
+              {!query && (canManage || radio.somafmEnabled || live.length > 0) && (
+                <section aria-labelledby="radio-live-heading">
+                  <div className="radio-source-heading">
+                    <h2 id="radio-live-heading">SomaFM live</h2>
+                  </div>
+                  {live.length > 0 ? stationList(showLive ? live : live.slice(0, 4), "Live stations") :
+                    <p className="settings-note">{radio.somafmEnabled ? "No live stations selected." : "SomaFM is turned off."}</p>}
+                  {live.length > 4 && <RoomAction icon={showLive ? "chevronUp" : "chevronDown"} aria-expanded={showLive}
+                    onClick={() => setShowLive(previous => !previous)}>
+                    {showLive ? "Show fewer stations" : `Show all ${live.length} live stations`}
+                  </RoomAction>}
+                </section>
+              )}
               {mixResults.length > 0 && (
                 <section aria-labelledby="radio-mix-heading">
                   <div className="radio-source-heading">
@@ -244,12 +261,22 @@ export function Radio() {
                   {stationList(mixResults, "YouTube mixes", true)}
                 </section>
               )}
+              {!query && library.length > 0 && (
+                <section aria-labelledby="radio-library-heading">
+                  <div className="radio-source-heading"><h2 id="radio-library-heading">Library Radio</h2></div>
+                  {stationList(library.slice(0, 2), "Library Radio")}
+                </section>
+              )}
+              {!query && <section aria-labelledby="radio-noise-heading">
+                <div className="radio-source-heading"><h2 id="radio-noise-heading">Background noise</h2></div>
+                {stationList(noise, "Background noise")}
+              </section>}
               {otherResults.length > 0 && (
                 <section aria-labelledby="radio-stations-heading">
                   <div className="radio-source-heading">
-                    <h2 id="radio-stations-heading">{query ? "Other stations" : "SomaFM live"}</h2>
+                    <h2 id="radio-stations-heading">Matching stations and genres</h2>
                   </div>
-                  {stationList(otherResults, query ? "Matching stations" : "Live stations")}
+                  {stationList(otherResults, "Matching stations")}
                 </section>
               )}
               {query && !mixResults.length && !otherResults.length &&

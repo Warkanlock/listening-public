@@ -26,16 +26,50 @@ RADIO_PRESETS = ("Study", "Ambient", "White noise", "Brown noise", "Minimal", "L
                  "Deep focus", "Ambient noise", "Jazz", "Classical", "Downtempo")
 # Official continuous streams. Listeners can use these stations even in
 # rooms without a YouTube Data API key.
+SOMAFM_CHANNELS = {
+    "beatblender": "Beat Blender",
+    "bootliquor": "Boot Liquor",
+    "bossa": "Bossa Beyond",
+    "cliqhop": "cliqhop idm",
+    "covers": "Covers",
+    "deepspaceone": "Deep Space One",
+    "defcon": "DEF CON Radio",
+    "digitalis": "Digitalis",
+    "dronezone": "Drone Zone",
+    "fluid": "Fluid",
+    "folkfwd": "Folk Forward",
+    "groovesalad": "Groove Salad",
+    "gsclassic": "Groove Salad Classic",
+    "reggae": "Heavyweight Reggae",
+    "illstreet": "Illinois Street Lounge",
+    "indiepop": "Indie Pop Rocks!",
+    "seventies": "Left Coast 70s",
+    "lush": "Lush",
+    "missioncontrol": "Mission Control",
+    "n5md": "n5MD Radio",
+    "poptron": "PopTron",
+    "secretagent": "Secret Agent",
+    "7soul": "Seven Inch Soul",
+    "sonicuniverse": "Sonic Universe",
+    "spacestation": "Space Station Soma",
+    "suburbsofgoa": "Suburbs of Goa",
+    "synphaera": "Synphaera Radio",
+    "thistle": "ThistleRadio",
+    "tikitime": "Tiki Time",
+    "thetrip": "The Trip",
+    "u80s": "Underground 80s",
+    "vaporwaves": "Vaporwaves",
+}
 LIVE_STATIONS = {
-    "Study": ("Groove Salad", "groovesalad"),
-    "Ambient": ("Drone Zone", "dronezone"),
-    "Minimal": ("Deep Space One", "deepspaceone"),
-    "Lo-fi": ("Groove Salad Classic", "gsclassic"),
-    "Deep focus": ("Deep Space One", "deepspaceone"),
-    "Ambient noise": ("Drone Zone", "dronezone"),
-    "House": ("The Trip", "thetrip"),
-    "Jazz": ("Sonic Universe", "sonicuniverse"),
-    "Downtempo": ("Beat Blender", "beatblender"),
+    "Study": "groovesalad",
+    "Ambient": "dronezone",
+    "Minimal": "deepspaceone",
+    "Lo-fi": "gsclassic",
+    "Deep focus": "deepspaceone",
+    "Ambient noise": "dronezone",
+    "House": "thetrip",
+    "Jazz": "sonicuniverse",
+    "Downtempo": "beatblender",
 }
 MAX_STATIONS = 40
 MAX_SEEDS = 100
@@ -133,6 +167,35 @@ def stations_from(settings):
         return []
 
 
-def live_catalog():
-    return {name: {"title": title, "url": f"https://ice2.somafm.com/{slug}-128-mp3"}
-            for name, (title, slug) in LIVE_STATIONS.items()}
+def clean_live_stations(value):
+    if not isinstance(value, list) or len(value) > MAX_STATIONS:
+        raise ValueError(f"Choose up to {MAX_STATIONS} SomaFM stations.")
+    stations = []
+    names = set()
+    for station in value:
+        if not isinstance(station, dict):
+            raise ValueError("Choose a SomaFM channel for each station.")
+        channel, name = station.get("channel"), station.get("name")
+        if not isinstance(channel, str) or channel not in SOMAFM_CHANNELS:
+            raise ValueError("Choose a channel from the SomaFM list.")
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > MAX_NAME:
+            raise ValueError(f"Enter a station name of up to {MAX_NAME} characters.")
+        name = name.strip()
+        if name.casefold() in names:
+            raise ValueError(f"Two stations are named {name}.")
+        names.add(name.casefold())
+        stations.append({"channel": channel, "name": name})
+    return stations
+
+
+def live_stations_from(settings):
+    defaults = [{"name": name, "channel": channel} for name, channel in LIVE_STATIONS.items()]
+    try:
+        return clean_live_stations(settings.get("somafm_stations", defaults))
+    except ValueError:
+        return defaults
+
+
+def live_catalog(settings):
+    return {name: {"title": SOMAFM_CHANNELS[channel], "url": f"https://ice2.somafm.com/{channel}-128-mp3"}
+            for name, channel in ((row["name"], row["channel"]) for row in live_stations_from(settings))}

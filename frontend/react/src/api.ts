@@ -351,6 +351,11 @@ export interface RadioStation {
 }
 
 export type LiveRadio = { title: string; url: string };
+export type SomaFmSettings = {
+  enabled: boolean;
+  channels: Record<string, string>;
+  stations: { name: string; channel: string }[];
+};
 
 export interface RadioLibraryTrack {
   id: number;
@@ -365,6 +370,7 @@ export interface RadioLibraryResult {
 
 export interface StationsResult {
   youtube_enabled?: boolean;
+  somafm_enabled?: boolean;
   live?: Record<string, LiveRadio>;
   ready_genres?: Record<string, number>;
   stations: RadioStation[];

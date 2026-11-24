@@ -835,7 +835,7 @@ class RoomActivity : Activity() {
         }
     }
 
-    private data class RadioChoice(val name: String, val detail: String, val title: String = "",
+    private data class RadioChoice(val name: String, val detail: String,
                                    val uri: Uri? = null, val source: RadioSource = RadioSource.LIBRARY) {
         val label get() = "$name · $detail"
     }
@@ -843,6 +843,13 @@ class RoomActivity : Activity() {
     private fun radio(target: Room) {
         content.addView(ui.label("Shuffle by genre or look for a station.", 15f, ui.secondary),
             LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(12) })
+        content.addView(ui.button("SomaFM settings in browser") {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target.origin + "/?setup=radio")))
+            } catch (_: android.content.ActivityNotFoundException) {
+                message("Open the room’s Radio settings in a browser.")
+            }
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(8) })
         val search = ui.field("Search genres, mixes, or live stations").apply {
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             isEnabled = false
@@ -866,10 +873,8 @@ class RoomActivity : Activity() {
                 RadioChoice(name, "Your library · $count " + if (count == 1) "song" else "songs")
             }.toList()
             val live = streams.keys().asSequence().mapNotNull { name ->
-                val station = streams.getJSONObject(name)
-                val title = station.getString("title")
-                RadioHistory.liveUri(station.getString("url"))?.let { stream ->
-                    RadioChoice(name, "SomaFM · $title", title, stream, RadioSource.LIVE)
+                RadioHistory.liveStation(data, name)?.let { station ->
+                    RadioChoice(name, "SomaFM · ${station.title}", source = RadioSource.LIVE)
                 }
             }.toList()
             val saved = data.optJSONArray("stations")?.takeIf { data.optBoolean("youtube_enabled", true) } ?: JSONArray()
@@ -900,8 +905,7 @@ class RoomActivity : Activity() {
                 getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(search.windowToken, 0)
                 when (choice.source) {
                     RadioSource.LIBRARY -> send("radio_start", JSONObject().put("genre", choice.name))
-                    RadioSource.LIVE -> send("radio_live", JSONObject().put("name", choice.name)
-                        .put("title", choice.title).put("url", choice.uri.toString()))
+                    RadioSource.LIVE -> send("radio_live", JSONObject().put("name", choice.name))
                     RadioSource.YOUTUBE -> {
                         openRadioVideo(target, RadioHistory(RadioSource.YOUTUBE, choice.name,
                             choice.uri.toString(), choice.name, "YouTube"), onOpen = ::updateControls)
@@ -931,8 +935,8 @@ class RoomActivity : Activity() {
                 val videos = if (videoCount == 1) "video" else "videos"
                 val topics = if (mixes.size == 1) "topic" else "topics"
                 val groups = listOf(
+                    "SomaFM live" to roomAndLive.filter { it.source == RadioSource.LIVE },
                     "YouTube mixes · ${mixes.size} $topics · $videoCount $videos" to youtube,
-                    "SomaFM" to roomAndLive.filter { it.source == RadioSource.LIVE },
                     "Library Radio" to roomAndLive.filter { it.source == RadioSource.LIBRARY },
                 )
                 val orderedGroups = if (query.isEmpty()) groups else groups.sortedByDescending { (_, choices) ->
@@ -1032,8 +1036,14 @@ class RoomActivity : Activity() {
 
     private fun setRadioAccess(target: Room, stations: JSONObject) {
         val saved = RadioHistory.read(this, target.id)
-        authorizedExternalRadio = saved?.takeIf { it.source != RadioSource.LIBRARY && it.available(stations) }
-            ?.let { target.id to it }
+        val available = when (saved?.source) {
+            RadioSource.LIVE -> RadioHistory.liveStation(stations, saved.name)?.also {
+                if (it != saved) it.save(this, target.id)
+            }
+            RadioSource.YOUTUBE -> saved.takeIf { it.available(stations) }
+            else -> null
+        }
+        authorizedExternalRadio = available?.let { target.id to it }
     }
 
     private fun verifySavedRadio(target: Room) {

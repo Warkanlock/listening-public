@@ -216,7 +216,7 @@ export class Store implements SliceHost {
   get radioControls(): RadioControls | null { return this.radioSlice.controls; }
   set radioControls(value: RadioControls | null) { this.radioSlice.controls = value; }
 
-  loadStations() { return this.radioSlice.loadStations(); }
+  async loadStations() { await this.radioSlice.loadStations(); }
   saveStations(stations: RadioStation[]): Promise<boolean> {
     return this.radioSlice.saveStations(stations);
   }
@@ -481,6 +481,10 @@ export class Store implements SliceHost {
   }
 
   setSettingsTab(tab: string) { this.settingsSlice.setSettingsTab(tab); }
+  openRadioSettings() {
+    this.setSettingsTab("radio");
+    this.setView("settings");
+  }
   saveDeviceName(name: string) { this.settingsSlice.saveDeviceName(name); }
 
   loadTracks(reset = false) { return this.browsingSlice.loadTracks(reset); }
@@ -555,8 +559,9 @@ export class Store implements SliceHost {
       );
       this.settingsTab = "spotify";
       this.view = "settings";
-    } else if (params.get("setup") === "clients" || params.get("setup") === "room") {
-      this.settingsTab = params.get("setup") === "clients" ? "clients" : "setup";
+    } else if (["clients", "room", "radio"].includes(params.get("setup") ?? "")) {
+      const setup = params.get("setup");
+      this.settingsTab = setup === "radio" ? "radio" : setup === "clients" ? "clients" : "setup";
       this.view = "settings";
     } else {
       const search = (params.get("q") ?? "").trim().slice(0, 200);
