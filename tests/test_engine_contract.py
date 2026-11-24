@@ -226,7 +226,11 @@ class EngineRunnerTests(WorkspaceTestCase):
 
     def make_audio(self, filename, title, *, duration=1):
         path = self.root / filename
-        codec = ["-c:a", "flac"] if path.suffix == ".flac" else ["-c:a", "libmp3lame", "-b:a", "256k"]
+        codec = {
+            ".flac": ["-c:a", "flac"],
+            ".mp3": ["-c:a", "libmp3lame", "-b:a", "256k"],
+            ".m4a": ["-c:a", "aac", "-b:a", "320k"],
+        }[path.suffix]
         subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi",
                         "-i", f"anoisesrc=d={duration}:c=white", "-ac", "2", *codec,
                         "-metadata", f"title={title}", str(path)], check=True)
@@ -294,6 +298,24 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual((result["status"], result["requested_format"]), ("downloaded", "mp3"))
         searches = [item["recording"]["formats"] for item in self.requests if item["action"] == "search"]
         self.assertEqual(searches, [[".flac", ".m4a"], [".mp3"]])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_lossy_request_lands_aac_through_the_selected_engine_when_mp3_is_absent(self):
+        record = self.record(1, "First Light", length=2)
+        self.write_manifest([record])
+        self.make_audio("first-light.m4a", "First Light", duration=2)
+        store = runner.requests_store()
+        row, _ = store.create_or_find(1, record["artist"], record["title"], record["album"],
+                                      2, "", individual=True)
+        store.confirm_format(row["id"], "any_lossy", 0)
+        with mock.patch.object(runner, "decode_audio", wraps=runner.decode_audio) as decode:
+            runner.run_requests()
+            decode.assert_called_once()
+        result = store.get(row["id"])
+        self.assertEqual((result["status"], result["requested_format"]), ("downloaded", "any_lossy"))
+        search = next(item["recording"] for item in self.requests if item["action"] == "search")
+        self.assertEqual((search["formats"], search["preferred_format"]), ([".mp3", ".m4a"], "mp3"))
+        self.assertEqual(runner.probe(self.library / result["audio_path"])["codec"], "aac")
 
     def test_search_budget_includes_the_worker_deadline(self):
         record = self.record(1, "First Light", length=1)

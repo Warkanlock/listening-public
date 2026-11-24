@@ -384,7 +384,8 @@ def verify_request_restart(page, root, screenshot):
     app, music = root / "app", root / "music"
     app.mkdir()
     (music / "lists").mkdir(parents=True)
-    (music / "lists" / "test.csv").write_text("title,artist,album\nOlder song,Fixture,Album\nDirect song,Fixture,Album\n")
+    (music / "lists" / "test.csv").write_text(
+        "title,artist,album\nOlder song,Fixture,Album\nDirect song,Fixture,Album\nAAC fallback,Fixture,Album\n")
     sockseek = root / "sockseek"
     shutil.copyfile(REPO_ROOT / "tests/fixtures/format_sockseek.py", sockseek)
     sockseek.chmod(0o700)
@@ -403,6 +404,9 @@ def verify_request_restart(page, root, screenshot):
         subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"anoisesrc=duration=2:seed={seed}",
                         "-ac", "2", "-c:a", "libmp3lame", "-b:a", "320k",
                         "-metadata", f"title={title}", "-metadata", "artist=Fixture", str(root / f"{title}.mp3")], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=duration=2:seed=9",
+                    "-ac", "2", "-c:a", "aac", "-b:a", "320k", "-metadata", "title=AAC fallback",
+                    "-metadata", "artist=Fixture", str(root / "AAC fallback.m4a")], check=True)
     server = Server(root, app, port)
     def rows():
         return server.request("GET", "/api/requests")[1]["requests"]
@@ -540,6 +544,20 @@ def verify_request_restart(page, root, screenshot):
         direct_searches = [cmd[cmd.index("--format") + 1] for cmd in map(json.loads, calls.read_text().splitlines())
                            if "--print" in cmd and cmd[0] == "Fixture - Direct song"]
         assert direct_searches == ["mp3"]
+
+        page.get_by_role("button", name="Find a copy of AAC fallback").click()
+        assert picker.get_by_role("radio", name="Any lossless (prefer FLAC)").is_checked()
+        picker.get_by_role("radio", name="MP3 or AAC (prefer MP3)", exact=True).check()
+        picker.get_by_role("button", name="Confirm and search").click()
+        fallback = wait_for("worker to verify AAC when MP3 is absent", lambda: next((
+            row for row in rows() if row["title"] == "AAC fallback" and row["status"] == "downloaded"), None), timeout=60)
+        assert fallback["requested_format"] == "any_lossy"
+        search = next(cmd for cmd in map(json.loads, calls.read_text().splitlines())
+                      if "--print" in cmd and cmd[0] == "Fixture - AAC fallback")
+        assert search[search.index("--format") + 1] == "mp3,m4a"
+        assert search[search.index("--pref-format") + 1] == "mp3"
+        with urllib.request.urlopen(server.base + fallback["audio"], timeout=10) as response:
+            assert response.status == 200 and response.headers["Content-Type"] == "audio/mp4"
     finally:
         page.unroute(sources_url)
         page.goto("about:blank")
