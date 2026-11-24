@@ -177,15 +177,13 @@ class RequestsStore:
     def confirm_format(self, request_id, choice, revision):
         """Each picker version can release at most one search, even after it finishes."""
         if not isinstance(choice, str) or choice not in REQUEST_SUFFIXES:
-            raise ValueError("Choose FLAC, Apple Lossless or Any lossless")
+            raise ValueError("Choose Any lossless, FLAC, Apple Lossless, or MP3.")
         if type(revision) is not int or not 0 <= revision < 2**63 - 1:
             raise ValueError("Invalid format revision")
         def work(conn):
             row = self._lock_request(conn, request_id)
             if row["requested_format"] == choice and row["format_revision"] == revision + 1:
                 return dict(row), False
-            if choice == "mp3" and not mp3_retry(row):
-                raise ValueError("Try MP3 is available after a lossless search finds no copy.")
             changed = conn.execute(
                 "UPDATE requests SET requested_format=?, format_confirmed=1, status='queued', message='', "
                 "format_revision=format_revision+1, updated_at=CURRENT_TIMESTAMP "

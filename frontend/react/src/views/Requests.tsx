@@ -1,5 +1,5 @@
 import { FindCopySources } from "./Extensions";
-import { RoomIcon } from "../components/RoomIcon";
+import { RoomIcon, RoomIconButton } from "../components/RoomIcon";
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "@ui-sdk/react/button";
 import { Field, FieldLabel } from "@ui-sdk/react/field";
@@ -37,7 +37,7 @@ function RetryForm({ row }: { row: RequestRow }) {
 
 function RequestItem({ row }: { row: RequestRow }) {
   const store = useStore();
-  const format = row.requested_format === "mp3" ? "MP3" : row.requested_format && REQUEST_FORMATS[row.requested_format];
+  const format = REQUEST_FORMATS.find(format => format.key === row.requested_format)?.label;
   return (
     <div className="request-item">
       <span className="request-symbol">
@@ -148,13 +148,7 @@ export function Requests() {
       <section>
         <div className="section-header">
           <h2>Recent requests</h2>
-          <button
-            className="quiet-button"
-            type="button"
-            onClick={() => void store.loadRequests()}
-          >
-            Refresh
-          </button>
+          <RoomIconButton icon="refresh" label="Refresh requests" onClick={() => void store.loadRequests()} />
         </div>
         <div className="requests-list">
           {rows.length ? (

@@ -3,6 +3,7 @@ import { Dialog, DialogBackdrop, DialogClose, DialogTitle, DialogTrigger } from 
 import { isHost, type ExtensionSources } from "../api";
 import { useStore } from "../store";
 import { RoomDialogContent } from "../components/WindowContent";
+import { RoomIcon, RoomIconButton } from "../components/RoomIcon";
 import { ExtensionsPanel, PluginResources } from "./settings/ExtensionsPanel";
 import { ExtensionIconAction, ExtensionInventory, ExtensionInventoryRow, retryTime } from "./settings/ExtensionInventory";
 
@@ -49,7 +50,7 @@ function useSources() {
 function SourceStatus({ showProviders = false }: { showProviders?: boolean }) {
   const sources = useSources();
   if (sources.sourceError) return <span role="status">{sources.sourceError}{" "}
-    <button className="quiet-button" type="button" onClick={() => void sources.loadExtensionSources(true)}>Retry</button>
+    <RoomIconButton icon="refresh" label="Retry checking download sources" onClick={() => void sources.loadExtensionSources(true)} />
   </span>;
   return <span role="status">{sources.extensionSources ? sourceDescription(sources.extensionSources, showProviders) : "Checking download sources…"}</span>;
 }
@@ -59,7 +60,7 @@ function ExtensionsContent() {
   const { extensionSources } = useSources();
   if (!store.settings) return store.settingsError ? <div role="status">
     Couldn’t check your access to room settings.{" "}
-    <button className="quiet-button" type="button" onClick={() => void store.loadSettings()}>Retry</button>
+    <RoomIconButton icon="refresh" label="Retry checking room access" onClick={() => void store.loadSettings()} />
   </div> : <p role="status">Loading room access…</p>;
   if (isHost(store.settings)) return <ExtensionsPanel />;
   return <section className="settings-card">
@@ -94,12 +95,14 @@ export function FindCopySources({ open, buttonRef, disabled }: {
   const [shown, setShown] = useState(false);
   return <div className="find-copy-sources">
     <SourceStatus />
-    {open ? <button className="quiet-button" ref={buttonRef} type="button" disabled={disabled} onClick={open}>View extensions</button> :
+    {open ? <RoomIconButton icon="extensions" label="View extensions" ref={buttonRef} disabled={disabled} onClick={open} /> :
       <Dialog open={shown} onOpenChange={setShown}>
-        <DialogTrigger className="quiet-button">View extensions</DialogTrigger>
+        <DialogTrigger className="quiet-button icon-control" aria-label="View extensions" title="View extensions">
+          <RoomIcon name="extensions" />
+        </DialogTrigger>
         {shown && <><DialogBackdrop /><RoomDialogContent className="extensions-dialog">
           <DialogTitle>Extensions</DialogTitle>
-          <DialogClose className="dialog-close" aria-label="Close extensions">×</DialogClose>
+          <DialogClose className="dialog-close icon-control" aria-label="Close extensions" title="Close extensions"><RoomIcon name="close" /></DialogClose>
           <ExtensionsContent />
         </RoomDialogContent></>}
       </Dialog>}

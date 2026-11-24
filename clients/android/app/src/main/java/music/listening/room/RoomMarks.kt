@@ -11,7 +11,8 @@ import android.graphics.drawable.Drawable
 /** Small monochrome marks with the same stroke weight as the room's controls. */
 internal enum class Mark {
     ROOM, LIBRARY, EXPLORE, RADIO, PLAYING, INSIGHTS, PLAY, PAUSE, PREVIOUS, NEXT, SHUFFLE,
-    SETTINGS, BROWSE, INFO, MAGNET, BACK, FORWARD, CLOSE, ALBUM, EXTERNAL, FOLDER, QUEUE, POSITION, MORE, EXPAND
+    SETTINGS, BROWSE, INFO, MAGNET, BACK, FORWARD, CLOSE, ALBUM, EXTERNAL, FOLDER, QUEUE, POSITION, MORE, EXPAND,
+    EXTENSIONS, SEARCH, REFRESH
 }
 
 internal class RoomMark(private val mark: Mark, private val baseColor: Int, private val size: Int) : Drawable() {
@@ -58,6 +59,18 @@ internal class RoomMark(private val mark: Mark, private val baseColor: Int, priv
             Mark.BACK -> { line(20, 12, 4, 12); line(4, 12, 11, 5); line(4, 12, 11, 19) }
             Mark.FORWARD -> { line(4, 12, 20, 12); line(20, 12, 13, 5); line(20, 12, 13, 19) }
             Mark.CLOSE -> { line(6, 6, 18, 18); line(18, 6, 6, 18) }
+            Mark.EXTENSIONS -> {
+                line(8, 3, 8, 7); line(16, 3, 16, 7); line(12, 16, 12, 21)
+                c.drawPath(Path().apply {
+                    moveTo(6f, 10f); lineTo(6f, 7f); lineTo(18f, 7f); lineTo(18f, 10f)
+                    cubicTo(18f, 18f, 6f, 18f, 6f, 10f)
+                }, pen)
+            }
+            Mark.SEARCH -> { c.drawCircle(10f, 10f, 6.5f, pen); line(15, 15, 21, 21) }
+            Mark.REFRESH -> {
+                c.drawArc(4f, 4f, 20f, 20f, 10f, 320f, false, pen)
+                line(20, 4, 20, 10); line(20, 10, 14, 10)
+            }
             Mark.EXPAND -> {
                 line(9, 4, 4, 4); line(4, 4, 4, 9)
                 line(15, 4, 20, 4); line(20, 4, 20, 9)

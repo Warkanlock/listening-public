@@ -136,19 +136,13 @@ class FormatSelectionTests(StoreTestCase):
     def create(self, *, individual=True):
         return self.store.create_or_find(1, "Artist", "Song", "Album", 200, "Song", individual=individual)
 
-    def test_mp3_retry_requires_lossless_miss_and_stays_with_one_request(self):
+    def test_mp3_shortcut_appears_after_a_lossless_miss_and_stays_with_one_request(self):
         request, _ = self.create()
         request_id = request["id"]
         self.assertIsNone(mp3_retry(request))
-        with self.assertRaisesRegex(ValueError, "lossless search"):
-            self.store.confirm_format(request_id, "mp3", 0)
-
         self.store.confirm_format(request_id, "alac", 0)
         self.store.finish(request_id, "error", "Search timed out", "")
         self.assertIsNone(mp3_retry(self.store.get(request_id)))
-        with self.assertRaisesRegex(ValueError, "lossless search"):
-            self.store.confirm_format(request_id, "mp3", 1)
-
         self.store.finish(request_id, "not_found", "No copy found", "")
         self.assertEqual(mp3_retry(self.store.get(request_id)), {"id": request_id, "format_revision": 1})
         retry, released = self.store.confirm_format(request_id, "mp3", 1)
@@ -157,8 +151,8 @@ class FormatSelectionTests(StoreTestCase):
         self.store.finish(request_id, "not_found", "No copy found", "")
         self.assertIsNone(mp3_retry(self.store.get(request_id)))
         self.assertFalse(self.store.confirm_format(request_id, "mp3", 1)[1])
-        with self.assertRaisesRegex(ValueError, "lossless search"):
-            self.store.confirm_format(request_id, "mp3", 2)
+        with self.assertRaisesRegex(ValueError, "This request changed"):
+            self.store.confirm_format(request_id, "mp3", 0)
 
         other, _ = self.store.create_or_find(2, "Artist", "Other song", "Album", 200, "Other song", individual=True)
         self.assertEqual(other["status"], "waiting_format")
@@ -229,9 +223,20 @@ class FormatSelectionTests(StoreTestCase):
         self.assertEqual(self.store.queued(1)[0]["id"], ready)
         self.assertIn(pending["id"], [r["id"] for r in self.store.recent(limit=1)])
         self.assertFalse(self.store.retry(pending["id"], "skip format"))
-        with self.assertRaises(ValueError):
-            self.store.confirm_format(pending["id"], "mp3", 0)
         self.assertIsNone(self.store.get(pending["id"])["requested_format"])
+
+    def test_mp3_can_be_confirmed_on_first_search_or_selected_again_after_a_miss(self):
+        pending, _ = self.create()
+        request_id = pending["id"]
+        first, released = self.store.confirm_format(request_id, "mp3", 0)
+        self.assertTrue(released)
+        self.assertEqual((first["requested_format"], first["status"]), ("mp3", "queued"))
+        self.assertFalse(self.store.confirm_format(request_id, "mp3", 0)[1])
+
+        self.store.finish(request_id, "not_found", "No copy found", "")
+        second, released = self.store.confirm_format(request_id, "mp3", first["format_revision"])
+        self.assertTrue(released)
+        self.assertEqual((second["requested_format"], second["status"]), ("mp3", "queued"))
 
 
 class LookupTests(StoreTestCase):

@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Toast
 import java.text.DateFormat
@@ -19,11 +20,11 @@ private fun JSONObject.retryTime(): String? {
 }
 
 /** Installed sources belong to the room. Only its owner manages them. */
-internal fun Activity.showRoomExtensions(room: Room) {
+internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) {
     val ui = RoomUi(this)
     val style = SongDetailsStyle(ui)
     val content = style.column()
-    val dialog = style.dialog(this, "Extensions", ScrollView(this).apply { addView(content) })
+    val dialog = style.dialog(this, "Extensions", ScrollView(this).apply { addView(content) }, backLabel = backLabel)
     val status = ui.column().apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
     content.addView(status)
     var pending: MetadataRequest? = null
@@ -41,7 +42,6 @@ internal fun Activity.showRoomExtensions(room: Room) {
                 status.removeAllViews()
                 response.onSuccess { sources ->
                     with(ui) {
-                        status.section(heading("Song downloads", 19f))
                         val explanation = when (sources.optString("state")) {
                             "ready" -> "Find copy searches and downloads through the selected sources."
                             "cooldown" -> sources.retryTime()?.let {
@@ -86,11 +86,14 @@ internal fun Activity.showRoomExtensions(room: Room) {
                     }
                     status.addView(ui.label(message))
                 }
-                status.addView(ui.button("Refresh extensions") { refresh() })
             }
         }
     }
     with(ui) {
+        content.addView(row(8).apply {
+            addView(heading("Song downloads", 19f), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconButton("Refresh extensions", Mark.REFRESH) { refresh() })
+        }, 0)
         content.section(label("The room owner can install extensions and choose sources in the browser.", color = secondary))
         content.section(button("Open room extensions in browser") {
             try {

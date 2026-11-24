@@ -2,16 +2,14 @@ import { RoomDialogContent } from "./WindowContent";
 import { ExtensionsContent, FindCopySources } from "../views/Extensions";
 import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogBackdrop, DialogDescription, DialogTitle } from "@ui-sdk/react/dialog";
-import { postJson, REQUEST_FORMATS, type RequestRow } from "../api";
+import { postJson, REQUEST_FORMATS, type RequestFormat, type RequestRow } from "../api";
 import { useStore } from "../store";
 import { notify } from "../toasts";
+import { RoomIcon, RoomIconButton } from "./RoomIcon";
 
 export function RequestFormatPicker({ row }: { row: RequestRow }) {
   const store = useStore();
-  type LosslessFormat = keyof typeof REQUEST_FORMATS;
-  const [choice, setChoice] = useState<LosslessFormat>(
-    row.requested_format === "mp3" ? "any_lossless" : row.requested_format ?? "any_lossless",
-  );
+  const [choice, setChoice] = useState<RequestFormat>(row.requested_format ?? "any_lossless");
   const [showExtensions, setShowExtensions] = useState(false);
   const sourceReturn = useRef<HTMLButtonElement>(null);
   const restoreSourceFocus = useRef(false);
@@ -52,19 +50,24 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
       <DialogBackdrop />
       <RoomDialogContent className={dialogClass}>
         {showExtensions ? <>
-          <DialogTitle>Extensions</DialogTitle>
-          <button ref={back} className="quiet-button" type="button" onClick={() => setShowExtensions(false)}>Back to format</button>
+          <header className="format-dialog-header">
+            <RoomIconButton ref={back} icon="back" label="Back to format" onClick={() => setShowExtensions(false)} />
+            <DialogTitle>Extensions</DialogTitle>
+          </header>
           <ExtensionsContent />
         </> : <>
-        <DialogTitle>Choose format</DialogTitle>
+        <header className="format-dialog-header">
+          <DialogTitle>Choose format</DialogTitle>
+          <RoomIconButton icon="close" label="Later" disabled={saving} onClick={close} />
+        </header>
         <DialogDescription>{[row.title, row.artist].filter(Boolean).join(" · ")}</DialogDescription>
         <fieldset disabled={saving}>
           <legend>Audio format to search for</legend>
-          {(Object.keys(REQUEST_FORMATS) as LosslessFormat[]).map(format => (
-            <label key={format}>
-              <input type="radio" name="requested-format" checked={choice === format}
-                onChange={() => setChoice(format)} />
-              {REQUEST_FORMATS[format]}
+          {REQUEST_FORMATS.map(({ key, label }) => (
+            <label key={key}>
+              <input type="radio" name="requested-format" checked={choice === key}
+                onChange={() => setChoice(key)} />
+              {label}
             </label>
           ))}
         </fieldset>
@@ -73,9 +76,9 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
           setShowExtensions(true);
         }} />
         {error && <p role="alert">{error}</p>}
-        <div className="settings-actions">
-          <button className="quiet-button" type="button" disabled={saving} onClick={close}>Later</button>
+        <div className="format-dialog-footer">
           <button className="primary-action" type="button" disabled={saving} onClick={() => void confirm()}>
+            <RoomIcon name="search" />
             {saving ? "Confirming…" : "Confirm and search"}
           </button>
         </div>
