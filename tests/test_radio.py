@@ -170,6 +170,7 @@ class RadioHttpTests(unittest.TestCase):
     def setUp(self):
         # Every test starts from a room that has never seen stations.
         server.SETTINGS.pop("radio_stations", None)
+        server.SETTINGS.pop("somafm_stations", None)
         server.SETTINGS["radio_providers"] = ["somafm", "youtube"]
         server.save_settings()
 
@@ -228,6 +229,47 @@ class RadioHttpTests(unittest.TestCase):
         _, _, data = self.request(self.loop_port, "GET", "/api/stations")
         self.assertEqual(json.loads(data)["stations"], mixes)
         self.assertEqual(json.loads(data)["live"], {})
+
+    def test_owner_can_edit_somafm_channels_without_changing_video_mixes(self):
+        path = "/api/radio/somafm"
+        _, _, data = self.request(self.loop_port, "GET", path)
+        config = json.loads(data)
+        self.assertIn({"name": "Study", "channel": "groovesalad"}, config["stations"])
+        self.assertEqual(config["channels"]["bossa"], "Bossa Beyond")
+        self.assertNotIn("somafm_stations", json.loads(self.config_path.read_text()))
+
+        cookie = self.lan_device_cookie()
+        headers = {"Cookie": cookie, "Origin": self.lan_origin()}
+        edited = {"enabled": True, "stations": [{"name": "Study", "channel": "lush"},
+                                               {"name": "Bossa Beyond", "channel": "bossa"}]}
+        self.assertEqual(self.request(self.lan_port, "GET", path, headers=headers)[0], 403)
+        self.assertEqual(self.request(self.lan_port, "POST", path, edited, headers)[0], 403)
+        invalid = {**edited, "stations": [{"name": "Custom URL", "channel": "https://example.test/"}]}
+        self.assertEqual(self.request(self.loop_port, "POST", path, invalid)[0], 400)
+        previous = self.config_path.read_bytes()
+        with mock.patch.object(server, "save_settings", side_effect=OSError("disk full")):
+            self.assertEqual(self.request(self.loop_port, "POST", path, edited)[0], 503)
+        self.assertEqual(self.config_path.read_bytes(), previous)
+        _, _, data = self.request(self.loop_port, "GET", path)
+        self.assertEqual(json.loads(data), config)
+        self.assertEqual(self.request(self.loop_port, "POST", path, edited)[0], 200)
+        self.assertEqual(json.loads(self.config_path.read_text())["somafm_stations"], edited["stations"])
+        _, _, data = self.request(self.loop_port, "GET", "/api/stations")
+        self.assertEqual(json.loads(data)["live"], {
+            "Study": {"title": "Lush", "url": "https://ice2.somafm.com/lush-128-mp3"},
+            "Bossa Beyond": {"title": "Bossa Beyond", "url": "https://ice2.somafm.com/bossa-128-mp3"},
+        })
+        self.assertTrue(json.loads(data)["youtube_enabled"])
+
+        self.assertEqual(self.request(self.loop_port, "POST", path, {**edited, "enabled": False})[0], 200)
+        _, _, data = self.request(self.loop_port, "GET", "/api/stations")
+        self.assertEqual(json.loads(data)["live"], {})
+        _, _, data = self.request(self.loop_port, "GET", path)
+        self.assertEqual(json.loads(data)["stations"], edited["stations"])
+        self.assertEqual(self.request(self.loop_port, "POST", path, {"stations": config["stations"]})[0], 200)
+        _, _, data = self.request(self.loop_port, "GET", path)
+        self.assertFalse(json.loads(data)["enabled"])
+        self.assertEqual(json.loads(data)["stations"], config["stations"])
 
     def test_live_presence_rejects_a_station_disabled_after_it_was_listed(self):
         cookie = self.lan_device_cookie()

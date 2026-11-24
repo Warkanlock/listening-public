@@ -244,6 +244,10 @@ export function ExtensionsPanel() {
       {radioProviders.map(provider => <RadioProviderRow key={provider.id} provider={provider} busy={busy}
         enabled={extensions.radio.includes(provider.id)}
         onChange={enabled => void change("radio", { provider: provider.id, enabled })} />)}
+      {(store.view === "extensions" || store.view === "settings") &&
+        <div className="settings-actions"><RoomAction icon="settings" onClick={() => store.openRadioSettings()}>
+          Manage SomaFM stations
+        </RoomAction></div>}
     </section>
     {removing && <RoomConfirm open title={`Remove ${removing}?`}
       description="This stops the extension and removes it from this room’s installed list."

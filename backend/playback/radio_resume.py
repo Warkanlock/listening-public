@@ -2,7 +2,7 @@
 
 import re
 
-from playback.radio import MAX_SEEDS, VIDEO_ID, live_catalog
+from playback.radio import MAX_SEEDS, VIDEO_ID
 
 
 def _text(value, limit, *, required=False):
@@ -16,7 +16,7 @@ def _video(value):
     return isinstance(value, str) and VIDEO_ID.fullmatch(value) is not None
 
 
-def validate_action(body):
+def validate_action(body, live_stations):
     operation = body.get("op")
     tuning = body.get("tuning")
     if operation not in ("tune", "update", "clear") or not isinstance(tuning, str) or not re.fullmatch(r"[a-f0-9]{32}", tuning):
@@ -24,10 +24,10 @@ def validate_action(body):
     revision = body.get("expected_revision")
     if revision is not None and (operation != "tune" or type(revision) is not int or not 0 <= revision < 2**53):
         raise ValueError("Invalid Radio history revision.")
-    return operation, tuning, (None if operation == "clear" else _history(body.get("history"))), revision
+    return operation, tuning, (None if operation == "clear" else _history(body.get("history"), live_stations)), revision
 
 
-def _history(value):
+def _history(value, live_stations):
     if not isinstance(value, dict) or not isinstance(value.get("source"), dict):
         raise ValueError("Invalid Radio history.")
     source = value["source"]
@@ -35,14 +35,16 @@ def _history(value):
     name = _text(source.get("name"), 120, required=True)
     current = value.get("current")
     selected = {"kind": kind, "name": name}
+    title = _text(value.get("title"), 500)
     if kind == "library":
         if current is not None and (type(current) is not int or not 0 < current < 10**10):
             raise ValueError("Invalid Radio song.")
     elif kind == "live":
-        stream = live_catalog().get(name)
+        stream = live_stations.get(name)
         if stream is None or current is not None:
             raise ValueError("Unknown live Radio station.")
         selected["stream"] = stream
+        title = stream["title"]
     elif kind == "noise":
         if source.get("profile") not in ("white", "brown") or current is not None:
             raise ValueError("Unknown Radio noise.")
@@ -64,4 +66,4 @@ def _history(value):
     seekable = kind == "library" or (kind == "youtube" and "sample" in value)
     resume = {"position": position, "sample": sample} if seekable else {}
     return {"source": selected, "current": current, **resume,
-            "title": _text(value.get("title"), 500), "channel": _text(value.get("channel"), 500)}
+            "title": title, "channel": _text(value.get("channel"), 500)}

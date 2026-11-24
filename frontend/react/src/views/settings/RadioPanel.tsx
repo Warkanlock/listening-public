@@ -3,18 +3,14 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@ui-sdk/react/button";
 import { Field, FieldLabel } from "@ui-sdk/react/field";
 import { Input } from "@ui-sdk/react/input";
-import type { RadioStation } from "../../api";
+import { RoomAction } from "../../components/RoomControls";
+import { isHost, type RadioStation } from "../../api";
 import { useStore } from "../../store";
 import { notify } from "../../toasts";
+import { SomaFmPanel } from "./SomaFmPanel";
 
-// The Radio tab (plan 059): the full station editor. Stations are
-// a paired-device surface, so this panel saves through the
-// stations endpoint, not the host settings save; any paired device
-// could make the same edits from the Radio view's gestures. Edits
-// are a local draft until Save, so a rename never fights a
-// half-typed seed. Seeds may be pasted as any YouTube link: the
-// server normalizes them to bare video IDs and refuses a link that
-// names no video, in one sentence.
+// YouTube mixes are edited in a local draft. The stations endpoint validates
+// pasted video links and normalizes them to video IDs when saved.
 export function RadioPanel() {
   const store = useStore();
   const [draft, setDraft] = useState<RadioStation[]>([]);
@@ -89,18 +85,21 @@ export function RadioPanel() {
         <div>
           <h2>Radio</h2>
           <p>
-            Manage saved YouTube mixes. Radio finds library genres automatically.
+            Choose live stations and manage saved YouTube mixes.
           </p>
         </div>
       </div>
-      {!store.stationsLoaded ? (
+      {isHost(store.settings) && store.settingsTab === "radio" && <SomaFmPanel />}
+      <section className="settings-card" aria-labelledby="youtube-mixes-settings-heading">
+        <h3 id="youtube-mixes-settings-heading">YouTube mixes</h3>
+        {!store.stationsLoaded ? (
         <div className="settings-card">
           <p className="settings-note">
             {store.stationsError ?? "Loading stations…"}
           </p>
           {store.stationsError ? (
             <div className="settings-actions">
-              <Button type="button" onClick={() => void store.loadStations()}>
+              <Button className="quiet-button" type="button" onClick={() => void store.loadStations()}>
                 Try again
               </Button>
             </div>
@@ -190,8 +189,8 @@ export function RadioPanel() {
                       }
                     />
                   </Field>
-                  <Button
-                    type="button"
+                  <RoomAction
+                    icon="add"
                     disabled={!(seedInputs[index] ?? "").trim()}
                     onClick={() => {
                       const value = (seedInputs[index] ?? "").trim();
@@ -205,8 +204,8 @@ export function RadioPanel() {
                       }));
                     }}
                   >
-                    Save video
-                  </Button>
+                    Add video
+                  </RoomAction>
                 </div>
               </details>
               <div className="settings-actions">
@@ -240,36 +239,40 @@ export function RadioPanel() {
               </div>
             </div>
           ))}
-          <div className="settings-card">
-            <div className="radio-seed-form">
-              <Field name="new_station_name">
-                <FieldLabel>New station</FieldLabel>
-                <Input
-                  placeholder="Station name"
-                  value={newName}
-                  onValueChange={setNewName}
-                />
-              </Field>
-              <Button
-                type="button"
-                disabled={!newName.trim()}
+          <div className="radio-seed-form radio-new-mix">
+            <Field name="new_station_name">
+              <FieldLabel>New mix</FieldLabel>
+              <Input
+                placeholder="Mix name"
+                value={newName}
+                onValueChange={setNewName}
+              />
+            </Field>
+            <div className="radio-mix-actions">
+              <RoomAction
+                icon="add"
+                aria-label="Add mix"
+                title="Add mix"
+                disabled={!newName.trim() || saving}
                 onClick={addStation}
               >
-                Add station
-              </Button>
-            </div>
-            <div className="settings-actions">
-              <Button
-                className="primary-action"
+                <span>Add mix</span>
+              </RoomAction>
+              <RoomAction
+                primary
+                icon="check"
                 type="submit"
+                aria-label="Save mixes"
+                title="Save mixes"
                 disabled={!dirty || saving}
               >
-                Save stations
-              </Button>
+                <span>Save mixes</span>
+              </RoomAction>
             </div>
           </div>
         </form>
-      )}
+        )}
+      </section>
     </>
   );
 }
