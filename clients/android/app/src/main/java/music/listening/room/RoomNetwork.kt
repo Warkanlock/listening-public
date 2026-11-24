@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import okhttp3.Call
+import okhttp3.ConnectionPool
 import okhttp3.Dns
 import okhttp3.EventListener
 import okhttp3.HttpUrl
@@ -61,15 +62,33 @@ internal class RoomNetwork(context: Context, origin: String, private val homeWif
         else -> "Server connection"
     }
     private data class Route(val network: Network, val wifiUnderVpn: Network? = null)
-    private var bound: Route? = null
+    @Volatile private var bound: Route? = null
     private var routedClient: OkHttpClient? = null
 
+    fun allowsQueueBuffering(): Boolean {
+        val route = if (homeWifi) bound ?: return false else null
+        return allowsQueueBuffering(route)
+    }
+
+    private fun allowsQueueBuffering(route: Route?): Boolean {
+        val active = manager.activeNetwork
+        val network = route?.network ?: active ?: return false
+        val wifi = route?.wifiUnderVpn
+        if ((!homeWifi || wifi != null) && network != active) return false
+        return manager.getNetworkCapabilities(network).isUnmeteredLan() &&
+            (wifi == null || manager.getNetworkCapabilities(wifi).isUnmeteredLan())
+    }
+
+    override fun newCall(request: Request): Call = newCall(request, queueBuffering = false)
+
+    fun newQueueBufferingCall(request: Request): Call = newCall(request, queueBuffering = true)
+
     @Synchronized
-    override fun newCall(request: Request): Call {
+    private fun newCall(request: Request, queueBuffering: Boolean): Call {
         val url = request.url
         if (url.host != host || url.scheme != endpoint.scheme || url.port != endpoint.port)
             throw IOException("The room returned a link to another server.")
-        fun call(client: OkHttpClient): Call {
+        fun call(client: OkHttpClient, route: Route? = null): Call {
             val transfer = url.encodedPath == "/api/replica" || url.encodedPath == "/api/replica/original" || url.queryParameter("format") != null ||
                 url.queryParameter("save") == "1"
             val requestClient = when {
@@ -80,7 +99,28 @@ internal class RoomNetwork(context: Context, origin: String, private val homeWif
                     client.newBuilder().readTimeout(75, TimeUnit.SECONDS).build()
                 else -> client
             }
-            return requestClient.newCall(request).also(onCall)
+            val guardedClient = if (queueBuffering) {
+                val bufferRoute = route ?: manager.activeNetwork?.let { Route(it) }
+                if (bufferRoute == null || !allowsQueueBuffering(bufferRoute)) {
+                    throw IOException("The room is on a metered or unavailable network.")
+                }
+                requestClient.newBuilder().apply {
+                    if (route == null) {
+                        // The normal pool can retain sockets opened on the previous default network.
+                        connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+                        socketFactory(bufferRoute.network.socketFactory)
+                        dns(object : Dns {
+                            override fun lookup(hostname: String) = bufferRoute.network.getAllByName(hostname).toList()
+                        })
+                    }
+                    eventListenerFactory { call ->
+                        QueueBufferingGuard(manager, setOfNotNull(bufferRoute.network, bufferRoute.wifiUnderVpn), call) {
+                            allowsQueueBuffering(bufferRoute)
+                        }
+                    }
+                }.build()
+            } else requestClient
+            return guardedClient.newCall(request).also(onCall)
         }
         if (!tailscale && !homeWifi) return call(direct)
         val active = manager.activeNetwork
@@ -97,7 +137,7 @@ internal class RoomNetwork(context: Context, origin: String, private val homeWif
         } else {
             listOfNotNull(active?.takeIf { it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }?.let { Route(it) })
         }
-        bound?.let { if (it in routes) return call(requireNotNull(routedClient)) }
+        bound?.let { if (it in routes) return call(requireNotNull(routedClient), it) }
         var failure: IOException? = null
         for (route in routes) {
             try {
@@ -110,7 +150,7 @@ internal class RoomNetwork(context: Context, origin: String, private val homeWif
                 val client = verifiedRoute(route, addresses)
                 routedClient = client
                 bound = route
-                return call(client)
+                return call(client, route)
             } catch (error: IOException) {
                 if (failure !is PairingRequired) failure = error
             }
@@ -176,6 +216,46 @@ internal class RoomNetwork(context: Context, origin: String, private val homeWif
     }
 }
 
+private fun NetworkCapabilities?.isUnmeteredLan() = this != null &&
+    hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) &&
+    !hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+    (hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+
+private val transferNetworks = NetworkRequest.Builder()
+    .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build()
+
+/** Only speculative copies use this guard. A VPN connection can survive a switch to cellular. */
+private class QueueBufferingGuard(private val manager: ConnectivityManager, private val networks: Set<Network>,
+                                  private val transfer: Call, private val canStart: () -> Boolean) : EventListener() {
+    private var registered = false
+    private val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onLost(network: Network) {
+            if (network in networks) transfer.cancel()
+        }
+
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            if (network in networks && !caps.isUnmeteredLan()) transfer.cancel()
+        }
+    }
+
+    override fun callStart(call: Call) {
+        try {
+            manager.registerNetworkCallback(transferNetworks, callback)
+            registered = true
+            if (!canStart()) call.cancel()
+        } catch (_: RuntimeException) {
+            call.cancel()
+        }
+    }
+
+    override fun callEnd(call: Call) = release()
+    override fun callFailed(call: Call, ioe: IOException) = release()
+
+    private fun release() {
+        if (registered) manager.unregisterNetworkCallback(callback)
+    }
+}
+
 private fun NetworkCapabilities?.isWifiVpn() = this != null &&
     hasTransport(NetworkCapabilities.TRANSPORT_VPN) && hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
     !hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
@@ -195,7 +275,7 @@ private class WifiTransferGuard(private val manager: ConnectivityManager, privat
 
     override fun callStart(call: Call) {
         try {
-            manager.registerNetworkCallback(networks, callback)
+            manager.registerNetworkCallback(transferNetworks, callback)
             registered = true
             if (manager.activeNetwork != vpn || !manager.getNetworkCapabilities(vpn).isWifiVpn() ||
                 manager.getNetworkCapabilities(wifi)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true)
@@ -208,9 +288,5 @@ private class WifiTransferGuard(private val manager: ConnectivityManager, privat
     override fun callFailed(call: Call, ioe: IOException) = release()
     private fun release() {
         if (registered) manager.unregisterNetworkCallback(callback)
-    }
-    companion object {
-        private val networks = NetworkRequest.Builder()
-            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build()
     }
 }
