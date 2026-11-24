@@ -30,11 +30,12 @@ class RecordingMatchTests(unittest.TestCase):
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0][1], "peer")
 
-    def test_song_filters_use_the_suffix_and_prefer_flac_without_peer_metadata(self):
+    def test_song_filters_use_the_requested_suffixes_and_preference_without_peer_metadata(self):
         groups = [{"User": {"Username": "peer"}, "File": {"Filename": "Track" + ext}}
                   for ext in (".m4a", ".mp3", ".flac")]
         for choice, expected in [("flac", ["Track.flac"]), ("alac", ["Track.m4a"]),
-                                 ("any_lossless", ["Track.flac", "Track.m4a"])]:
+                                 ("any_lossless", ["Track.flac", "Track.m4a"]),
+                                 ("any_lossy", ["Track.mp3", "Track.m4a"])]:
             matches = focused_matches(groups, "Track", 200, requested_format=choice)
             self.assertEqual([name for _, _, name in matches], expected)
 

@@ -67,7 +67,8 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
 internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm: (String) -> Unit) {
     val options = listOf(
         "any_lossless" to "Any lossless (prefer FLAC)", "flac" to "FLAC only",
-        "alac" to "Apple Lossless (ALAC) only", "mp3" to "MP3 only",
+        "alac" to "Apple Lossless (ALAC) only",
+        "any_lossy" to "MP3 or AAC (prefer MP3)", "mp3" to "MP3 only",
     )
     val ui = RoomUi(this)
     val style = SongDetailsStyle(ui)

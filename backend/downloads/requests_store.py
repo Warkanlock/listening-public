@@ -34,6 +34,17 @@ def mp3_retry(row):
     return None
 
 
+def decode_request_row(row):
+    """Read the request format while keeping its stored value compatible with older rooms."""
+    result = dict(row)
+    # Older rooms read "mp3". The revision ties the AAC preference to the
+    # selection that set it, including after an older room edits the request.
+    aac_revision = result.pop("aac_revision", None)
+    if aac_revision is not None and result["requested_format"] == "mp3" and aac_revision == result["format_revision"]:
+        result["requested_format"] = "any_lossy"
+    return result
+
+
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS requests (
         id INTEGER PRIMARY KEY,
@@ -48,6 +59,7 @@ SCHEMA = (
         performance TEXT NOT NULL DEFAULT '',
         requested_format TEXT DEFAULT 'any_lossless',
         format_revision INTEGER NOT NULL DEFAULT 0,
+        aac_revision INTEGER,
         format_confirmed INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'queued',
         message TEXT NOT NULL DEFAULT '',
@@ -92,7 +104,8 @@ class RequestsStore:
         """
         conn = state_database.connect(self.path, SCHEMA, row_factory=sqlite3.Row)
         try:
-            if not {"format_confirmed", "version", "musicbrainz_id", "performance"} <= {col[1] for col in conn.execute("PRAGMA table_info(requests)")}:
+            required = {"format_confirmed", "version", "musicbrainz_id", "performance", "aac_revision"}
+            if not required <= {col[1] for col in conn.execute("PRAGMA table_info(requests)")}:
                 # Another server or runner may be upgrading the same room.
                 conn.execute("BEGIN IMMEDIATE")
                 columns = {col[1] for col in conn.execute("PRAGMA table_info(requests)")}
@@ -102,6 +115,8 @@ class RequestsStore:
                     conn.execute("ALTER TABLE requests ADD COLUMN format_revision INTEGER NOT NULL DEFAULT 0")
                 if "format_confirmed" not in columns:
                     conn.execute("ALTER TABLE requests ADD COLUMN format_confirmed INTEGER NOT NULL DEFAULT 0")
+                if "aac_revision" not in columns:
+                    conn.execute("ALTER TABLE requests ADD COLUMN aac_revision INTEGER")
                 for column in ("musicbrainz_id", "version", "performance"):
                     if column not in columns:
                         conn.execute(f"ALTER TABLE requests ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
@@ -144,7 +159,7 @@ class RequestsStore:
             conn.execute("BEGIN IMMEDIATE")
             row = self._active(conn, index, artist, title, musicbrainz_id)
             if row:
-                return dict(row), False
+                return decode_request_row(row), False
             if not individual:
                 # A manual batch retry honors a previously confirmed individual format.
                 previous = conn.execute(
@@ -152,14 +167,14 @@ class RequestsStore:
                 if previous and previous["format_confirmed"] and previous["status"] in ("not_found", "error", "rejected"):
                     self._queue_retry(conn, previous["id"], previous["search_title"])
                     row = conn.execute("SELECT * FROM requests WHERE id=?", (previous["id"],)).fetchone()
-                    return dict(row), True
+                    return decode_request_row(row), True
             status = "waiting_format" if individual else "queued"
             cursor = conn.execute(
                 "INSERT INTO requests (track_index,artist,title,album,length,search_title,status,requested_format,musicbrainz_id,version,performance) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?)", (index, artist, title, album, length, search_title,
                                              status, None if individual else "any_lossless", musicbrainz_id, version, performance))
             row = conn.execute("SELECT * FROM requests WHERE id=?", (cursor.lastrowid,)).fetchone()
-            return dict(row), True
+            return decode_request_row(row), True
         return self._run(work)
 
     def _lock_request(self, conn, request_id):
@@ -177,22 +192,23 @@ class RequestsStore:
     def confirm_format(self, request_id, choice, revision):
         """Each picker version can release at most one search, even after it finishes."""
         if not isinstance(choice, str) or choice not in REQUEST_SUFFIXES:
-            raise ValueError("Choose Any lossless, FLAC, Apple Lossless, or MP3.")
+            raise ValueError("Choose a supported audio format.")
         if type(revision) is not int or not 0 <= revision < 2**63 - 1:
             raise ValueError("Invalid format revision")
         def work(conn):
-            row = self._lock_request(conn, request_id)
+            row = decode_request_row(self._lock_request(conn, request_id))
             if row["requested_format"] == choice and row["format_revision"] == revision + 1:
-                return dict(row), False
+                return row, False
+            stored_format, aac_revision = ("mp3", revision + 1) if choice == "any_lossy" else (choice, None)
             changed = conn.execute(
-                "UPDATE requests SET requested_format=?, format_confirmed=1, status='queued', message='', "
+                "UPDATE requests SET requested_format=?, aac_revision=?, format_confirmed=1, status='queued', message='', "
                 "format_revision=format_revision+1, updated_at=CURRENT_TIMESTAMP "
                 "WHERE id=? AND format_revision=? AND status IN ('waiting_format','not_found','error','rejected')",
-                (choice, request_id, revision)).rowcount
+                (stored_format, aac_revision, request_id, revision)).rowcount
             if not changed:
                 raise ValueError("This request changed. Reopen it to choose a format.")
             row = conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
-            return dict(row), True
+            return decode_request_row(row), True
         return self._run(work)
 
     def get(self, request_id):
@@ -200,13 +216,13 @@ class RequestsStore:
         def work(conn):
             row = conn.execute("SELECT * FROM requests WHERE id=?",
                                (request_id,)).fetchone()
-            return dict(row) if row else None
+            return decode_request_row(row) if row else None
         return self._run(work)
 
     def queued(self, limit):
         """Queued requests, oldest first, up to `limit`, as dicts."""
         def work(conn):
-            return [dict(row) for row in conn.execute(
+            return [decode_request_row(row) for row in conn.execute(
                 "SELECT * FROM requests WHERE status = 'queued' ORDER BY id LIMIT ?",
                 (limit,)).fetchall()]
         return self._run(work)
@@ -252,6 +268,7 @@ class RequestsStore:
     def _queue_retry(conn, request_id, search_title):
         return bool(conn.execute(
             "UPDATE requests SET search_title=?, status='queued', message='', "
+            "aac_revision=CASE WHEN aac_revision=format_revision THEN format_revision+1 END, "
             "updated_at=CURRENT_TIMESTAMP, format_revision=format_revision+1 "
             "WHERE id=? AND status IN ('not_found','error','rejected')",
             (search_title, request_id)).rowcount)
@@ -297,7 +314,7 @@ class RequestsStore:
     def recent(self, limit=80):
         """The most recent requests, newest first, as dicts."""
         def work(conn):
-            return [dict(row) for row in conn.execute(
+            return [decode_request_row(row) for row in conn.execute(
                 "SELECT * FROM requests WHERE status='waiting_format' OR id IN "
                 "(SELECT id FROM requests ORDER BY id DESC LIMIT ?) ORDER BY id DESC", (limit,))]
         return self._run(work)
@@ -309,7 +326,7 @@ class RequestsStore:
         when a track has several, the newest row wins.
         """
         def work(conn):
-            return {row["track_index"]: dict(row) for row in conn.execute(
+            return {row["track_index"]: decode_request_row(row) for row in conn.execute(
                 "SELECT * FROM requests WHERE track_index IS NOT NULL ORDER BY id")}
         return self._run(work)
 
@@ -329,14 +346,14 @@ class RequestsStore:
 
     def active_for_track(self, track_index):
         row = self._run(lambda conn: self._active(conn, track_index))
-        return dict(row) if row else None
+        return decode_request_row(row) if row else None
 
     def has_active_for_track(self, track_index):
         return self.active_for_track(track_index) is not None
 
     def active_custom(self, artist, title):
         row = self._run(lambda conn: self._active(conn, None, artist, title))
-        return dict(row) if row else None
+        return decode_request_row(row) if row else None
 
     @staticmethod
     def _pick_condition(artist, title, musicbrainz_id=""):
@@ -353,13 +370,13 @@ class RequestsStore:
             for pick in picks:
                 condition, params = self._pick_condition(*pick)
                 row = conn.execute(
-                    "SELECT id, artist, title, status, message, requested_format, format_revision, "
+                    "SELECT id, artist, title, status, message, requested_format, format_revision, aac_revision, "
                     f"audio_path, musicbrainz_id, version, performance, length, album, track_index FROM requests WHERE {condition} "
                     "ORDER BY id DESC LIMIT 1", params).fetchone()
                 if row:
-                    result = dict(row)
+                    result = decode_request_row(row)
                     path = result.pop("audio_path")
-                    if retry := mp3_retry(row):
+                    if retry := mp3_retry(result):
                         result["mp3_retry"] = retry
                     if result["status"] == "downloaded" and path:
                         result["audio"] = f"/api/audio/custom/{row['id']}"
@@ -378,7 +395,7 @@ class RequestsStore:
             row = conn.execute(
                 "SELECT * FROM requests WHERE id=? AND status='downloaded' "
                 "AND track_index IS NULL", (request_id,)).fetchone()
-            return dict(row) if row else None
+            return decode_request_row(row) if row else None
         return self._run(work)
 
     def custom_audio(self, request_id):
@@ -398,8 +415,9 @@ class RequestsStore:
         and to know which store keys stay referenced.
         """
         def work(conn):
-            return [dict(row) for row in conn.execute(
-                "SELECT id, track_index, audio_path, artist, title, length, musicbrainz_id, version, performance, requested_format, format_confirmed FROM requests "
+            return [decode_request_row(row) for row in conn.execute(
+                "SELECT id, track_index, audio_path, artist, title, length, musicbrainz_id, version, performance, "
+                "requested_format, format_confirmed, format_revision, aac_revision FROM requests "
                 "WHERE status='downloaded' AND audio_path != '' ORDER BY id")]
         return self._run(work)
 

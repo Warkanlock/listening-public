@@ -24,7 +24,7 @@ import subprocess
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
-from system.formats import LOSSLESS_DOWNLOAD_FORMATS, REQUEST_FORMAT_NAMES, REQUEST_SUFFIXES
+from system.formats import REQUEST_AUDIO_FORMATS, REQUEST_FORMAT_NAMES
 from system.normalize import normalize_title
 
 MIN_BITRATE = 192_000
@@ -294,7 +294,8 @@ def recording_mismatch(media, title, artist, length, recording_id, version, perf
 def judge_download(expected_title, expected_length, media, suffix, requested_format="any_lossless",
                    *, recording_id="", version="", expected_artist="", performance=""):
     """Verify the requested audio stream and container before landing a peer transfer."""
-    if requested_format == "mp3" and media is not None:
+    expected = REQUEST_AUDIO_FORMATS[requested_format].get(suffix.lower())
+    if media is not None and expected and expected[0] in {"mp3", "aac"}:
         # Cover art and tags count toward the whole-file bitrate but not the audio floor.
         media = {**media, "bitrate": media.get("stream_bitrate", 0)}
     verdict = judge(expected_title, expected_length, media)
@@ -305,11 +306,12 @@ def judge_download(expected_title, expected_length, media, suffix, requested_for
                 return Verdict(False, reason)
         codec = media.get("codec")
         containers = media.get("container", "").split(",")
-        if suffix.lower() not in REQUEST_SUFFIXES[requested_format]:
+        if expected is None:
             return Verdict(False, f"download requires {REQUEST_FORMAT_NAMES[requested_format]}")
-        expected = ("mp3", "mp3") if requested_format == "mp3" else LOSSLESS_DOWNLOAD_FORMATS[suffix.lower()]
         if codec != expected[0] or expected[1] not in containers:
             return Verdict(False, f"download requires {REQUEST_FORMAT_NAMES[requested_format]} audio")
+        if codec == "aac" and verdict.reason == REASON_TITLE_GENERIC:
+            return Verdict(False, "Missing recording title")
     return verdict
 
 

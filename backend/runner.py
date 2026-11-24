@@ -523,6 +523,7 @@ def request_failure(output, returncode):
 
 def focused_matches(groups, title, length, requested_format="any_lossless"):
     matches = []
+    allowed = REQUEST_SUFFIXES[requested_format]
     if not isinstance(groups, list):
         return matches
     for group in groups:
@@ -537,7 +538,7 @@ def focused_matches(groups, title, length, requested_format="any_lossless"):
         files = [song_file] if isinstance(song_file, dict) else group.get("Files") or []
         for item in files:
             filename = item.get("Filename") or ""
-            if not filename.lower().endswith(REQUEST_SUFFIXES[requested_format]):
+            if not filename.lower().endswith(allowed):
                 continue
             if song_file is None:
                 # Legacy album results need a track match within the album.
@@ -546,7 +547,7 @@ def focused_matches(groups, title, length, requested_format="any_lossless"):
                            "duration": float(item.get("Length") or 0), "title": basename}
                 if not judge(title, length, listing).ok:
                     continue
-            rank = (filename.lower().endswith(".flac"), bool(user.get("HasFreeUploadSlot")),
+            rank = (filename.lower().endswith(allowed[0]), bool(user.get("HasFreeUploadSlot")),
                     float(user.get("UploadSpeed") or 0), int(item.get("Bitrate") or 0))
             matches.append((rank, username, filename))
     matches.sort(reverse=True)
