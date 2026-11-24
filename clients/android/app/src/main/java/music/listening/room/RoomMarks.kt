@@ -12,7 +12,7 @@ import android.graphics.drawable.Drawable
 internal enum class Mark {
     ROOM, LIBRARY, EXPLORE, RADIO, PLAYING, INSIGHTS, PLAY, PAUSE, PREVIOUS, NEXT, SHUFFLE,
     SETTINGS, BROWSE, INFO, MAGNET, BACK, FORWARD, CLOSE, ALBUM, EXTERNAL, FOLDER, QUEUE, POSITION, MORE, EXPAND,
-    EXTENSIONS, SEARCH, REFRESH
+    EXTENSIONS, SEARCH, REFRESH, DOWNLOAD
 }
 
 internal class RoomMark(private val mark: Mark, private val baseColor: Int, private val size: Int) : Drawable() {
@@ -70,6 +70,10 @@ internal class RoomMark(private val mark: Mark, private val baseColor: Int, priv
             Mark.REFRESH -> {
                 c.drawArc(4f, 4f, 20f, 20f, 10f, 320f, false, pen)
                 line(20, 4, 20, 10); line(20, 10, 14, 10)
+            }
+            Mark.DOWNLOAD -> {
+                line(12, 3, 12, 15); line(8, 11, 12, 15); line(12, 15, 16, 11)
+                line(5, 16, 5, 20); line(5, 20, 19, 20); line(19, 20, 19, 16)
             }
             Mark.EXPAND -> {
                 line(9, 4, 4, 4); line(4, 4, 4, 9)

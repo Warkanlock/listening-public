@@ -295,9 +295,11 @@ automatically searches new catalog entries.
 
 Open **Deep Dive → Weekly Discovery** from the web player, Mac app or iPad app. On Android, open **Explore → Deep Dive → Weekly Discovery**.
 
-The room prepares a new edition each Monday when someone opens Weekly Discovery. It starts with artists played in the room, explores up to three artist connections, and leaves out songs already in the room’s library. Each row shows the artist trail that led to the pick.
+The room prepares a new edition each Monday when someone opens Weekly Discovery. It starts with artists played in the room, explores up to three artist connections, and leaves out songs already in the room’s library. Related picks show the artist trail that led to them.
 
 Choose **Download playlist** to queue missing copies through the room’s selected download extension. Weekly Discovery tries MP3 first and can accept AAC. The room keeps its existing download preference for other music. Once audio is verified, choose **Play downloaded songs** to start available tracks in playlist order.
+
+Find Copy shows a notice when a request finishes, including when a copy is ready or the search finds no match. Open **Library → Recent downloads** to play verified copies from completed requests.
 
 ## Radio
 

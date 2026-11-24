@@ -10,7 +10,7 @@ import {
 } from "@ui-sdk/react/alert-dialog";
 import { Dialog, DialogTrigger, DialogBackdrop, DialogClose, DialogTitle, DialogDescription } from "@ui-sdk/react/dialog";
 import { audioExportFormats, RoomAction, RoomSelect } from "../components/RoomControls";
-import { RoomIcon } from "../components/RoomIcon";
+import { RoomIcon, RoomIconButton } from "../components/RoomIcon";
 import { AddToPlaylist, usePlaylistComposer } from "../components/PlaylistComposer";
 import { Input } from "@ui-sdk/react/input";
 import {
@@ -665,11 +665,25 @@ function TracksSection() {
   );
 }
 
+function RecentDownloads() {
+  const store = useStore();
+  const downloads = store.requestsSlice.recentDownloads;
+  if (store.member || store.view !== "all" || store.query || store.playlist !== "all" || !downloads.length) return null;
+  return <section className="recent-downloads" aria-labelledby="recent-downloads-heading">
+    <h2 id="recent-downloads-heading">Recent downloads</h2>
+    <ul>{downloads.map(track => <li key={track.id}>
+      <div><strong>{track.title}</strong><small>{track.artist}</small></div>
+      <RoomIconButton icon="play" label={`Play ${track.title}`} onClick={() => store.requestsSlice.playRequest(track)} />
+    </li>)}</ul>
+  </section>;
+}
+
 export function Collection() {
   const store = useStore();
   return (
     <div className={`view collection-view${store.query ? " is-searching" : ""}`}>
       <Hero />
+      <RecentDownloads />
       <Shelf />
       <TracksSection />
     </div>
