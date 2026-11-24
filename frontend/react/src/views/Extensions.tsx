@@ -1,6 +1,6 @@
 import { useEffect, useState, type Ref } from "react";
 import { Dialog, DialogBackdrop, DialogClose, DialogTitle, DialogTrigger } from "@ui-sdk/react/dialog";
-import { isHost, type ExtensionSources } from "../api";
+import { ApiError, isHost, postJson, type ExtensionHealth, type ExtensionSources } from "../api";
 import { useStore } from "../store";
 import { RoomDialogContent } from "../components/WindowContent";
 import { RoomIcon, RoomIconButton } from "../components/RoomIcon";
@@ -55,6 +55,43 @@ function SourceStatus({ showProviders = false }: { showProviders?: boolean }) {
   return <span role="status">{sources.extensionSources ? sourceDescription(sources.extensionSources, showProviders) : "Checking download sources…"}</span>;
 }
 
+function ExtensionHealthCheck() {
+  const { settingsSlice } = useStore();
+  const [result, setResult] = useState<
+    { kind: "idle" | "running" } | { kind: "checked"; health: ExtensionHealth } | { kind: "error"; message: string }
+  >({ kind: "idle" });
+  const check = async () => {
+    setResult({ kind: "running" });
+    try {
+      const health = await postJson<ExtensionHealth>("/api/extensions/health", {});
+      setResult({ kind: "checked", health });
+      void settingsSlice.loadExtensionSources(true);
+    } catch (error) {
+      setResult({ kind: "error", message: error instanceof ApiError && error.status === 404
+        ? "Update the room server to run a health check." : "Couldn’t run the health check. Try again shortly." });
+    }
+  };
+
+  return <section className="settings-card">
+    <header className="settings-card-heading">
+      <h2>Extensions health check</h2>
+      <ExtensionIconAction icon="check" label="Run extensions health check" disabled={result.kind === "running"}
+        onClick={() => void check()} />
+    </header>
+    <div role="status" aria-busy={result.kind === "running"}>
+      {result.kind === "idle" && <p>Check the sources Find copy uses.</p>}
+      {result.kind === "running" && <p>Checking download sources…</p>}
+      {result.kind === "error" && <p>{result.message}</p>}
+      {result.kind === "checked" && <ul className="extension-health-results">
+        {result.health.checks.map(({ label, state, message }) => <li key={label}>
+          <strong>{label}</strong>
+          <span>{state === "ready" ? "Passed" : state === "failed" ? "Needs attention" : "Unverified"} · {message}</span>
+        </li>)}
+      </ul>}
+    </div>
+  </section>;
+}
+
 function ExtensionsContent() {
   const store = useStore();
   const { extensionSources } = useSources();
@@ -62,8 +99,9 @@ function ExtensionsContent() {
     Couldn’t check your access to room settings.{" "}
     <RoomIconButton icon="refresh" label="Retry checking room access" onClick={() => void store.loadSettings()} />
   </div> : <p role="status">Loading room access…</p>;
-  if (isHost(store.settings)) return <ExtensionsPanel />;
-  return <section className="settings-card">
+  return <div className="extensions-stack">
+    <ExtensionHealthCheck />
+    {isHost(store.settings) ? <ExtensionsPanel /> : <section className="settings-card">
     <header className="settings-card-heading">
       <h2>Song downloads</h2>
       <ExtensionIconAction icon="refresh" label="Refresh extensions" onClick={() => void store.settingsSlice.loadExtensionSources(true)} />
@@ -78,7 +116,8 @@ function ExtensionsContent() {
       </ExtensionInventory> :
         <p>{!extensionSources.inventory_available ? "The installed list is unavailable." : "No download extensions installed."}</p>}
     </>}
-  </section>;
+    </section>}
+  </div>;
 }
 
 export function Extensions() {

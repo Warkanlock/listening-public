@@ -146,24 +146,25 @@ internal class CatalogBrowser(private val activity: Activity, private val ui: Ro
                 result.section(heading(item.getString("title"), 17f), gap = 4)
                 val subtitle = listOf("creator", "detail", "license").map { item.optString(it) }.filter(String::isNotBlank)
                 if (subtitle.isNotEmpty()) result.section(label(subtitle.joinToString(" · "), 14f, secondary), gap = 6)
-                val actions = row()
-                actions.addView(button("Open source") { open(item.getString("url")) }, LinearLayout.LayoutParams(0, -2, 1f))
-                if (item.optBoolean("song")) actions.addView(button("Add to playlist") {
+                val actions = row(6)
+                actions.addView(iconButton("Open source", Mark.EXTERNAL) { open(item.getString("url")) })
+                if (item.optBoolean("song")) actions.addView(iconButton("Add to playlist", Mark.PLAYLIST_ADD) {
                     add(SongDraft(item.optString("creator"), item.getString("title"), item.optString("album")))
-                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
+                })
+                result.section(actions, gap = 4)
                 if (canImport && (item.has("musicbrainz_id") || item.has("apple_id"))) {
                     fun showImported(id: Int, ready: Boolean) {
                         result.section(label(if (id > 0) "In library" else "Imported · waiting for library refresh", 14f, secondary))
-                        if (id > 0 && !ready) result.section(button("Find a copy") { findCopy(id) })
+                        if (id > 0 && !ready) actions.addView(iconButton("Find a copy", Mark.DOWNLOAD) { findCopy(id) })
                     }
                     if (item.optInt("track_id") > 0) showImported(item.getInt("track_id"), item.optBoolean("ready"))
                     else {
-                        val save = button("Import song", true) {}
+                        val save = iconButton("Import song", Mark.DOWNLOAD) {}
                         save.setOnClickListener {
                             save.isEnabled = false
                             importSong(item) { reply ->
                                 reply.onSuccess {
-                                    result.removeView(save)
+                                    actions.removeView(save)
                                     showImported(it.optInt("track_id"), it.optBoolean("ready"))
                                 }.onFailure {
                                     save.isEnabled = true
@@ -171,10 +172,9 @@ internal class CatalogBrowser(private val activity: Activity, private val ui: Ro
                                 }
                             }
                         }
-                        result.section(save)
+                        actions.addView(save)
                     }
                 }
-                result.addView(actions)
                 output.section(result, gap = 6)
             }
             if (group.optBoolean("more")) more = true

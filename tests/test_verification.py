@@ -15,6 +15,18 @@ from runner import verified_existing
 
 
 class BulkDownloadVerificationTests(unittest.TestCase):
+    def test_any_supported_format_checks_codec_container_and_audio_quality(self):
+        media = {"title": "Sample song", "duration": 240, "bitrate": 320000, "stream_bitrate": 320000}
+        for suffix, codec, container in ((".flac", "flac", "flac"), (".m4a", "alac", "mov"),
+                                         (".mp3", "mp3", "mp3"), (".m4a", "aac", "mov")):
+            with self.subTest(codec=codec):
+                facts = {**media, "codec": codec, "container": container}
+                self.assertTrue(judge_download("Sample song", 240, facts, suffix, "any_format").ok)
+                for rejected in ({"container": "matroska"}, {"title": ""}, {"duration": 246},
+                                 {"bitrate": 128000, "stream_bitrate": 128000}):
+                    self.assertFalse(judge_download("Sample song", 240, {**facts, **rejected},
+                                                    suffix, "any_format").ok)
+
     def test_mp3_still_requires_a_verified_stream_bit_rate_duration_and_title(self):
         media = {"bitrate": 192_000, "stream_bitrate": 192_000, "duration": 240.0,
                  "title": "Sample song", "codec": "mp3", "container": "mp3"}

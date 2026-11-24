@@ -4,6 +4,7 @@ import android.app.Activity
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.ScrollView
 import org.json.JSONObject
 
@@ -110,8 +111,8 @@ internal fun RoomUi.addSongForm(activity: Activity, destination: RoomPlaylist, d
         accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
     }
     body.section(feedback, gap = 4)
-    lateinit var save: android.widget.Button
-    save = button("Add to playlist", solid = true) {
+    lateinit var save: ImageButton
+    save = iconButton("Add to playlist", Mark.PLAYLIST_ADD) {
         val artistName = artist.text.toString().trim()
         val song = title.text.toString().trim()
         if (artistName.isEmpty() || song.isEmpty()) {
@@ -136,6 +137,6 @@ internal fun RoomUi.addSongForm(activity: Activity, destination: RoomPlaylist, d
             }
         }
     }
-    body.section(save, gap = 0)
+    body.section(actionStrip(listOf(save), alignEnd = true), gap = 0)
     dialog.show()
 }

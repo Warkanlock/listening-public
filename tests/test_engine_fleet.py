@@ -67,6 +67,20 @@ class FleetStorageTests(unittest.TestCase):
             self.assertFalse(self.fleet.manage({"action": "status"}, None)["engines"][0]["ready"])
             worker.assert_not_called()
 
+    def test_health_checks_a_running_engine_without_starting_a_disabled_engine(self):
+        request = {"action": "health", "engine": "fixture"}
+        with (mock.patch.object(self.fleet, "running_containers", return_value={self.fleet.container("fixture")}),
+              mock.patch.object(self.fleet, "worker", return_value={"ok": True}) as worker,
+              mock.patch.object(self.fleet, "start") as start):
+            self.assertTrue(self.fleet.manage({"action": "status"}, None)["health_check"])
+            self.assertTrue(self.fleet.manage(request, None)["ok"])
+            worker.assert_called_once_with("fixture", {"version": 1, "action": "test"}, None)
+            self.fleet.engines["fixture"]["enabled"] = False
+            with self.assertRaisesRegex(ValueError, "Enable a compatible engine"):
+                self.fleet.manage(request, None)
+            worker.assert_called_once()
+            start.assert_not_called()
+
     def test_login_pause_is_shared_by_search_and_fetch_and_survives_manager_restart(self):
         request = {"engine": "fixture", "action": "search", "recording": {}}
         fetch = {"engine": "fixture", "action": "fetch", "candidate": {"source": "fixture"}, "job": self.job}
