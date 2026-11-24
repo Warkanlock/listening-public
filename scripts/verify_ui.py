@@ -55,12 +55,14 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
 import urllib.request
+from contextlib import closing
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
@@ -404,7 +406,8 @@ def verify_request_restart(page, root, screenshot):
     for seed, title in enumerate(("Older song", "Direct song"), start=7):
         subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"anoisesrc=duration=2:seed={seed}",
                         "-ac", "2", "-c:a", "libmp3lame", "-b:a", "320k",
-                        "-metadata", f"title={title}", "-metadata", "artist=Fixture", str(root / f"{title}.mp3")], check=True)
+                        "-metadata", f"title={title}", "-metadata", "artist=Fixture",
+                        "-metadata", "BPM=112", str(root / f"{title}.mp3")], check=True)
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=duration=2:seed=9",
                     "-ac", "2", "-c:a", "aac", "-b:a", "320k", "-metadata", "title=AAC fallback",
                     "-metadata", "artist=Fixture", str(root / "AAC fallback.m4a")], check=True)
@@ -539,9 +542,9 @@ def verify_request_restart(page, root, screenshot):
         assert picker.get_by_role("radio", name="Any lossless (prefer FLAC)").is_checked()
         picker.get_by_role("radio", name="MP3 only").check()
         picker.get_by_role("button", name="Confirm and search").click()
-        wait_for("worker to verify the first-choice MP3", lambda: any(
-            r["title"] == "Direct song" and r["status"] == "downloaded" and r["requested_format"] == "mp3"
-            for r in rows()), timeout=60)
+        direct = wait_for("worker to verify the first-choice MP3", lambda: next((
+            r for r in rows() if r["title"] == "Direct song"
+            and r["status"] == "downloaded" and r["requested_format"] == "mp3"), None), timeout=60)
         direct_searches = [cmd[cmd.index("--format") + 1] for cmd in map(json.loads, calls.read_text().splitlines())
                            if "--print" in cmd and cmd[0] == "Fixture - Direct song"]
         assert direct_searches == ["mp3"]
@@ -559,6 +562,14 @@ def verify_request_restart(page, root, screenshot):
         assert search[search.index("--pref-format") + 1] == "mp3"
         with urllib.request.urlopen(server.base + fallback["audio"], timeout=10) as response:
             assert response.status == 200 and response.headers["Content-Type"] == "audio/mp4"
+
+        def downloaded_tempo():
+            # Read the persisted result directly so no Activities request can start the scanner.
+            with closing(sqlite3.connect(app / "requests.sqlite3")) as db:
+                return db.execute("SELECT bpm FROM activity_tempos WHERE identity = ?",
+                                  (direct["audio_path"],)).fetchone()
+
+        assert wait_for("tempo of the newly downloaded MP3", downloaded_tempo, timeout=75) == (112.0,)
     finally:
         page.unroute(sources_url)
         page.goto("about:blank")
