@@ -294,8 +294,11 @@ def recording_mismatch(media, title, artist, length, recording_id, version, perf
 def judge_download(expected_title, expected_length, media, suffix, requested_format="any_lossless",
                    *, recording_id="", version="", expected_artist="", performance=""):
     """Verify the requested audio stream and container before landing a peer transfer."""
-    expected = REQUEST_AUDIO_FORMATS[requested_format].get(suffix.lower())
-    if media is not None and expected and expected[0] in {"mp3", "aac"}:
+    suffix = suffix.lower()
+    codec = media.get("codec") if media is not None else None
+    formats = REQUEST_AUDIO_FORMATS[requested_format]
+    expected = next((container for ext, name, container in formats if ext == suffix and name == codec), None)
+    if media is not None and expected and codec in {"mp3", "aac"}:
         # Cover art and tags count toward the whole-file bitrate but not the audio floor.
         media = {**media, "bitrate": media.get("stream_bitrate", 0)}
     verdict = judge(expected_title, expected_length, media)
@@ -304,13 +307,12 @@ def judge_download(expected_title, expected_length, media, suffix, requested_for
             reason = recording_mismatch(media, expected_title, expected_artist, expected_length, recording_id, version, performance)
             if reason:
                 return Verdict(False, reason)
-        codec = media.get("codec")
         containers = media.get("container", "").split(",")
-        if expected is None:
+        if not any(ext == suffix for ext, _, _ in formats):
             return Verdict(False, f"download requires {REQUEST_FORMAT_NAMES[requested_format]}")
-        if codec != expected[0] or expected[1] not in containers:
+        if expected not in containers:
             return Verdict(False, f"download requires {REQUEST_FORMAT_NAMES[requested_format]} audio")
-        if codec == "aac" and verdict.reason == REASON_TITLE_GENERIC:
+        if (codec == "aac" or requested_format == "any_format") and verdict.reason == REASON_TITLE_GENERIC:
             return Verdict(False, "Missing recording title")
     return verdict
 

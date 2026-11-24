@@ -117,6 +117,7 @@ def add_commands(groups):
     json_option(extensions)
     actions = extensions.add_subparsers(dest="action")
     json_option(actions.add_parser("list", help="show installed and available extensions"))
+    json_option(actions.add_parser("health", help="check the selected download sources"))
     radio = actions.add_parser("radio", help="enable or disable an external Radio provider")
     json_option(radio)
     radio.add_argument("provider", choices=("youtube", "somafm"))
@@ -162,7 +163,7 @@ def join(link):
 
 
 def api(port, route, body=None, *, host="127.0.0.1", owner_token=None):
-    timeout = 250 if route == "extensions" and body else 15
+    timeout = 250 if route.startswith("extensions") and body is not None else 15
     connection = http.client.HTTPConnection(host, port, timeout=timeout)
     headers = {"Content-Type": "application/json", "X-Listening-Local-Control": "1"}
     if owner_token:
@@ -199,6 +200,8 @@ def room_action(args, call):
         action = args.action
         if action in (None, "list"):
             return call("extensions")
+        if action == "health":
+            return call("extensions/health", {})
         if action == "radio":
             return call("extensions", {"action": action, "provider": args.provider, "enabled": args.state == "on"})
         if action in ("select", "clear-selection"):
@@ -433,6 +436,10 @@ def local_result(args, info, kind, ready, *, config=None):
 
 
 def show_extensions(data):
+    if "checks" in data:
+        for check in data["checks"]:
+            print(f"{display(check['label'])} [{display(check['state'])}] {display(check['message'])}")
+        return
     radio = ", ".join(data["radio"]) or "Off"
     print("Radio providers:", display(radio))
     selection = data["selection"]
