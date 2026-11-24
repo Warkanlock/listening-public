@@ -1210,8 +1210,7 @@ def activity_tools_ready():
 
 
 def activity_watchdog():
-    """Analyze one file at a time after the first visit to Activities."""
-    ACTIVITY_SCAN.wait()
+    """Resume background tempo analysis from the saved index on server startup."""
     retry = {}
     while True:
         ACTIVITY_SCAN.clear()
