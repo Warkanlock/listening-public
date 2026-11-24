@@ -92,11 +92,9 @@ export function WeeklyDiscovery() {
 
   const state = playlist?.state;
   return (
-    <section className="weekly-discovery" aria-labelledby="weekly-discovery-heading">
+    <section className="weekly-discovery" aria-label="Weekly Discovery playlist view">
       <header className="weekly-discovery-header">
         <div>
-          <h2 id="weekly-discovery-heading">Weekly Discovery</h2>
-          <p>New-to-you songs from artists up to three connections away from your listening. Downloads use MP3 or AAC.</p>
           {edition && state === "ready" && <p>Week of <time dateTime={playlist?.week}>
             {edition.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
           </time></p>}

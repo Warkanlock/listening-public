@@ -228,6 +228,12 @@ export interface RequestRow {
   search_title?: string;
 }
 
+export type RecentDownload = Pick<RequestRow, "id" | "track_index" | "artist" | "title"> & { audio: string };
+export type DownloadOutcome = Pick<RequestRow, "title"> & {
+  key: string;
+  status: "downloaded" | "not_found" | "rejected" | "error";
+};
+
 export interface WatchdogHealth {
   last_error: string;
   last_error_at: number;
@@ -498,6 +504,7 @@ export interface DiscoverTrack {
 
 export interface Discover {
   week: string;
+  weekly_edition?: string;
   source: string;
   status?: string;
   tracks: DiscoverTrack[];
