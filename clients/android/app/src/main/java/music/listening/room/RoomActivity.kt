@@ -27,7 +27,7 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 
 class RoomActivity : Activity() {
-    private enum class Screen { LIBRARY, EXPLORE, DISCOVER, WEEKLY, CATALOGS, RADIO, PLAYER, INSIGHTS }
+    private enum class Screen { LIBRARY, EXPLORE, ACTIVITIES, DISCOVER, WEEKLY, CATALOGS, RADIO, PLAYER, INSIGHTS }
     private val ui by lazy { RoomUi(this) }
     private val io = Executors.newSingleThreadExecutor()
     private val catalogIo = Executors.newSingleThreadExecutor()
@@ -122,7 +122,7 @@ class RoomActivity : Activity() {
         syncAfter = 0L
         handler.post(presence)
         if (room != null && retry.visibility == View.VISIBLE) show()
-        else if (room != null && screen in setOf(Screen.DISCOVER, Screen.WEEKLY, Screen.RADIO)) show()
+        else if (room != null && screen in setOf(Screen.DISCOVER, Screen.WEEKLY, Screen.ACTIVITIES, Screen.RADIO)) show()
         else if (room != null) refreshPlayer()
     }
 
@@ -149,7 +149,7 @@ class RoomActivity : Activity() {
         if (screen == Screen.WEEKLY) {
             screen = Screen.DISCOVER
             show()
-        } else if (screen in setOf(Screen.CATALOGS, Screen.DISCOVER) || screen == Screen.LIBRARY && playlistDetail != null) {
+        } else if (screen in setOf(Screen.CATALOGS, Screen.DISCOVER, Screen.ACTIVITIES) || screen == Screen.LIBRARY && playlistDetail != null) {
             resetLibrary()
             screen = Screen.EXPLORE
             show()
@@ -335,6 +335,7 @@ class RoomActivity : Activity() {
             target == null -> "Connect to a room"
             screen == Screen.LIBRARY -> selection.ifBlank { if (phone()?.local == true) "On this phone" else "Songs" }
             screen == Screen.EXPLORE -> "Explore"
+            screen == Screen.ACTIVITIES -> "Activities"
             screen == Screen.DISCOVER -> "Deep Dive"
             screen == Screen.WEEKLY -> "Weekly Discovery"
             screen == Screen.CATALOGS -> "Browse catalogs"
@@ -346,6 +347,7 @@ class RoomActivity : Activity() {
         val files = ui.button("Device files") { startActivity(Intent(this, CardActivity::class.java)) }
         outer.addView(ui.row(6).apply {
             if (weekly) addView(ui.iconButton("Back to Deep Dive", Mark.BACK) { onBackPressed() })
+            else if (screen == Screen.ACTIVITIES) addView(ui.iconButton("Back to Explore", Mark.BACK) { onBackPressed() })
             else addView(ImageView(context).apply {
                 setImageDrawable(ui.mark(Mark.ROOM, 23, ui.accent))
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -392,10 +394,10 @@ class RoomActivity : Activity() {
         for ((title, destination) in listOf("Library" to Screen.LIBRARY, "Explore" to Screen.EXPLORE,
             "Radio" to Screen.RADIO, "Playing" to Screen.PLAYER, "Insights" to Screen.INSIGHTS)) {
             if (phone()?.local == true && destination in listOf(Screen.EXPLORE, Screen.RADIO)) continue
-            val selected = destination == screen || (screen in setOf(Screen.DISCOVER, Screen.WEEKLY, Screen.CATALOGS) && destination == Screen.EXPLORE)
+            val selected = destination == screen || (screen in setOf(Screen.ACTIVITIES, Screen.DISCOVER, Screen.WEEKLY, Screen.CATALOGS) && destination == Screen.EXPLORE)
             val glyph = when (destination) {
                 Screen.LIBRARY -> Mark.LIBRARY
-                Screen.EXPLORE, Screen.DISCOVER, Screen.WEEKLY, Screen.CATALOGS -> Mark.EXPLORE
+                Screen.EXPLORE, Screen.ACTIVITIES, Screen.DISCOVER, Screen.WEEKLY, Screen.CATALOGS -> Mark.EXPLORE
                 Screen.RADIO -> Mark.RADIO
                 Screen.PLAYER -> Mark.PLAYING
                 Screen.INSIGHTS -> Mark.INSIGHTS
@@ -410,6 +412,7 @@ class RoomActivity : Activity() {
         when (screen) {
             Screen.LIBRARY -> library(listPosition)
             Screen.EXPLORE -> explore()
+            Screen.ACTIVITIES -> activityMixes(target)
             Screen.CATALOGS -> load({ target.get("/api/discovery/sources") }) { sources ->
                 content.addView(CatalogBrowser(this, ui, sources, { query, onCall, done ->
                     load({ target.searchCatalog(query, onCall) }, failed = { done(Result.failure(it)) }, executor = catalogIo, reportErrors = false) {
@@ -894,8 +897,9 @@ class RoomActivity : Activity() {
                     }
                     val field = MoodMap(this@RoomActivity, ui, groups, ::play)
                     setPadding(0, ui.dp(5), 0, ui.dp(12))
-                    addView(ui.row().apply {
+                    addView(ui.row(6).apply {
                         part(ui.heading("Mood Map", 20f))
+                        addView(ui.button("Activities") { screen = Screen.ACTIVITIES; show() })
                         addView(ui.iconButton("Map settings", Mark.SETTINGS) {
                             val mix = field.selection
                             val current = genre.takeIf { it in mix.genres }.orEmpty()
@@ -912,6 +916,7 @@ class RoomActivity : Activity() {
                     addView(field, LinearLayout.LayoutParams(-1, ui.dp(255)).apply { topMargin = ui.dp(6) })
                 }
             }
+            if (map == null) rows.add(0, Entry("Activities") { screen = Screen.ACTIVITIES; show() })
             if (playlists.length() > 0) rows.add(Entry("Playlists"))
             for (i in 0 until playlists.length()) {
                 val item = RoomPlaylist(playlists.getJSONObject(i))
@@ -926,6 +931,68 @@ class RoomActivity : Activity() {
             }
             content.addView(ui.index(rows, map))
         }
+    }
+
+    private fun activityMixes(target: Room) {
+        val panel = ui.column(6)
+        val list = ui.column(6)
+        panel.addView(list)
+        val pending = ui.label("Loading activities…", 14f, ui.secondary)
+        panel.addView(pending)
+        content.addView(ScrollView(this).apply { addView(panel) })
+        val rows = mutableMapOf<String, Pair<TextView, View>>()
+        fun refresh() {
+            load({ target.get("/api/activities") }, failed = {
+                pending.text = "Couldn’t load activity mixes."
+                pending.visibility = View.VISIBLE
+            }) { index ->
+                val indexed = index.optInt("indexed")
+                val total = index.optInt("total")
+                val canAnalyze = index.optBoolean("analysis_available")
+                val preparing = index.optBoolean("preparing")
+                val activities = index.getJSONArray("activities")
+                for (i in 0 until activities.length()) {
+                    val item = activities.getJSONObject(i)
+                    val id = item.getString("id")
+                    val name = item.getString("name")
+                    val count = item.getInt("count")
+                    val (detail, play) = rows.getOrPut(id) {
+                        val label = ui.label("", 14f, ui.secondary)
+                        val button = ui.iconButton("Play $name mix", Mark.PLAY) {
+                            message("Starting mix…")
+                            send("play_activity", JSONObject().put("activity", id))
+                        }
+                        list.addView(ui.panel().apply {
+                            addView(ui.row(8).apply {
+                                part(ui.column(3).apply {
+                                    addView(ui.heading(name, 18f))
+                                    addView(label)
+                                })
+                                addView(button)
+                            })
+                        })
+                        label to button
+                    }
+                    val songs = if (count == 1) "song" else "songs"
+                    val description = "${item.getInt("min_bpm")}–${item.getInt("max_bpm")} BPM · $count $songs"
+                    if (detail.text != description) detail.text = description
+                    play.isEnabled = count > 0
+                }
+                val progress = when {
+                    preparing -> "Loading saved tempos…"
+                    total == 0 -> "Add music to your library to start a mix."
+                    !canAnalyze -> "Tempo analysis is unavailable on this server."
+                    indexed < total -> "Checking tempos · $indexed of $total songs"
+                    else -> ""
+                }
+                if (pending.text != progress) pending.text = progress
+                pending.visibility = if (progress.isEmpty()) View.GONE else View.VISIBLE
+                if (preparing || canAnalyze && indexed < total) panel.postDelayed({
+                    if (active && panel.isAttachedToWindow && screen == Screen.ACTIVITIES) refresh()
+                }, 8_000)
+            }
+        }
+        refresh()
     }
 
     private data class RadioChoice(val name: String, val detail: String,
