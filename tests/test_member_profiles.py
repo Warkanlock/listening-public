@@ -154,6 +154,12 @@ class HouseholdProfileTests(ServerFixture, unittest.TestCase):
         selection = self.result(path, tablet)["history"]
         self.assertEqual(selection["title"], "Drone Zone")
         self.assertEqual(selection["source"]["stream"]["url"], "https://ice2.somafm.com/dronezone-128-mp3")
+        with mock.patch.dict(server.SETTINGS, {"somafm_stations": [{"name": "Ambient", "channel": "lush"}]}):
+            selection = self.result(path, tablet)["history"]
+            self.assertEqual(selection["title"], "Lush")
+            self.assertEqual(selection["source"]["stream"]["url"], "https://ice2.somafm.com/lush-128-mp3")
+        with mock.patch.dict(server.SETTINGS, {"somafm_stations": []}):
+            self.assertIsNone(self.result(path, tablet)["history"])
         self.assertEqual(write(tablet, "tune", "b" * 32, noise), 200)
         self.assertEqual(write(browser, "update", "a" * 32, ambient), 200)
         self.assertEqual(write(browser, "clear", "a" * 32), 200)

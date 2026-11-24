@@ -75,6 +75,7 @@ export class RadioSlice {
   }
   stationsLoaded = false;
   youtubeEnabled = false;
+  somafmEnabled = false;
   stationsError: string | null = null;
   tuningGenre = "";
   tuneError = "";
@@ -283,6 +284,8 @@ export class RadioSlice {
     const first = retune ? undefined : current ?? undefined;
     if (source.kind === "library") {
       if (!this.libraryRequest) void this.startLibrary(source.name, typeof first === "number" ? first : undefined, true, retune ? 0 : position);
+    } else if (source.kind === "live") {
+      void this.startLive(source.name);
     } else {
       this.startMixFromRadio(source, first, retune ? 0 : position);
     }
@@ -299,21 +302,24 @@ export class RadioSlice {
     );
   }
 
-  async loadStations() {
+  async loadStations({ deferPlaybackCheck = false } = {}): Promise<boolean> {
     try {
       const data = await api<StationsResult>("/api/stations");
-      this.stations = data.stations;
+      if (JSON.stringify(this.stations) !== JSON.stringify(data.stations)) {
+        this.stations = data.stations;
+      }
       this.libraryGenres = data.ready_genres ?? {};
       this.live = data.live ?? {};
+      this.somafmEnabled = data.somafm_enabled ?? Object.keys(this.live).length > 0;
       this.youtubeEnabled = data.youtube_enabled ?? data.stations.length > 0;
-      if (this.activeSource && !this.sourceAvailable(this.activeSource)) this.controls?.stop();
-      if (this.restored && !this.sourceAvailable(this.restored.source)) this.showHistory(null);
+      if (!deferPlaybackCheck) this.stopUnavailableStation();
       this.stationsLoaded = true;
       this.stationsError = null;
     } catch (error) {
       this.stationsError = errorMessage(error, "Stations could not load");
     }
     this.host.bump();
+    return this.stationsError === null;
   }
 
   async saveStations(stations: RadioStation[]): Promise<boolean> {
@@ -378,8 +384,26 @@ export class RadioSlice {
     }
   }
 
-  startLive(name: string, stream: LiveRadio) {
-    this.startMixFromRadio({ kind: "live", name, stream });
+  async startLive(name: string, { resume = false } = {}) {
+    const intent = ++this.playIntent;
+    const loaded = await this.loadStations({ deferPlaybackCheck: true });
+    if (intent !== this.playIntent) return;
+    if (!loaded) {
+      notify(this.stationsError ?? "Stations could not load");
+      return;
+    }
+    const stream = this.live[name];
+    if (!stream) {
+      this.stopUnavailableStation();
+      notify("This live station is unavailable. Check the room’s Radio settings.");
+      return;
+    }
+    if (resume && this.activeSource?.kind === "live" && this.activeSource.stream.url === stream.url) {
+      const allowed = await this.signalPresence("live");
+      if (allowed && intent === this.playIntent) this.controls?.toggle();
+    } else {
+      this.startMixFromRadio({ kind: "live", name, stream });
+    }
   }
 
   startNoise(name: string, profile: NoiseProfile) {
@@ -390,6 +414,11 @@ export class RadioSlice {
     if (source.kind === "youtube") return this.youtubeEnabled;
     if (source.kind === "live") return Object.hasOwn(this.live, source.name);
     return true;
+  }
+
+  private stopUnavailableStation() {
+    const source = this.activeSource ?? this.restored?.source;
+    if (source && !this.sourceAvailable(source)) this.stopRadio(false);
   }
 
   async signalPresence(source: RadioMix["kind"] | null): Promise<boolean> {
@@ -489,6 +518,10 @@ export class RadioSlice {
     if (this.restored) {
       this.restartStation();
     } else if (this.status === "paused" && this.activeSource) {
+      if (this.activeSource.kind === "live") {
+        void this.startLive(this.activeSource.name, { resume: true });
+        return;
+      }
       const intent = this.playIntent;
       void this.signalPresence(this.activeSource.kind).then(allowed => {
         if (allowed && intent === this.playIntent) this.controls?.toggle();
@@ -544,6 +577,7 @@ export class RadioSlice {
   retuneRadio() {
     const intent = ++this.playIntent;
     if (this.restored) this.restartStation(true);
+    else if (this.activeSource?.kind === "live") void this.startLive(this.activeSource.name);
     else if (this.activeSource) void this.signalPresence(this.activeSource.kind).then(allowed => {
       if (allowed && intent === this.playIntent) this.controls?.retune();
     });

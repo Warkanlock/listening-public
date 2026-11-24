@@ -19,7 +19,7 @@ internal data class RadioHistory(
 
     fun available(stations: JSONObject): Boolean = when (source) {
         RadioSource.LIBRARY -> true
-        RadioSource.LIVE -> stations.optJSONObject("live")?.optJSONObject(name)?.optString("url") == ref
+        RadioSource.LIVE -> liveStation(stations, name)?.ref == ref
         RadioSource.YOUTUBE -> {
             val mixes = stations.optJSONArray("stations")
             stations.optBoolean("youtube_enabled", true) && mixes != null &&
@@ -37,6 +37,12 @@ internal data class RadioHistory(
     }
 
     companion object {
+        fun liveStation(stations: JSONObject, name: String): RadioHistory? {
+            val row = stations.optJSONObject("live")?.optJSONObject(name) ?: return null
+            val url = liveUri(row.optString("url")) ?: return null
+            return RadioHistory(RadioSource.LIVE, name, url.toString(), row.optString("title"), "SomaFM")
+        }
+
         fun liveUri(ref: String): Uri? = Uri.parse(ref).takeIf {
             it.scheme == "https" && it.encodedAuthority == "ice2.somafm.com" &&
                 it.encodedPath?.matches(Regex("/[A-Za-z0-9_-]+-128-mp3")) == true &&

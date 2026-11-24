@@ -55,8 +55,8 @@ from playback.insights import PlaybackTraffic
 from playback.member_profiles import MemberProfiles, ProfileConflict
 from playback.play_events import PlayEventsStore
 from playback import radio_resume
-from playback.radio import (PROVIDERS, RADIO_PRESETS, clean_stations, live_catalog,
-                            provider_enabled, source_enabled, stations_from)
+from playback.radio import (PROVIDERS, RADIO_PRESETS, SOMAFM_CHANNELS, clean_live_stations, clean_stations,
+                            live_catalog, live_stations_from, provider_enabled, source_enabled, stations_from)
 from downloads.engine_contract import EngineError, engine_selection, engines_ready, manager_call, source_summary
 from system import client_artifacts
 from devices.announcements import AnnouncementBoard
@@ -1831,13 +1831,23 @@ class Handler(BaseHTTPRequestHandler):
                     if body is not None and update_draining():
                         return self.error_json("The room is restarting. Try again shortly.", HTTPStatus.SERVICE_UNAVAILABLE)
                     if body is not None:
-                        action = radio_resume.validate_action(body)
+                        action = radio_resume.validate_action(body, live_catalog(SETTINGS))
                         if action[2] and not source_enabled(SETTINGS, action[2]["source"]["kind"]):
                             return self.error_json("This Radio source is disabled.", HTTPStatus.FORBIDDEN)
                         return self.json_response(profile.write_radio_resume(*action))
                     resume = profile.radio_resume()
-                    if resume["history"] and not source_enabled(SETTINGS, resume["history"]["source"]["kind"]):
-                        resume["history"] = None
+                    history = resume["history"]
+                    if history:
+                        source = history["source"]
+                        if not source_enabled(SETTINGS, source["kind"]):
+                            resume["history"] = None
+                        elif source["kind"] == "live":
+                            stream = live_catalog(SETTINGS).get(source["name"])
+                            if stream is None:
+                                resume["history"] = None
+                            elif source["stream"] != stream:
+                                resume["history"] = {**history, "title": stream["title"],
+                                                     "source": {**source, "stream": stream}}
                     return self.json_response(resume)
                 if path == "/api/my/playlists":
                     if body is None:
@@ -2242,6 +2252,43 @@ class Handler(BaseHTTPRequestHandler):
             result = {**result, "library": {field: record.get(field) or "" for field in ("artist", "title", "album")}}
         return self.json_response(result)
 
+    def _somafm(self, *, save=False, body=None):
+        if not self._is_owner():
+            return self.error_json("Only the room owner can manage SomaFM.", HTTPStatus.FORBIDDEN)
+        stations = None
+        if save:
+            if not isinstance(body, dict) or not {"enabled", "stations"}.intersection(body):
+                return self.error_json("Provide a change to SomaFM settings.")
+            if "enabled" in body and type(body["enabled"]) is not bool:
+                return self.error_json("Choose whether SomaFM is enabled.")
+            if "stations" in body:
+                try:
+                    stations = clean_live_stations(body["stations"])
+                except ValueError as error:
+                    return self.error_json(str(error))
+        with ROOT_LOCK:
+            if save:
+                keys = ("radio_providers", "somafm_stations")
+                previous = {key: SETTINGS[key] for key in keys if key in SETTINGS}
+                if "enabled" in body:
+                    providers = set(SETTINGS.get("radio_providers", []))
+                    (providers.add if body["enabled"] else providers.discard)("somafm")
+                    SETTINGS["radio_providers"] = sorted(providers)
+                if stations is not None:
+                    SETTINGS["somafm_stations"] = stations
+                try:
+                    save_settings()
+                except (OSError, sqlite3.Error):
+                    for key in keys:
+                        if key not in previous:
+                            SETTINGS.pop(key, None)
+                    SETTINGS.update(previous)
+                    return self.error_json("SomaFM settings could not be saved. Try again.",
+                                           HTTPStatus.SERVICE_UNAVAILABLE)
+            result = {"enabled": provider_enabled(SETTINGS, "somafm"),
+                      "channels": SOMAFM_CHANNELS, "stations": live_stations_from(SETTINGS)}
+        return self.json_response(result)
+
     def _extensions(self, body=None):
         if not self._is_owner():
             return self.error_json("Only the room owner can manage extensions.", HTTPStatus.FORBIDDEN)
@@ -2410,13 +2457,18 @@ class Handler(BaseHTTPRequestHandler):
                 except (ValueError, sqlite3.Error):
                     return self.error_json("Your playback state is unavailable. Try again.", HTTPStatus.SERVICE_UNAVAILABLE)
             return self.json_response(with_audio_facts(playback.snapshot(output=output_from(self.headers))))
+        if path == "/api/radio/somafm":
+            return self._somafm()
         if path == "/api/stations":
-            enabled = provider_enabled(SETTINGS, "youtube")
+            with ROOT_LOCK:
+                radio_settings = SETTINGS.copy()
+            enabled = provider_enabled(radio_settings, "youtube")
+            somafm = provider_enabled(radio_settings, "somafm")
             return self.json_response(
-                {"stations": stations_from(SETTINGS) if enabled else [],
+                {"stations": stations_from(radio_settings) if enabled else [],
                  "presets": RADIO_PRESETS if enabled else (),
                  "genres": catalog.canonical_genres(),
-                 "live": live_catalog() if provider_enabled(SETTINGS, "somafm") else {},
+                 "live": live_catalog(radio_settings) if somafm else {}, "somafm_enabled": somafm,
                  "ready_genres": {genre: len(refs) for genre, refs in ready_tracks_by_genre().items()},
                  "youtube_enabled": enabled, "youtube_search": enabled and youtube_search.available()})
         if path == "/api/insights":
@@ -2946,7 +2998,7 @@ class Handler(BaseHTTPRequestHandler):
         profile = self._member_profile() if not account_action else None
         if profile is not None and self.path not in MEMBER_POST:
             return self.error_json("This action is unavailable to household members.", HTTPStatus.FORBIDDEN)
-        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {"/api/radio/presence", "/api/extensions", "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
+        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {"/api/radio/presence", "/api/radio/somafm", "/api/extensions", "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
                              "/api/sync", "/api/import-csv", "/api/import-list", "/api/import-bundle", "/api/device", "/api/devices/revoke", "/api/devices/offline", "/api/devices/invites", "/api/pairing/rotate",
                              "/api/announcements", "/api/process", "/api/jobs", "/api/open-source", "/api/playlists/merge",
                              "/api/playlists/add-song", "/api/discovery/import", "/api/devices/playlist-access",
@@ -3111,6 +3163,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 return self.error_json("Choose an extension action.")
             return self._extensions(body)
+        if self.path == "/api/radio/somafm":
+            return self._somafm(save=True, body=body)
         if self.path == "/api/stations":
             if not provider_enabled(SETTINGS, "youtube"):
                 return self.error_json("Enable YouTube in Settings to edit mixes.", HTTPStatus.FORBIDDEN)
