@@ -380,11 +380,11 @@ class Surface:
 
 
 def verify_request_restart(page, root, screenshot):
-    """Drive the picker and real restarted server/worker against two local peer files."""
+    """Drive the picker and real restarted server/worker against local peer files."""
     app, music = root / "app", root / "music"
     app.mkdir()
     (music / "lists").mkdir(parents=True)
-    (music / "lists" / "test.csv").write_text("title,artist,album\nOlder song,Fixture,Album\n")
+    (music / "lists" / "test.csv").write_text("title,artist,album\nOlder song,Fixture,Album\nDirect song,Fixture,Album\n")
     sockseek = root / "sockseek"
     shutil.copyfile(REPO_ROOT / "tests/fixtures/format_sockseek.py", sockseek)
     sockseek.chmod(0o700)
@@ -399,9 +399,10 @@ def verify_request_restart(page, root, screenshot):
                         "anoisesrc=color=white:duration=2:sample_rate=44100:seed=7",
                         "-ac", "2", "-c:a", codec, "-b:a", "320k", "-metadata",
                         "title=Format fixture", "-metadata", "artist=Fixture", "-metadata", "album=Live", str(root / (codec + ".m4a"))], check=True)
-    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=duration=2:seed=7",
-                    "-ac", "2", "-c:a", "libmp3lame", "-b:a", "320k",
-                    "-metadata", "title=Older song", "-metadata", "artist=Fixture", str(root / "older.mp3")], check=True)
+    for seed, title in enumerate(("Older song", "Direct song"), start=7):
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"anoisesrc=duration=2:seed={seed}",
+                        "-ac", "2", "-c:a", "libmp3lame", "-b:a", "320k",
+                        "-metadata", f"title={title}", "-metadata", "artist=Fixture", str(root / f"{title}.mp3")], check=True)
     server = Server(root, app, port)
     def rows():
         return server.request("GET", "/api/requests")[1]["requests"]
@@ -455,7 +456,12 @@ def verify_request_restart(page, root, screenshot):
         picker.get_by_role("button", name="View extensions").click()
         extensions = page.get_by_role("dialog", name="Extensions")
         extensions.get_by_role("heading", name="Download extensions").wait_for()
-        extensions.get_by_role("button", name="Back to format").click()
+        back = extensions.get_by_role("button", name="Back to format")
+        assert back.locator("svg").is_visible() and back.inner_text() == ""
+        heading = extensions.get_by_role("heading", name="Extensions", exact=True)
+        arrow, title = back.bounding_box(), heading.bounding_box()
+        assert arrow["x"] < title["x"] and arrow["y"] <= title["y"] < arrow["y"] + arrow["height"]
+        back.click()
         assert picker.get_by_role("radio", name="Apple Lossless (ALAC) only").is_checked()
         assert picker.get_by_role("button", name="View extensions").evaluate("el => el === document.activeElement")
         page.screenshot(path=str(screenshot))
@@ -504,7 +510,7 @@ def verify_request_restart(page, root, screenshot):
         page.get_by_role("button", name="Library", exact=True).click()
         page.get_by_role("button", name="Choose format for Older song").click()
         assert picker.get_by_role("radio", name="Any lossless (prefer FLAC)").is_checked()
-        assert picker.get_by_role("radio", name="MP3").count() == 0
+        assert picker.get_by_role("radio", name="MP3 only").is_visible()
         picker.get_by_role("button", name="Confirm and search").click()
         retry = page.get_by_role("button", name="Try MP3 for Older song", exact=True)
         retry.wait_for(timeout=60000)
@@ -523,6 +529,17 @@ def verify_request_restart(page, root, screenshot):
         formats = [cmd[cmd.index("--format") + 1] for cmd in map(json.loads, calls.read_text().splitlines())
                    if "--print" in cmd and cmd[0] == "Fixture - Older song"]
         assert formats == ["flac,m4a", "mp3"]
+
+        page.get_by_role("button", name="Find a copy of Direct song").click()
+        assert picker.get_by_role("radio", name="Any lossless (prefer FLAC)").is_checked()
+        picker.get_by_role("radio", name="MP3 only").check()
+        picker.get_by_role("button", name="Confirm and search").click()
+        wait_for("worker to verify the first-choice MP3", lambda: any(
+            r["title"] == "Direct song" and r["status"] == "downloaded" and r["requested_format"] == "mp3"
+            for r in rows()), timeout=60)
+        direct_searches = [cmd[cmd.index("--format") + 1] for cmd in map(json.loads, calls.read_text().splitlines())
+                           if "--print" in cmd and cmd[0] == "Fixture - Direct song"]
+        assert direct_searches == ["mp3"]
     finally:
         page.unroute(sources_url)
         page.goto("about:blank")
