@@ -765,13 +765,15 @@ def download_job_progress():
     return queue, queue.get(int(job_id))
 
 
-def record_download_progress(*, retry=None, scoped_attempted=(), complete=False):
+def record_download_progress(*, retry=None, retry_delay=0, scoped_attempted=(), complete=False):
     queue, job = download_job_progress()
     if not job:
         return
     progress = job["progress"]
     if retry is not None:
         progress["engine_retry"] = retry
+        if retry_delay:
+            progress["retry_after"] = time.time() + retry_delay
     if complete and not progress.get("engine_retry"):
         progress["engine_complete"] = True
     if scoped_attempted:
@@ -1070,7 +1072,7 @@ def process_requests(records, limit=3):
         # the full report is written once, after the loop.
         _REPORT_DIRTY = True
         if provider_delay or (status == "waiting_space" and configured_engines() is not None):
-            record_download_progress(retry=message)
+            record_download_progress(retry=message, retry_delay=provider_delay)
             save_probe_cache()
             flush_report()
             return False
