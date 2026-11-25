@@ -161,18 +161,30 @@ class WeeklyHttpTests(ServerFixture, unittest.TestCase):
             self.assertEqual(store.get(request["id"])["requested_format"], "any_lossy")
             self.assertTrue(result["can_request"])
             start.assert_called_once_with("requests", force=True)
+            alternate = identity(105)
+            store.replace_recording(
+                request["id"], request["format_revision"], new["artist"], new["title"], "Live album",
+                125, new["title"], musicbrainz_id=alternate, version="Live", performance="")
+            changed = call("GET")[1]["tracks"][0]["request"]
+            self.assertEqual((changed["id"], changed["musicbrainz_id"], changed["requested_format"], changed["version"]),
+                             (request["id"], alternate, "any_lossy", "Live"))
+            self.assertEqual(call("POST", {"ids": [new["id"]]})[1], {"queued": 0, "existing": 1})
             audio = server.LIBRARY / "fixture.mp3"
             audio.parent.mkdir(parents=True, exist_ok=True)
             store.finish(request["id"], "downloaded", "", audio.name)
             missing = call("GET")[1]
-            self.assertEqual(missing["tracks"][0]["request"], {"id": request["id"], "status": "missing"})
+            unavailable = missing["tracks"][0]["request"]
+            self.assertEqual((unavailable["id"], unavailable["status"], unavailable["request_state"]),
+                             (request["id"], "missing", "copy_missing"))
+            self.assertNotIn("audio", unavailable)
             self.assertEqual(missing["download_progress"],
                              {"total": 1, "downloaded": 0, "pending": 0, "needs_attention": 1, "percent": 0})
             refs = {"op": "play_requests", "request_ids": [request["id"]]}
             self.assertEqual(server.selected_playback_tracks(refs), [])
             audio.touch()
-            self.assertEqual(call("GET")[1]["tracks"][0]["request"],
-                             {"id": request["id"], "status": "downloaded", "audio": f"/api/audio/custom/{request['id']}"})
+            playable = call("GET")[1]["tracks"][0]["request"]
+            self.assertEqual((playable["id"], playable["status"], playable["request_state"], playable["audio"]),
+                             (request["id"], "downloaded", "ready", f"/api/audio/custom/{request['id']}"))
             lossless, _ = store.create_or_find(None, "Artist", "Lossless", "", 120, "", individual=True)
             store.confirm_format(lossless["id"], "flac", 0)
             flac = audio.with_suffix(".flac")

@@ -358,6 +358,31 @@ def search_recording(selection, recording, *, timeout=None):
     return candidates
 
 
+PROGRESS_FILE = ".download-progress"
+
+
+def read_transfer_percent(directory):
+    """Read one bounded, optional progress sample from an isolated transfer."""
+    try:
+        folder = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fd = os.open(PROGRESS_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+        finally:
+            os.close(folder)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not 1 <= info.st_size <= 3:
+                return None
+            value = os.read(fd, 4)
+            if value.isdigit() and len(value) <= 3 and int(value) <= 100:
+                return int(value)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+    return None
+
+
 def _copy_result(directory, name, destination, suffixes, check_space):
     if (not isinstance(name, str) or name in {"", ".", ".."}
             or Path(name).name != name or "\x00" in name):
@@ -412,7 +437,7 @@ def _recover_interrupted_transfers(root, state):
 
 @contextlib.contextmanager
 def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimate, accept, timeout,
-                    chosen=None, recommended_only=False, on_review=None, on_transfer=None):
+                    chosen=None, recommended_only=False, on_review=None, on_transfer=None, on_progress=None):
     """Yield one core-owned candidate or None. A provider never gets its path."""
     staging = os.environ.get("LISTENING_ENGINE_STAGING")
     if not selection or not staging:
@@ -463,13 +488,25 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
             job = uuid.uuid4().hex
             directory = root / job
             directory.mkdir(mode=0o700)
+            last_percent = None
+
+            def monitor_transfer():
+                nonlocal last_percent
+                check_space()
+                if on_progress is not None:
+                    percent = read_transfer_percent(directory)
+                    if percent is not None and percent != last_percent:
+                        on_progress(percent)
+                        last_percent = percent
+
             with tempfile.TemporaryDirectory(prefix="engine-candidate-", dir=state) as copy:
                 try:
                     try:
                         with timed_stage(selection["fetch"], "transfer", budget, attempt=attempt):
                             reference = {key: candidate[key] for key in ("source", "id")}
+                            options = {"report_progress": True} if on_progress is not None else {}
                             fetched = manager_call("fetch", engine=selection["fetch"], candidate=reference,
-                                                   job=job, timeout=budget, check_space=check_space)
+                                                   job=job, timeout=budget, check_space=monitor_transfer, **options)
                     except EngineError as error:
                         if error.retryable:
                             raise

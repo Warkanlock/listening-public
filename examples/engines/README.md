@@ -19,6 +19,8 @@ for transient working files and `/credentials` for the provider's configuration.
 | `search` | `recording` with `id`, `title`, `search_title`, `artist`, `album`, `duration` in seconds, allowed `formats` such as `[".mp3",".flac"]`, and `preferred_format` such as `"mp3"` | `{"ok":true,"candidates":[{"source":"example-catalog","id":"first-light.mp3"}]}` |
 | `fetch` | `candidate` with the same `source` and `id`, and a writable `staging` directory allocated for this request | `{"ok":true,"file":"first-light.mp3"}` identifying a complete regular file immediately inside staging |
 
+While fetching, a worker can atomically replace `.download-progress` inside its staging directory with the whole percentage (ASCII digits, 0–100). Report percentages calculated from actual bytes and a known total. Progress is optional and the final reply still identifies only the completed audio file.
+
 Return an empty candidate list for a search with no match. An operation failure
 returns `{"ok":false,"retryable":true,"error":"Catalog temporarily unavailable"}`.
 Use `retryable:false` when a candidate is permanently unavailable. If the

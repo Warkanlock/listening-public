@@ -10,13 +10,17 @@ export interface Poll {
   name: string;
   ms: number;
   gate?: (store: Store) => boolean;
+  foregroundMs?: (store: Store) => number;
   backgroundMs?: (store: Store) => number;
   run: (store: Store) => Promise<unknown> | unknown;
 }
 
 export const POLLS: Poll[] = [
   { name: "overview", ms: 15000, run: (store) => store.refreshOverview() },
-  { name: "requests", ms: 15000, gate: (store) => !store.member, run: (store) => store.loadRequests() },
+  { name: "requests", ms: 3000, gate: (store) => !store.member,
+    foregroundMs: (store) => store.view === "requests" && store.requestRows.some(
+      row => row.status === "searching" || row.status === "queued" && !row.retry_at) ? 3000 : 15000,
+    run: (store) => store.loadRequests() },
   { name: "radio-history", ms: 10000, gate: store => store.view === "radio" || store.radioStatus === "paused",
     run: store => store.radioSlice.refreshHistory() },
   { name: "activity", ms: 5000, gate: (store) => !store.member, run: (store) => store.refreshActivity() },
@@ -80,7 +84,7 @@ export function startPolls(store: Store) {
   const checkRoom = () => { if (!pageAway && !document.hidden) void store.checkRoom(); };
   const tick = (poll: Poll) => {
     if (pageAway || !store.playbackPresenceActive) return;
-    const interval = document.hidden ? poll.backgroundMs?.(store) : 0;
+    const interval = document.hidden ? poll.backgroundMs?.(store) : poll.foregroundMs?.(store) ?? 0;
     const now = performance.now();
     if (interval === undefined || now - (lastRun.get(poll) ?? -Infinity) < interval ||
       store.roomConnection !== "ready") return;

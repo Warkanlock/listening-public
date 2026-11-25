@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { api, BUSY_STATUSES, statusLabel, time, type Mp3Retry, type RequestRow } from "../api";
+import { canChooseFormat, needsCopyChoice, requestStage, requestStageLabel } from "../requestState";
 import { useStore } from "../store";
 import { CoverArt } from "./Artwork";
 import { RoomIcon } from "./RoomIcon";
@@ -52,10 +53,11 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
   const reference = playableRef(track, row);
   const ready = reference !== undefined;
   const busy = !!row && BUSY_STATUSES.includes(row.status);
-  const format = !!row && ["waiting_format", "not_found", "error", "rejected"].includes(row.status);
+  const stage = row && requestStage(row);
+  const format = stage && canChooseFormat(stage);
   const canRequest = !!track.track_id || !!track.musicbrainz_id && track.duration > 0;
   const retry = row ? row.mp3_retry : track.mp3_retry;
-  const label = ready ? "Play" : busy && row ? statusLabel(row.status) : row?.copy_review ? "Review copies"
+  const label = ready ? "Play" : busy && row ? requestStageLabel(row) : stage && needsCopyChoice(stage) ? "Review copies"
     : format ? "Choose format" : "Find a copy";
 
   async function act() {
