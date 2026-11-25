@@ -40,7 +40,8 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
   const busy = !!row && BUSY_STATUSES.includes(row.status);
   const search = new URL("https://www.youtube.com/results");
   search.searchParams.set("search_query", [track.artist, track.title, track.version, track.performance].filter(Boolean).join(" "));
-  const requestLabel = ready ? "Play in room" : choosing ? "Choose format" : busy && row ? statusLabel(row.status) : "Find a copy";
+  const requestLabel = ready ? "Play in room" : row?.copy_review ? "Review copies"
+    : choosing ? "Choose format" : busy && row ? statusLabel(row.status) : "Find a copy";
   const listenLabel = branch?.source ? "Listen on " + branch.source.name : "Search on YouTube";
   async function request() {
     if (ready && row) return void store.sendSession("play_request", { request_id: row.id });
@@ -58,7 +59,8 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
         <RoomIcon name={branch?.source ? "listen" : "search"} />
       </a>
       <RoomIconButton primary label={requestLabel}
-        icon={ready ? "play" : choosing ? "settings" : busy ? "recent" : "download"} onClick={() => void request()}
+        icon={ready ? "play" : row?.copy_review ? "catalogs" : choosing ? "settings" : busy ? "recent" : "download"}
+        onClick={() => void request()}
         disabled={submitting || (!ready && !choosing && (busy || !track.duration))} />
       {!store.member && row?.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={track.title} />}
       <RoomIconButton icon="info" label="Song details" onClick={() => store.openSongInfo(track)} />

@@ -28,6 +28,13 @@ def pick(number, title="New song", artist="Fixture artist"):
 
 
 class WeeklyTests(unittest.TestCase):
+    def test_download_progress_counts_playable_copies_and_distinct_requests(self):
+        ready = {"id": 1, "status": "downloaded", "audio": "/api/audio/custom/1"}
+        requests = [ready, ready, {"id": 2, "status": "queued"}, {"id": 3, "status": "rejected"},
+                    {"id": 4, "status": "downloaded"}, None]
+        self.assertEqual(weekly.download_progress([{"request": request} for request in requests]),
+                         {"total": 4, "downloaded": 1, "pending": 1, "needs_attention": 2, "percent": 25})
+
     def test_graph_reaches_three_levels_and_omits_known_and_duplicate_titles(self):
         meta, connections = Mock(), Mock()
         connections.artist_match.return_value = {"id": identity(1), "title": "Artist 1"}
@@ -169,4 +176,4 @@ class WeeklyHttpTests(ServerFixture, unittest.TestCase):
             flac.touch()
             store.finish(lossless["id"], "downloaded", "", flac.name)
             refs["request_ids"].append(lossless["id"])
-            self.assertEqual(server.selected_playback_tracks(refs), [f"custom-{request['id']}"])
+            self.assertEqual(server.selected_playback_tracks(refs), [f"custom-{request['id']}", f"custom-{lossless['id']}"])

@@ -92,7 +92,14 @@ class RoomActivity : Activity() {
         }
     }
     private val poll = Runnable { if (active && room != null) refreshPlayer() }
-    private val refreshDiscover = Runnable { if (active && screen in setOf(Screen.DISCOVER, Screen.WEEKLY)) show() }
+    private var weeklyScroll: ScrollView? = null
+    private val refreshDiscover = object : Runnable {
+        override fun run() {
+            if (!active || screen !in setOf(Screen.DISCOVER, Screen.WEEKLY)) return
+            if (screen == Screen.WEEKLY && !hasWindowFocus()) handler.postDelayed(this, 8_000L)
+            else show()
+        }
+    }
     private val errors = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (Room.load(this@RoomActivity) == null) {
@@ -323,6 +330,7 @@ class RoomActivity : Activity() {
 
     private fun show(listPosition: Pair<Int, Int>? = null) {
         generation++
+        if (screen != Screen.WEEKLY) weeklyScroll = null
         playlistSearch = null
         handler.removeCallbacks(poll)
         handler.removeCallbacks(refreshDiscover)
@@ -711,9 +719,12 @@ class RoomActivity : Activity() {
             if (selected.canAdd) buttons.part(ui.button("Add song") { addSong(target, selected, SongDraft()) })
             header.addView(buttons)
             if (!selected.canAdd) header.addView(ui.label(
-                if (selected.spotify) "Check the Spotify link and device permissions in room Settings to add songs."
-                else if (selected.linked) "Make changes at the playlist’s source. The room picks them up on its next sync."
-                else "Adding songs requires an editable playlist and permission from the room owner.", 14f, ui.secondary))
+                when {
+                    selected.needsWritePermission -> "Reconnect Spotify in the room’s Settings to allow playlist edits."
+                    selected.spotify -> "Check the Spotify link and device permissions in the room’s Settings."
+                    selected.linked -> "Edit this playlist at its source."
+                    else -> "The room owner can allow this device to add songs."
+                }, 14f, ui.secondary))
             content.addView(header, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(8) })
         }
         val search = ui.field("Song, artist or album").apply {
@@ -1200,6 +1211,7 @@ class RoomActivity : Activity() {
     }
 
     private fun weeklyDiscovery(target: Room) {
+        val scrollY = weeklyScroll?.scrollY ?: 0
         val actions = ui.row(6).apply {
             gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
             addView(ui.iconButton("Refresh playlist", Mark.REFRESH) { show() })
@@ -1222,8 +1234,10 @@ class RoomActivity : Activity() {
                     val tracks = (0 until rows.length()).map(rows::getJSONObject)
                     val canRequest = playlist.optBoolean("can_request")
                     val pending = tracks.filter { track ->
-                        val status = track.optJSONObject("request")?.optString("status")
-                        !track.optBoolean("in_library") && (status == null || status in setOf("not_found", "error", "rejected"))
+                        val request = track.optJSONObject("request")
+                        val status = request?.optString("status")
+                        !track.optBoolean("in_library") && request?.optBoolean("copy_review") != true &&
+                            (status == null || status in setOf("not_found", "error", "rejected"))
                     }
                     fun readyId(track: JSONObject): Int? {
                         val request = track.optJSONObject("request") ?: return null
@@ -1235,6 +1249,14 @@ class RoomActivity : Activity() {
                         send(op, fields)
                         screen = Screen.PLAYER
                         show()
+                    }
+                    fun review(track: JSONObject) {
+                        val request = track.getJSONObject("request")
+                        val row = JSONObject(request.toString()).put("title", track.getString("title"))
+                            .put("artist", track.getString("artist"))
+                        chooseDiscoveryFormat(row, target, browseFirst = row.optString("status") != "waiting_format") { format, copy ->
+                            load({ target.confirmFormat(row, format, copy) }) { show() }
+                        }
                     }
                     val readyIds = tracks.mapNotNull(::readyId)
                     message(when {
@@ -1258,6 +1280,27 @@ class RoomActivity : Activity() {
                             }
                         }, actions.childCount - 1)
                     }
+                    tracks.firstOrNull {
+                        !it.optBoolean("in_library") && it.optJSONObject("request")?.optBoolean("copy_review") == true
+                    }?.let { track ->
+                        actions.addView(ui.iconButton("Review copies", Mark.BROWSE) { review(track) }, actions.childCount - 1)
+                    }
+                    playlist.optJSONObject("download_progress")?.let { progress ->
+                        val total = progress.optInt("total")
+                        val downloaded = progress.optInt("downloaded")
+                        val percent = progress.optInt("percent")
+                        val attention = progress.optInt("needs_attention")
+                        if (total > 0) {
+                            val note = if (attention == 0) "" else " · $attention ${if (attention == 1) "needs" else "need"} attention"
+                            content.addView(ui.label("$downloaded of $total downloaded · $percent%$note", 14f, ui.secondary))
+                            content.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                                max = 100
+                                this.progress = percent
+                                contentDescription = "Playlist downloads"
+                            }, LinearLayout.LayoutParams(-1, ui.dp(12)))
+                        }
+                        if (active && progress.optInt("pending") > 0) handler.postDelayed(refreshDiscover, 8_000L)
+                    }
                     val songs = ui.column()
                     for (track in tracks) {
                         val title = track.getString("title")
@@ -1265,10 +1308,12 @@ class RoomActivity : Activity() {
                         val via = track.optJSONArray("trail")?.let { names ->
                             (0 until (names.length() - 1)).joinToString(" → ") { names.getString(it) }
                         }.orEmpty()
-                        val requestStatus = track.optJSONObject("request")?.optString("status").orEmpty()
+                        val request = track.optJSONObject("request")
+                        val requestStatus = request?.optString("status").orEmpty()
                         val detail = when {
                             requestStatus == "missing" -> "Copy unavailable"
                             track.optBoolean("in_library") -> "In library"
+                            request?.optBoolean("copy_review") == true -> "Choose a copy"
                             requestStatus.isNotBlank() -> requestStatus.replace('_', ' ').replaceFirstChar { it.uppercase() }
                             else -> ""
                         }
@@ -1284,9 +1329,17 @@ class RoomActivity : Activity() {
                                     play("play_request", JSONObject().put("request_id", id))
                                 })
                             }
+                            if (!track.optBoolean("in_library") && requestStatus in CHANGEABLE_FORMAT &&
+                                request != null && request.has("format_revision")) {
+                                val label = if (requestStatus == "waiting_format") "Choose format for $title" else "Review copies for $title"
+                                addView(ui.iconButton(label, Mark.BROWSE) { review(track) })
+                            }
                         })
                     }
-                    content.addView(ScrollView(this).apply { addView(songs) }, LinearLayout.LayoutParams(-1, 0, 1f))
+                    val scroll = ScrollView(this).apply { addView(songs) }
+                    weeklyScroll = scroll
+                    content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+                    if (scrollY > 0) scroll.post { scroll.scrollTo(0, scrollY) }
                 }
             }
         }

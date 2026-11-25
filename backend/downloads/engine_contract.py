@@ -406,7 +406,7 @@ def _recover_interrupted_transfers(root, state):
 
 @contextlib.contextmanager
 def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimate, accept, timeout,
-                    chosen=None, recommended_only=False):
+                    chosen=None, recommended_only=False, on_review=None):
     """Yield one core-owned candidate or None. A provider never gets its path."""
     staging = os.environ.get("LISTENING_ENGINE_STAGING")
     if not selection or not staging:
@@ -436,9 +436,12 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
             check_space(required)
 
         check_space(estimate)
+        uncertain = []
         if chosen is None:
-            candidates = [candidate for candidate in search_recording(selection, recording, timeout=remaining_time())
-                          if not recommended_only or candidate.get("recommended") is not False]
+            candidates = search_recording(selection, recording, timeout=remaining_time())
+            if recommended_only:
+                uncertain = [candidate for candidate in candidates if candidate.get("recommended") is False]
+                candidates = [candidate for candidate in candidates if candidate.get("recommended") is not False]
         else:
             sources = selected_engine_sources(selection, for_acquisition=True)
             if chosen["source"] not in sources:
@@ -478,6 +481,8 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
                     # holds the bounded handoff to the core.
                     if directory.exists():
                         shutil.rmtree(directory)
-        if timed_out is not None:
+        if uncertain and on_review is not None:
+            on_review(uncertain)
+        elif timed_out is not None:
             raise timed_out
         yield None

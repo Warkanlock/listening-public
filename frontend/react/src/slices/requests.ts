@@ -95,7 +95,7 @@ export class RequestsSlice {
   async createSongRequest(song: RequestSong): Promise<RequestRow | null> {
     try {
       const row = await postJson<RequestRow>("/api/requests", song);
-      if (row.status === "waiting_format") this.chooseFormat(row);
+      if (row.status === "waiting_format" || row.copy_review) this.chooseFormat(row);
       else notify(`${row.title}: ${statusLabel(row.status)}`);
       void this.loadRequests();
       return row;

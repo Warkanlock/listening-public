@@ -55,7 +55,8 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
   const format = !!row && ["waiting_format", "not_found", "error", "rejected"].includes(row.status);
   const canRequest = !!track.track_id || !!track.musicbrainz_id && track.duration > 0;
   const retry = row ? row.mp3_retry : track.mp3_retry;
-  const label = ready ? "Play" : busy && row ? statusLabel(row.status) : format ? "Choose format" : "Find a copy";
+  const label = ready ? "Play" : busy && row ? statusLabel(row.status) : row?.copy_review ? "Review copies"
+    : format ? "Choose format" : "Find a copy";
 
   async function act() {
     if (pending) return;

@@ -47,8 +47,7 @@ export class BrowsingSlice {
   // Playlist merge (plan 046): client-only selection state for
   // the shelf's merge mode, never persisted. The server owns the
   // union; this only collects the choice.
-  mergeMode = false;
-  mergeSelection: Set<string> = new Set();
+  playlistFromMyPlaylists = false;
   requestingIds = new Set<number>();
   retryingVisible = false;
 
@@ -105,7 +104,7 @@ export class BrowsingSlice {
   }
 
   setView(view: View, playlist = "all") {
-    this.exitMergeMode();
+    this.playlistFromMyPlaylists = view === "all" && playlist !== "all" && this.view === "private-playlists";
     // The sidebar destinations (Favorites, Your listening) are
     // places, not availability tabs: navigating anywhere else
     // leaves them behind (plan 048, plan 050 step 5).
@@ -310,7 +309,6 @@ export class BrowsingSlice {
   private showDestination(filter: TrackFilter) {
     this.clearSearch();
     this.genres = [];
-    this.exitMergeMode();
     this.view = "all";
     this.playlist = "all";
     this.filter = filter;
@@ -401,25 +399,4 @@ export class BrowsingSlice {
     this.host.bump();
   }
 
-  enterMergeMode() {
-    this.mergeMode = true;
-    this.mergeSelection = new Set();
-    this.playlistsExpanded = true;
-    this.host.bump();
-  }
-
-  exitMergeMode() {
-    if (!this.mergeMode) return;
-    this.mergeMode = false;
-    this.mergeSelection = new Set();
-    this.host.bump();
-  }
-
-  toggleMergeSelection(id: string) {
-    const next = new Set(this.mergeSelection);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    this.mergeSelection = next;
-    this.host.bump();
-  }
 }

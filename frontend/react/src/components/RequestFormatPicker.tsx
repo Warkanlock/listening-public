@@ -24,13 +24,28 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
   }, [showExtensions]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [browse, setBrowse] = useState<BrowseState>({ kind: "idle" });
+  const [browse, setBrowse] = useState<BrowseState>(row.copy_review ? { kind: "searching" } : { kind: "idle" });
+  const [browseRequest, setBrowseRequest] = useState<{ format: RequestFormat } | null>(
+    () => row.copy_review ? { format: choice } : null);
   const browsing = browse.kind !== "idle";
   const browseBack = useRef<HTMLButtonElement>(null);
   const browseButton = useRef<HTMLButtonElement>(null);
   const restoreBrowseFocus = useRef(false);
   const listing = useRef<AbortController>(null);
-  useEffect(() => () => listing.current?.abort(), []);
+  useEffect(() => {
+    if (!browseRequest) return;
+    const controller = new AbortController();
+    listing.current = controller;
+    void postJson<{ matches: CopyMatch[] }>("/api/requests/copies", {
+      request_id: row.id, requested_format: browseRequest.format, format_revision: row.format_revision,
+    }, controller.signal).then(({ matches }) => {
+      if (!controller.signal.aborted) setBrowse({ kind: "results", matches });
+    }, error => {
+      if (!controller.signal.aborted) setBrowse({ kind: "error",
+        message: error instanceof Error ? error.message : "Could not search for copies." });
+    });
+    return () => controller.abort();
+  }, [browseRequest, row.id, row.format_revision]);
   useEffect(() => {
     if (browsing) browseBack.current?.focus();
     else if (restoreBrowseFocus.current) {
@@ -42,23 +57,16 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
   const fields = { request_id: row.id, requested_format: choice, format_revision: row.format_revision };
   const leaveMatches = () => {
     listing.current?.abort();
+    setBrowseRequest(null);
     restoreBrowseFocus.current = true;
     setBrowse({ kind: "idle" });
     setError("");
   };
-  const showMatches = async () => {
+  const showMatches = () => {
     listing.current?.abort();
-    const controller = new AbortController();
-    listing.current = controller;
     setError("");
     setBrowse({ kind: "searching" });
-    try {
-      const { matches } = await postJson<{ matches: CopyMatch[] }>("/api/requests/copies", fields, controller.signal);
-      if (!controller.signal.aborted) setBrowse({ kind: "results", matches });
-    } catch (error) {
-      if (!controller.signal.aborted) setBrowse({ kind: "error",
-        message: error instanceof Error ? error.message : "Could not search for copies." });
-    }
+    setBrowseRequest({ format: choice });
   };
   const confirm = async (copyKey?: string) => {
     if (saving) return;

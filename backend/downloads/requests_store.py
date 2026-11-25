@@ -49,6 +49,8 @@ def decode_request_row(row):
     broad_revision = result.pop("broad_revision", None)
     if result["requested_format"] == "any_lossless" and broad_revision == result["format_revision"]:
         result["requested_format"] = "any_format"
+    if result.get("status") == "rejected" and result.get("message") == COPY_REVIEW_MESSAGE:
+        result["copy_review"] = True
     return result
 
 
@@ -94,6 +96,7 @@ SCHEMA = (
 )
 
 EDITABLE_FORMAT = ("waiting_format", "not_found", "error", "rejected")
+COPY_REVIEW_MESSAGE = "Choose a copy to continue"
 # A request the user can still act on or that is already on its way.
 ACTIVE_STATUSES = ("waiting_format", "queued", "searching", "waiting_space")
 
@@ -238,11 +241,11 @@ class RequestsStore:
             raise ValueError("Unknown song request")
         if row["status"] in ("not_found", "error", "rejected"):
             other = self._active(conn, row["track_index"], row["artist"], row["title"], row["musicbrainz_id"])
-            if other:
+            if other and other["id"] != request_id:
                 raise ValueError("Another request already exists for this song. Open it in Requests.")
         return row
 
-    def save_copy_matches(self, request_id, choice, revision, recording, selection, candidates):
+    def save_copy_matches(self, request_id, choice, revision, recording, selection, candidates, *, for_review=False):
         """Return opaque handles with display metadata. Keep transfer IDs server-side."""
         picks, matches = {}, []
         for number, candidate in enumerate(candidates, 1):
@@ -255,14 +258,28 @@ class RequestsStore:
 
         def work(conn):
             row = self._lock_request(conn, request_id)
-            if row["format_revision"] != revision or row["status"] not in EDITABLE_FORMAT:
+            allowed = ("searching",) if for_review else EDITABLE_FORMAT
+            if row["format_revision"] != revision or row["status"] not in allowed:
                 raise ValueError("This request changed. Reopen it to browse copies.")
             now = time.time()
             conn.execute("DELETE FROM request_copies WHERE expires > 0 AND expires < ?", (now,))
+            payload = {"recording": recording, "selection": selection, "picks": picks}
+            if for_review:
+                payload["matches"] = matches
+            lifetime = 86400 if for_review else 900
             conn.execute("INSERT OR REPLACE INTO request_copies VALUES (?, ?, ?, ?, ?)",
-                         (request_id, revision, choice, now + 900,
-                          json.dumps({"recording": recording, "selection": selection, "picks": picks})))
+                         (request_id, revision, choice, now + lifetime, json.dumps(payload)))
             return matches
+        return self._run(work)
+
+    def review_matches(self, request_id, choice, revision, recording, selection):
+        def work(conn):
+            row = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND format=? "
+                               "AND revision=? AND expires>?", (request_id, choice, revision, time.time())).fetchone()
+            payload = json.loads(row["payload"]) if row else {}
+            if payload.get("recording") == recording and payload.get("selection") == selection:
+                return payload.get("matches")
+            return None
         return self._run(work)
 
     def selected_copy(self, request_id, revision):
@@ -308,6 +325,7 @@ class RequestsStore:
                 if not candidate:
                     raise ValueError("These results changed or expired. Browse copies again.")
                 del payload["picks"]
+                payload.pop("matches", None)
                 payload["candidate"] = candidate
                 conn.execute("UPDATE request_copies SET revision=?, expires=0, payload=? WHERE request_id=?",
                              (revision + 1, json.dumps(payload), request_id))
@@ -471,8 +489,9 @@ class RequestsStore:
             params = (index,)
         placeholders = ",".join("?" for _ in statuses)
         return conn.execute(
-            f"SELECT * FROM requests WHERE {condition} AND status IN ({placeholders}) "
-            "ORDER BY id DESC LIMIT 1", (*params, *statuses)).fetchone()
+            f"SELECT * FROM requests WHERE {condition} AND (status IN ({placeholders}) "
+            "OR (status='rejected' AND message=?)) "
+            "ORDER BY id DESC LIMIT 1", (*params, *statuses, COPY_REVIEW_MESSAGE)).fetchone()
 
     def active_for_track(self, track_index):
         row = self._run(lambda conn: self._active(conn, track_index))
