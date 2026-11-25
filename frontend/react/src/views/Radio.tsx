@@ -45,7 +45,7 @@ export function Radio() {
   const [showLive, setShowLive] = useState(false);
   const radio = store.radioSlice;
   const background = store.view !== "radio";
-  const sounding = store.radioSounding;
+  const sounding = background ? store.radioSounding : radio.sounding;
   const status = store.radioStatus;
   const currentName = store.radioStationName;
   useEffect(() => {

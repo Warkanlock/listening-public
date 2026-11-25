@@ -49,6 +49,11 @@ class RoomPlayback : MediaSessionService() {
             playback.snapshot?.let { JSONObject(it.toString()).put("position", playback.player.currentPosition / 1000.0) }
         }
 
+        internal fun recentRoomSnapshot(target: Room): JSONObject? = instance?.takeIf {
+            it.joined && it.room?.id == target.id && it.room?.origin == target.origin &&
+                SystemClock.elapsedRealtime() - it.lastSnapshotAt < 6_000L
+        }?.snapshot
+
         fun bufferedTracks(device: String): Int =
             instance?.takeIf { it.room?.id == device }?.buffer?.readyCount() ?: 0
 
@@ -98,6 +103,7 @@ class RoomPlayback : MediaSessionService() {
     private var endReported = false
     private lateinit var buffer: QueueAudioBuffer
     private var snapshot: JSONObject? = null
+    private var lastSnapshotAt = 0L
     private var offline: BufferedSession? = null
     private var activeUri: Uri? = null
     private var rejoining = false
@@ -751,6 +757,7 @@ class RoomPlayback : MediaSessionService() {
     private fun applySnapshot(target: Room, value: JSONObject) {
         val wasSelected = snapshot?.optBoolean("output_selected", true) == true
         snapshot = value
+        lastSnapshotAt = SystemClock.elapsedRealtime()
         val nextVersion = value.getLong("version")
         if (nextVersion < version) {
             // A restarted server can begin another session version sequence.
