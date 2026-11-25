@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 
 from system.client_artifacts import release_version
+from system.formats import REQUEST_SUFFIXES
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_VERSION = 1
@@ -300,7 +301,55 @@ def candidates_from(response):
         key = (source, candidate_id)
         if key not in unique:
             unique.add(key)
-            yield {"source": source, "id": candidate_id}
+            entry = {"source": source, "id": candidate_id}
+            for field, cap in (("label", 180), ("format", 12)):
+                value = candidate.get(field)
+                if isinstance(value, str) and value:
+                    entry[field] = "".join(char for char in value[:cap] if char.isprintable())
+            for field, cap in (("duration", 86400), ("bitrate", 100000)):
+                value = candidate.get(field)
+                if type(value) is int and 0 < value <= cap:
+                    entry[field] = value
+            if type(candidate.get("recommended")) is bool:
+                entry["recommended"] = candidate["recommended"]
+            yield entry
+
+
+def simplify_title(title):
+    return re.sub(r"\s*[-(]\s*(?:(?:digital|original)\s+)?(?:\d{4}\s+)?"
+                  r"remaster(?:ed)?(?:\s+\d{4})?\)?\s*$", "", title, flags=re.IGNORECASE).strip() or title
+
+
+def engine_recording(record, search_title, suffixes, preferred):
+    return {
+        "id": str(record["key"]), "title": record["title"], "search_title": search_title,
+        "artist": record["artist"], "album": record["album"],
+        "duration": float(record["length"] or 0), "formats": list(suffixes),
+        "preferred_format": preferred,
+    }
+
+
+def request_recording(row, record, choice):
+    item = record or {**row, "key": f"request:{row['id']}"}
+    suffixes = REQUEST_SUFFIXES[choice]
+    recording = engine_recording(item, row["search_title"] or simplify_title(item["title"]), suffixes, suffixes[0][1:])
+    if row.get("version"):
+        recording["version"] = row["version"]
+    return recording
+
+
+def search_recording(selection, recording, *, timeout=None):
+    sources = selected_engine_sources(selection, for_acquisition=True)
+    budget = WORKER_TIMEOUT_SECONDS["search"] + MANAGER_RESPONSE_GRACE_SECONDS
+    if timeout is not None:
+        budget = min(budget, timeout)
+    with timed_stage(selection["search"], "search", budget):
+        reply = manager_call("search", timeout=budget, engine=selection["search"], recording=recording)
+    candidates = list(candidates_from(reply))
+    print(f"Download engine {selection['search']}: returned {len(candidates)} candidate(s).", flush=True)
+    if any(candidate["source"] not in sources for candidate in candidates):
+        raise EngineError("The search engine returned a candidate outside its declared sources.")
+    return candidates
 
 
 def _copy_result(directory, name, destination, suffixes, check_space):
@@ -356,7 +405,8 @@ def _recover_interrupted_transfers(root, state):
 
 
 @contextlib.contextmanager
-def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimate, accept, timeout):
+def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimate, accept, timeout,
+                    chosen=None, recommended_only=False):
     """Yield one core-owned candidate or None. A provider never gets its path."""
     staging = os.environ.get("LISTENING_ENGINE_STAGING")
     if not selection or not staging:
@@ -386,15 +436,14 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
             check_space(required)
 
         check_space(estimate)
-        sources = selected_engine_sources(selection, for_acquisition=True)
-        search_budget = min(WORKER_TIMEOUT_SECONDS["search"] + MANAGER_RESPONSE_GRACE_SECONDS,
-                            remaining_time())
-        with timed_stage(selection["search"], "search", search_budget):
-            result = manager_call("search", timeout=search_budget, engine=selection["search"], recording=recording)
-        candidates = list(candidates_from(result))
-        print(f"Download engine {selection['search']}: returned {len(candidates)} candidate(s).", flush=True)
-        if any(candidate["source"] not in sources for candidate in candidates):
-            raise EngineError("The search engine returned a candidate outside its declared sources.")
+        if chosen is None:
+            candidates = [candidate for candidate in search_recording(selection, recording, timeout=remaining_time())
+                          if not recommended_only or candidate.get("recommended") is not False]
+        else:
+            sources = selected_engine_sources(selection, for_acquisition=True)
+            if chosen["source"] not in sources:
+                raise EngineError("This copy is no longer available from the room’s sources.", retryable=False)
+            candidates = [chosen]
         fetch_budget = WORKER_TIMEOUT_SECONDS["fetch"] + MANAGER_RESPONSE_GRACE_SECONDS
         timed_out = None
         for attempt, candidate in enumerate(candidates, 1):
@@ -407,7 +456,8 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
                 try:
                     try:
                         with timed_stage(selection["fetch"], "transfer", budget, attempt=attempt):
-                            fetched = manager_call("fetch", engine=selection["fetch"], candidate=candidate,
+                            reference = {key: candidate[key] for key in ("source", "id")}
+                            fetched = manager_call("fetch", engine=selection["fetch"], candidate=reference,
                                                    job=job, timeout=budget, check_space=check_space)
                     except EngineError as error:
                         if error.retryable:

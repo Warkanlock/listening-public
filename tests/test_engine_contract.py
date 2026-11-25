@@ -335,6 +335,32 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual(runner.probe(self.library / result["audio_path"])["codec"], "aac")
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_selected_copy_transfers_exact_candidate_and_still_checks_the_title(self):
+        record = self.record(1, "First Light", length=2)
+        self.write_manifest([record])
+        self.make_audio("good.mp3", "First Light", duration=2)
+        self.make_audio("wrong.mp3", "Unrelated Song", duration=2)
+        shutil.copyfile(self.media["good.mp3"], self.library / "1 - existing.mp3")
+        store = runner.requests_store()
+        row, _ = store.create_or_find(1, record["artist"], record["title"], record["album"],
+                                      2, "", individual=True)
+        request_id = row["id"]
+        earlier = runner.STATE / "requests" / "verified" / str(request_id) / "incoming-earlier.mp3"
+        earlier.parent.mkdir(parents=True)
+        shutil.copyfile(self.media["good.mp3"], earlier)
+        for revision, index, expected in ((0, 1, "not_found"), (1, 0, "downloaded")):
+            current = store.get(request_id)
+            recording = engine_contract.request_recording(current, record, "mp3")
+            matches = store.save_copy_matches(request_id, "mp3", revision, recording, self.selection,
+                                              [{"source": "fixture", "id": name} for name in self.media])
+            store.confirm_format(request_id, "mp3", revision, matches[index]["key"])
+            runner.run_requests()
+            self.assertEqual(store.get(request_id)["status"], expected)
+        operations = [(call["action"], call.get("candidate", {}).get("id"))
+                      for call in self.requests if call["action"] in ("search", "fetch")]
+        self.assertEqual(operations, [("fetch", "wrong.mp3"), ("fetch", "good.mp3")])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_broad_request_searches_all_formats_once_and_lands_a_verified_aac(self):
         record = self.record(1, "First Light", length=2)
         self.write_manifest([record])
