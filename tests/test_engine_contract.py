@@ -76,6 +76,9 @@ class EngineRunnerTests(WorkspaceTestCase):
             return {"ok": False, "code": "timeout", "retryable": True}
         folder = self.staging / request["job"]
         name = request["candidate"]["id"]
+        if self.mode == "progress" and request.get("report_progress"):
+            (folder / engine_contract.PROGRESS_FILE).write_text("46")
+            self.progress_received.wait(3)
         if self.mode == "traversal":
             return {"ok": True, "file": "../" + name}
         if self.mode == "symlink":
@@ -83,6 +86,33 @@ class EngineRunnerTests(WorkspaceTestCase):
         else:
             shutil.copyfile(self.media[name], folder / name)
         return {"ok": True, "file": name}
+
+    def test_progress_is_available_before_the_manager_returns_the_file(self):
+        self.mode = "progress"
+        self.progress_received = threading.Event()
+        fixture = self.root / "example.mp3"
+        fixture.write_bytes(b"fixture")
+        self.media = {fixture.name: fixture}
+        percentages = []
+
+        def progress(percent):
+            percentages.append(percent)
+            self.progress_received.set()
+
+        with engine_contract.fetch_recording(
+                self.selection, {"formats": [".mp3"]}, state=self.state, free_bytes=lambda: 512,
+                reserve=0, estimate=7, timeout=10, accept=lambda path, remaining: path.read_bytes() == b"fixture",
+                chosen={"source": "fixture", "id": fixture.name}, on_progress=progress) as result:
+            self.assertIsNotNone(result)
+            self.assertEqual(percentages, [46])
+        self.assertEqual(list(self.staging.iterdir()), [])
+
+    def test_progress_ignores_a_directory_and_closes_its_descriptor(self):
+        (self.staging / engine_contract.PROGRESS_FILE).mkdir()
+        before = len(list(Path("/dev/fd").iterdir()))
+        for _ in range(8):
+            self.assertIsNone(engine_contract.read_transfer_percent(self.staging))
+        self.assertEqual(len(list(Path("/dev/fd").iterdir())), before)
 
     def test_status_requires_both_selected_capabilities(self):
         self.assertTrue(engine_contract.engines_ready({"download_engines": self.selection}))
@@ -370,14 +400,14 @@ class EngineRunnerTests(WorkspaceTestCase):
         earlier = runner.STATE / "requests" / "verified" / str(request_id) / "incoming-earlier.mp3"
         earlier.parent.mkdir(parents=True)
         shutil.copyfile(self.media["good.mp3"], earlier)
-        for revision, index, expected in ((0, 1, "not_found"), (1, 0, "downloaded")):
+        for revision, index, expected in ((0, 1, "copy_unavailable"), (1, 0, "ready")):
             current = store.get(request_id)
             recording = engine_contract.request_recording(current, record, "mp3")
             matches = store.save_copy_matches(request_id, "mp3", revision, recording, self.selection,
                                               [{"source": "fixture", "id": name} for name in self.media])
             store.confirm_format(request_id, "mp3", revision, matches[index]["key"])
             runner.run_requests()
-            self.assertEqual(store.get(request_id)["status"], expected)
+            self.assertEqual(store.get(request_id)["request_state"], expected)
         operations = [(call["action"], call.get("candidate", {}).get("id"))
                       for call in self.requests if call["action"] in ("search", "fetch")]
         self.assertEqual(operations, [("fetch", "wrong.mp3"), ("fetch", "good.mp3")])
@@ -442,7 +472,7 @@ class EngineRunnerTests(WorkspaceTestCase):
         packet = next(packet for packet in json.loads(packets)["packets"] if float(packet["pts_time"]) >= 12)
         path.write_bytes(path.read_bytes()[:int(packet["pos"])])
         self.assertTrue(runner.judge_download("First Light", 20, runner.probe(path), ".flac").ok)
-        self.assert_download(record, status="not_found")
+        self.assert_download(record, status="rejected")
         self.assertEqual(list(self.staging.iterdir()), [])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")

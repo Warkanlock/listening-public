@@ -28,11 +28,13 @@ from pathlib import Path
 
 from system import state_database
 from system.formats import REQUEST_SUFFIXES
+from .request_state import COPY_REVIEW_MESSAGE, EDITABLE_FORMAT, REPLACEABLE_RECORDING, request_state
 
 
 def mp3_retry(row):
     """The request and revision that can be retried after a lossless miss."""
-    if row["status"] == "not_found" and row["requested_format"] in ("any_lossless", "flac", "alac"):
+    if (row.get("request_state", request_state(row)) == "no_matches"
+            and row["requested_format"] in ("any_lossless", "flac", "alac")):
         return {"id": row["id"], "format_revision": row["format_revision"]}
     return None
 
@@ -40,7 +42,12 @@ def mp3_retry(row):
 def decode_request_row(row):
     """Read the request format while keeping its stored value compatible with older rooms."""
     result = dict(row)
+    if "status" in result:
+        result["request_state"] = request_state(result)
     result.pop("selected_copy_key", None)
+    if (result.get("status") != "searching" or result.get("phase") not in ("downloading", "testing")
+            or result.get("download_percent") is None):
+        result.pop("download_percent", None)
     # An older room reads the narrower fallback. Revisions bind expanded
     # choices to the confirmation that set them, even after an older room edits it.
     aac_revision = result.pop("aac_revision", None)
@@ -64,6 +71,10 @@ SCHEMA = (
         length REAL,
         search_title TEXT NOT NULL DEFAULT '',
         musicbrainz_id TEXT NOT NULL DEFAULT '',
+        original_recording_id TEXT NOT NULL DEFAULT '',
+        original_track_index INTEGER,
+        original_artist TEXT,
+        original_title TEXT,
         version TEXT NOT NULL DEFAULT '',
         performance TEXT NOT NULL DEFAULT '',
         requested_format TEXT DEFAULT 'any_lossless',
@@ -74,6 +85,7 @@ SCHEMA = (
         selected_copy_key TEXT,
         status TEXT NOT NULL DEFAULT 'queued',
         phase TEXT NOT NULL DEFAULT '',
+        download_percent INTEGER,
         retry_count INTEGER NOT NULL DEFAULT 0,
         retry_at REAL NOT NULL DEFAULT 0,
         retry_priority REAL NOT NULL DEFAULT 0,
@@ -99,11 +111,10 @@ SCHEMA = (
     )""",
 )
 
-EDITABLE_FORMAT = ("waiting_format", "not_found", "error", "rejected")
-COPY_REVIEW_MESSAGE = "Choose a copy to continue"
 RETRY_DELAYS = (30, 120, 300)
 QUEUE_COLUMNS = {
     "phase": "TEXT NOT NULL DEFAULT ''",
+    "download_percent": "INTEGER",
     "retry_count": "INTEGER NOT NULL DEFAULT 0",
     "retry_at": "REAL NOT NULL DEFAULT 0",
     "retry_priority": "REAL NOT NULL DEFAULT 0",
@@ -136,7 +147,8 @@ class RequestsStore:
         """
         conn = state_database.connect(self.path, SCHEMA, row_factory=sqlite3.Row)
         try:
-            required = {"format_confirmed", "version", "musicbrainz_id", "performance", "aac_revision",
+            required = {"format_confirmed", "version", "musicbrainz_id", "original_recording_id",
+                        "original_track_index", "original_artist", "original_title", "performance", "aac_revision",
                         "broad_revision", "resolved_at", "selected_copy_key", *QUEUE_COLUMNS}
             if not required <= {col[1] for col in conn.execute("PRAGMA table_info(requests)")}:
                 # Another server or runner may be upgrading the same room.
@@ -158,15 +170,22 @@ class RequestsStore:
                     conn.execute("ALTER TABLE requests ADD COLUMN resolved_at TEXT")
                     conn.execute("UPDATE requests SET resolved_at=updated_at "
                                  "WHERE status IN ('downloaded','not_found','rejected','error')")
-                for column in ("musicbrainz_id", "version", "performance"):
+                for column in ("musicbrainz_id", "original_recording_id", "version", "performance"):
                     if column not in columns:
                         conn.execute(f"ALTER TABLE requests ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+                for column, definition in (("original_track_index", "INTEGER"), ("original_artist", "TEXT"),
+                                           ("original_title", "TEXT")):
+                    if column not in columns:
+                        conn.execute(f"ALTER TABLE requests ADD COLUMN {column} {definition}")
                 for column, definition in QUEUE_COLUMNS.items():
                     if column not in columns:
                         conn.execute(f"ALTER TABLE requests ADD COLUMN {column} {definition}")
                 conn.commit()
             conn.execute("CREATE INDEX IF NOT EXISTS requests_recording ON requests (musicbrainz_id, id DESC) "
                          "WHERE track_index IS NULL")
+            conn.execute("CREATE INDEX IF NOT EXISTS requests_original_recording "
+                         "ON requests (original_recording_id, id DESC) WHERE track_index IS NULL")
+            conn.execute("CREATE INDEX IF NOT EXISTS requests_original_track ON requests (original_track_index)")
             return conn
         except Exception:
             conn.close()
@@ -204,10 +223,13 @@ class RequestsStore:
             row = self._active(conn, index, artist, title, musicbrainz_id)
             if row:
                 return decode_request_row(row), False
-            if not individual:
+            if individual:
+                previous = self._latest(conn, index, artist, title, musicbrainz_id)
+                if previous:
+                    return decode_request_row(previous), False
+            else:
                 # A manual batch retry honors a previously confirmed individual format.
-                previous = conn.execute(
-                    "SELECT * FROM requests WHERE track_index=? ORDER BY id DESC LIMIT 1", (index,)).fetchone()
+                previous = self._latest(conn, index, artist, title, musicbrainz_id)
                 if previous and previous["format_confirmed"] and previous["status"] in ("not_found", "error", "rejected"):
                     self._queue_retry(conn, previous["id"], previous["search_title"])
                     row = conn.execute("SELECT * FROM requests WHERE id=?", (previous["id"],)).fetchone()
@@ -221,6 +243,41 @@ class RequestsStore:
             return decode_request_row(row), True
         return self._run(work)
 
+    def replace_recording(self, request_id, revision, artist, title, album, length, search_title, *,
+                          musicbrainz_id, version, performance):
+        """Change the recording on this request, invalidating its previous copy choices."""
+        def work(conn):
+            row = self._lock_request(conn, request_id)
+            if row["format_revision"] == revision + 1 and row["musicbrainz_id"] == musicbrainz_id:
+                return decode_request_row(row), False
+            if row["format_revision"] != revision or row["status"] not in REPLACEABLE_RECORDING:
+                raise ValueError("This request changed. Reopen it before choosing another recording.")
+            other = self._latest(conn, None, artist, title, musicbrainz_id)
+            if other and other["id"] != request_id:
+                raise ValueError("This recording already has a request. Open it in Requests.")
+            if row["musicbrainz_id"] == musicbrainz_id:
+                return decode_request_row(row), False
+            confirmed = row["format_confirmed"] and row["requested_format"] is not None
+            status = "queued" if confirmed else "waiting_format"
+            conn.execute("DELETE FROM request_copies WHERE request_id=?", (request_id,))
+            conn.execute(
+                "UPDATE requests SET track_index=NULL, artist=?, title=?, album=?, length=?, search_title=?, "
+                "original_recording_id=COALESCE(NULLIF(original_recording_id,''),musicbrainz_id), "
+                "original_track_index=COALESCE(original_track_index,track_index), "
+                "original_artist=COALESCE(original_artist,CASE WHEN track_index IS NULL AND musicbrainz_id='' THEN artist END), "
+                "original_title=COALESCE(original_title,CASE WHEN track_index IS NULL AND musicbrainz_id='' THEN title END), "
+                "musicbrainz_id=?, version=?, performance=?, status=?, requested_format=?, phase='', download_percent=NULL, "
+                "selected_copy_key=NULL, resolved_at=NULL, audio_path='', message='', retry_count=0, "
+                "retry_at=0, retry_priority=0, updated_at=CURRENT_TIMESTAMP, "
+                "aac_revision=CASE WHEN aac_revision=format_revision THEN format_revision+1 END, "
+                "broad_revision=CASE WHEN broad_revision=format_revision THEN format_revision+1 END, "
+                "format_revision=format_revision+1 WHERE id=?",
+                (artist, title, album, length, search_title, musicbrainz_id, version, performance, status,
+                 row["requested_format"] if confirmed else None, request_id))
+            updated = conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
+            return decode_request_row(updated), status == "queued"
+        return self._run(work)
+
     def queue_weekly(self, tracks):
         """Queue a confirmed MP3/AAC choice, respecting existing manual requests."""
         def work(conn):
@@ -231,11 +288,13 @@ class RequestsStore:
                 if (self._active(conn, None, artist, title, recording_id)
                         or self._active(conn, None, artist, title)):
                     continue
-                previous = conn.execute(
-                    "SELECT * FROM requests WHERE track_index IS NULL AND musicbrainz_id=? "
-                    "ORDER BY id DESC LIMIT 1", (recording_id,)).fetchone()
-                if previous and decode_request_row(previous)["requested_format"] == "any_lossy":
-                    queued += self._queue_retry(conn, previous["id"], previous["search_title"])
+                previous = self._latest(conn, None, artist, title, recording_id, include_completed_origin=True)
+                if previous:
+                    released = self._queue_retry(conn, previous["id"], previous["search_title"])
+                    if released and not previous["format_confirmed"]:
+                        conn.execute("UPDATE requests SET requested_format='mp3', format_confirmed=1, "
+                                     "aac_revision=format_revision, broad_revision=NULL WHERE id=?", (previous["id"],))
+                    queued += released
                     continue
                 search = " ".join(filter(None, (title, track["version"])))[:200]
                 conn.execute(
@@ -277,9 +336,15 @@ class RequestsStore:
                 raise ValueError("This request changed. Reopen it to browse copies.")
             now = time.time()
             conn.execute("DELETE FROM request_copies WHERE expires > 0 AND expires < ?", (now,))
-            payload = {"recording": recording, "selection": selection, "picks": picks}
-            if for_review:
-                payload["matches"] = matches
+            if not for_review:
+                existing = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND revision=? "
+                                        "AND format=? AND expires>?", (request_id, revision, choice, now)).fetchone()
+                saved = json.loads(existing["payload"]) if existing else {}
+                if saved.get("recording") == recording and saved.get("selection") == selection and saved.get("matches"):
+                    return saved["matches"]
+                if not matches:
+                    return []
+            payload = {"recording": recording, "selection": selection, "picks": picks, "matches": matches}
             lifetime = 86400 if for_review else 900
             conn.execute("INSERT OR REPLACE INTO request_copies VALUES (?, ?, ?, ?, ?)",
                          (request_id, revision, choice, now + lifetime, json.dumps(payload)))
@@ -381,15 +446,16 @@ class RequestsStore:
         """Move a queued request to searching (the runner picking it up)."""
         def work(conn):
             return bool(conn.execute(
-                "UPDATE requests SET status='searching', phase='', message='', retry_at=0, retry_priority=0, "
+                "UPDATE requests SET status='searching', phase='', download_percent=NULL, message='', retry_at=0, retry_priority=0, "
                 "resolved_at=NULL, updated_at=CURRENT_TIMESTAMP "
                 "WHERE id=? AND status='queued' AND retry_at<=?", (request_id, time.time())).rowcount)
         return self._run(work)
 
-    def set_phase(self, request_id, phase):
+    def set_phase(self, request_id, phase, download_percent=None):
         self._run(lambda conn: conn.execute(
-            "UPDATE requests SET phase=?, updated_at=CURRENT_TIMESTAMP "
-            "WHERE id=? AND status='searching' AND phase!=?", (phase, request_id, phase)))
+            "UPDATE requests SET phase=?, download_percent=?, updated_at=CURRENT_TIMESTAMP "
+            "WHERE id=? AND status='searching' AND (phase!=? OR download_percent IS NOT ?)",
+            (phase, download_percent, request_id, phase, download_percent)))
 
     def defer_attempt(self, row, message, *, provider_delay=0):
         """Release the worker while preserving a selected copy and its format."""
@@ -399,7 +465,7 @@ class RequestsStore:
             return "error"
         delay = provider_delay or RETRY_DELAYS[attempts]
         self._run(lambda conn: conn.execute(
-            "UPDATE requests SET status='queued', phase='', message=?, retry_at=?, "
+            "UPDATE requests SET status='queued', phase='', download_percent=NULL, message=?, retry_at=?, "
             "retry_count=retry_count+?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='searching'",
             (message, time.time() + delay, int(not provider_delay), row["id"])))
         return "queued"
@@ -408,7 +474,7 @@ class RequestsStore:
         """Record a request's outcome: status, message, and audio path."""
         def work(conn):
             conn.execute("UPDATE requests SET status=?, message=?, audio_path=?, "
-                         "phase='', retry_count=0, retry_at=0, retry_priority=0, "
+                         "phase='', download_percent=NULL, retry_count=0, retry_at=0, retry_priority=0, "
                          "updated_at=CURRENT_TIMESTAMP, resolved_at=CURRENT_TIMESTAMP WHERE id=?",
                          (status, message, audio_path, request_id))
             if status not in ("queued", "waiting_space"):
@@ -429,15 +495,17 @@ class RequestsStore:
                          (audio_path, request_id))
         self._run(work)
 
-    def retry(self, request_id, search_title=None):
+    def retry(self, request_id, search_title=None, *, revision=None):
         """Prioritize waiting work, or restart a failed search."""
         def work(conn):
             row = self._lock_request(conn, request_id)
+            if revision is not None and row["format_revision"] != revision:
+                raise ValueError("This request changed. Refresh it before retrying.")
             if row["status"] == "queued" and search_title is None:
                 conn.execute("UPDATE requests SET retry_at=0, retry_count=0, retry_priority=?, "
                              "message='', updated_at=CURRENT_TIMESTAMP WHERE id=?", (time.time(), request_id))
                 return True
-            if search_title is None and row["message"] == COPY_REVIEW_MESSAGE:
+            if request_state(dict(row)) in ("choose_copy", "copy_unavailable"):
                 return False
             if self._queue_retry(conn, request_id, search_title if search_title is not None else row["search_title"]):
                 conn.execute("UPDATE requests SET retry_priority=? WHERE id=?", (time.time(), request_id))
@@ -460,8 +528,10 @@ class RequestsStore:
         """Catalog indices whose downloads are governed by an individual format choice."""
         def work(conn):
             return {row[0] for row in conn.execute(
-                "SELECT DISTINCT track_index FROM requests WHERE track_index BETWEEN ? AND ? "
-                "AND (status='waiting_format' OR format_confirmed=1)", (first, last))}
+                "SELECT track_index FROM requests WHERE track_index BETWEEN ? AND ? "
+                "AND (status='waiting_format' OR format_confirmed=1) UNION "
+                "SELECT original_track_index FROM requests WHERE original_track_index BETWEEN ? AND ? "
+                "AND (status='waiting_format' OR format_confirmed=1)", (first, last, first, last))}
         return self._run(work)
 
     def reset_searching(self):
@@ -525,18 +595,28 @@ class RequestsStore:
         return self._run(work)
 
     @staticmethod
+    def _latest(conn, index, artist, title, musicbrainz_id, *, include_completed_origin=False):
+        if index is not None:
+            condition, params = "(track_index=? OR (original_track_index=? AND status!='downloaded'))", (index, index)
+        else:
+            condition, params = RequestsStore._pick_condition(
+                artist, title, musicbrainz_id, include_completed_origin=include_completed_origin)
+        return conn.execute(f"SELECT * FROM requests WHERE {condition} ORDER BY id DESC LIMIT 1", params).fetchone()
+
+    @staticmethod
     def _active(conn, index, artist="", title="", musicbrainz_id=""):
         statuses = ACTIVE_STATUSES
         if index is None:
             condition, params = RequestsStore._pick_condition(artist, title, musicbrainz_id)
             statuses = (*statuses, "downloaded")
         else:
-            condition = "track_index=?"
-            params = (index,)
+            condition = "(track_index=? OR original_track_index=?)"
+            params = (index, index)
         placeholders = ",".join("?" for _ in statuses)
         return conn.execute(
             f"SELECT * FROM requests WHERE {condition} AND (status IN ({placeholders}) "
-            "OR (status='rejected' AND message=?)) "
+            "OR (status='rejected' AND message=?) "
+            "OR (status IN ('not_found','error','rejected') AND selected_copy_key IS NOT NULL)) "
             "ORDER BY id DESC LIMIT 1", (*params, *statuses, COPY_REVIEW_MESSAGE)).fetchone()
 
     def active_for_track(self, track_index):
@@ -551,10 +631,13 @@ class RequestsStore:
         return decode_request_row(row) if row else None
 
     @staticmethod
-    def _pick_condition(artist, title, musicbrainz_id=""):
+    def _pick_condition(artist, title, musicbrainz_id="", *, include_completed_origin=False):
+        origin_status = "" if include_completed_origin else " AND status!='downloaded'"
         if musicbrainz_id:
-            return "track_index IS NULL AND musicbrainz_id=?", (musicbrainz_id,)
-        return "track_index IS NULL AND musicbrainz_id='' AND artist=? AND title=?", (artist, title)
+            return (f"track_index IS NULL AND (musicbrainz_id=? OR (original_recording_id=?{origin_status}))",
+                    (musicbrainz_id, musicbrainz_id))
+        return ("track_index IS NULL AND ((musicbrainz_id='' AND artist=? AND title=?) "
+                f"OR (original_artist=? AND original_title=?{origin_status}))", (artist, title, artist, title))
 
     def for_picks(self, picks, *, include_audio_path=False):
         """Latest custom request per pick, independent of the recent feed."""
@@ -563,10 +646,13 @@ class RequestsStore:
         def work(conn):
             rows = {}
             for pick in picks:
-                condition, params = self._pick_condition(*pick)
+                condition, params = self._pick_condition(*pick, include_completed_origin=True)
                 row = conn.execute(
-                    "SELECT id, artist, title, status, phase, retry_at, message, requested_format, format_revision, aac_revision, broad_revision, "
-                    f"audio_path, musicbrainz_id, version, performance, length, album, track_index FROM requests WHERE {condition} "
+                    "SELECT id, artist, title, status, phase, download_percent, retry_at, message, requested_format, selected_copy_key, "
+                    "format_revision, aac_revision, broad_revision, "
+                    f"audio_path, musicbrainz_id, original_recording_id, original_artist, original_title, "
+                    f"version, performance, length, album, track_index "
+                    f"FROM requests WHERE {condition} "
                     "ORDER BY id DESC LIMIT 1", params).fetchone()
                 if row:
                     result = decode_request_row(row)

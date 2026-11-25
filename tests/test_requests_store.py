@@ -81,6 +81,22 @@ class SchemaTests(StoreTestCase):
 class LifecycleTests(StoreTestCase):
     """The runner's claim/complete pattern, and the server's retry."""
 
+    def test_progress_is_scoped_to_the_current_transfer(self):
+        request_id = self.enqueue_custom()
+        self.assertTrue(self.store.claim(request_id))
+        self.store.set_phase(request_id, "testing", 43)
+        self.assertEqual(self.store.get(request_id)["download_percent"], 43)
+        self.store.set_phase(request_id, "testing")
+        self.assertNotIn("download_percent", self.store.get(request_id))
+        self.store.set_phase(request_id, "testing", 91)
+        self.store.set_phase(request_id, "verifying")
+        self.assertNotIn("download_percent", self.store.get(request_id))
+        self.store.finish(request_id, "rejected", COPY_REVIEW_MESSAGE, "")
+        row = self.store.get(request_id)
+        self.assertTrue(row["copy_review"])
+        self.assertNotIn("download_percent", row)
+        self.assertEqual(row["audio_path"], "")
+
     def test_enqueue_claim_finish_downloaded(self):
         request_id = self.enqueue_track()
         self.assertEqual([row["id"] for row in self.store.queued(10)], [request_id])
@@ -239,7 +255,13 @@ class FormatSelectionTests(StoreTestCase):
         old, _ = self.create()
         self.store.confirm_format(old["id"], "alac", 0)
         self.store.finish(old["id"], "not_found", "No ALAC", "")
-        current, _ = self.create()
+        repeated, created = self.create()
+        self.assertFalse(created)
+        self.assertEqual(repeated["id"], old["id"])
+        # Simulate a duplicate already written by an older room.
+        current_id = self.store.enqueue(1, "Artist", "Song", "", 200, "Song")
+        self.store.finish(current_id, "waiting_format", "", "")
+        current = self.store.get(current_id)
         with self.assertRaisesRegex(ValueError, "Another request"):
             self.store.retry(old["id"], "Other title")
         with self.assertRaisesRegex(ValueError, "Another request"):
@@ -251,6 +273,69 @@ class FormatSelectionTests(StoreTestCase):
         retried, released = self.create(individual=False)
         self.assertTrue(released)
         self.assertEqual((retried["id"], retried["requested_format"]), (current["id"], "flac"))
+
+    def test_replacing_recording_reuses_request_format_and_invalidates_old_choices(self):
+        original_id = "00000000-0000-4000-8000-000000000009"
+        row, _ = self.store.create_or_find(
+            None, "Artist", "Song", "Album", 200, "Song", individual=True, musicbrainz_id=original_id)
+        request_id = row["id"]
+        self.store.confirm_format(request_id, "any_lossy", row["format_revision"])
+        self.store.finish(request_id, "not_found", "No copy found", "")
+        row = self.store.get(request_id)
+        revision = row["format_revision"]
+        matches = self.store.save_copy_matches(request_id, "any_lossy", revision, {}, {}, [
+            {"source": "fixture", "id": "original"}])
+
+        def replace(_):
+            return self.store.replace_recording(
+                request_id, revision, "Artist", "Song", "Live album", 205, "Song Live",
+                musicbrainz_id="00000000-0000-4000-8000-000000000010", version="Live", performance="")
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            changes = list(pool.map(replace, range(6)))
+        self.assertEqual(sum(released for _, released in changes), 1)
+        updated = self.store.get(request_id)
+        self.assertEqual((updated["id"], updated["requested_format"], updated["request_state"]),
+                         (request_id, "any_lossy", "queued_search"))
+        self.assertEqual(updated["length"], 205)
+        self.assertEqual([item["id"] for item in self.store.recent()], [request_id])
+        original = ("Artist", "Song", original_id)
+        self.assertEqual(self.store.for_picks([original])[original]["id"], request_id)
+        existing, created = self.store.create_or_find(
+            None, "Artist", "Song", "Album", 200, "Song", individual=True, musicbrainz_id=original_id)
+        self.assertEqual((existing["id"], created), (request_id, False))
+        with self.assertRaises(ValueError):
+            self.store.confirm_format(request_id, "any_lossy", revision, matches[0]["key"])
+        with self.assertRaises(ValueError):
+            self.store.retry(request_id, revision=revision)
+
+    def test_copy_choice_survives_a_concurrent_browse_and_retries_in_place(self):
+        row, _ = self.create()
+        request_id = row["id"]
+        first = self.store.save_copy_matches(request_id, "mp3", 0, {}, {}, [{"source": "fixture", "id": "first"}])
+        again = self.store.save_copy_matches(request_id, "mp3", 0, {}, {}, [{"source": "fixture", "id": "second"}])
+        self.assertEqual(first, again)
+        queued, _ = self.store.confirm_format(request_id, "mp3", 0, first[0]["key"])
+        self.assertEqual(queued["request_state"], "queued_copy")
+        self.store.claim(request_id)
+        self.store.defer_attempt(self.store.get(request_id), "Temporary transfer error")
+        self.assertEqual(self.store.get(request_id)["request_state"], "retry_copy")
+        self.assertTrue(self.store.retry(request_id, revision=queued["format_revision"]))
+        self.assertEqual(self.store.get(request_id)["request_state"], "queued_copy")
+        picked = self.store.selected_copy(request_id, queued["format_revision"])
+        self.assertEqual(picked["candidate"]["id"], "first")
+
+    def test_recording_change_keeps_the_catalog_request_and_waits_for_unconfirmed_format(self):
+        row, _ = self.create(individual=False)
+        updated, released = self.store.replace_recording(
+            row["id"], row["format_revision"], "Artist", "Song", "", 210, "Song",
+            musicbrainz_id="00000000-0000-4000-8000-000000000010", version="", performance="")
+        self.assertFalse(released)
+        self.assertEqual((updated["id"], updated["request_state"], updated["requested_format"]),
+                         (row["id"], "choose_format", None))
+        repeated, created = self.create()
+        self.assertEqual((repeated["id"], created), (row["id"], False))
+        self.assertEqual(self.store.reserved_tracks(1, 5), {1})
 
     def test_legacy_retry_increments_revision_without_marking_a_format_confirmed(self):
         request_id = self.enqueue_track()

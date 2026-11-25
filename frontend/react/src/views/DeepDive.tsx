@@ -9,6 +9,7 @@ import { DiscoveryBoard } from "./DiscoveryBoard";
 import { AddToPlaylist } from "../components/PlaylistComposer";
 import { TryMp3Button } from "../components/TryMp3Button";
 import { RequestStatus, RetryRequestButton } from "../components/RequestStatus";
+import { canChangeRecording, canChooseFormat, needsCopyChoice, requestStage, requestStageLabel } from "../requestState";
 import { RecordingVersions } from "../components/RecordingVersions";
 import { WeeklyDiscovery } from "./WeeklyDiscovery";
 
@@ -36,14 +37,17 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
   const store = useStore();
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<RequestRow | null>(null);
-  const row = store.requestRows.find(r => r.musicbrainz_id === track.musicbrainz_id) ?? submitted ?? branch?.request ?? track.request;
+  const row = store.requestRows.find(r => r.musicbrainz_id === track.musicbrainz_id ||
+    r.original_recording_id === track.musicbrainz_id || r.id === submitted?.id) ?? submitted ?? branch?.request ?? track.request;
   const ready = row?.status === "downloaded" && !!row.audio;
-  const choosing = row && ["waiting_format", "not_found", "error", "rejected"].includes(row.status);
+  const stage = row && requestStage(row);
+  const choosing = stage && canChooseFormat(stage);
+  const review = stage && needsCopyChoice(stage);
   const busy = !!row && BUSY_STATUSES.includes(row.status);
   const search = new URL("https://www.youtube.com/results");
   search.searchParams.set("search_query", [track.artist, track.title, track.version, track.performance].filter(Boolean).join(" "));
-  const requestLabel = ready ? "Play in room" : row?.copy_review ? "Review copies"
-    : choosing ? "Choose format" : busy && row ? statusLabel(row.status) : "Find a copy";
+  const requestLabel = ready ? "Play in room" : review ? "Review copies"
+    : choosing ? "Choose format" : busy && row ? requestStageLabel(row) : "Find a copy";
   const listenLabel = branch?.source ? "Listen on " + branch.source.name : "Search on YouTube";
   async function request() {
     if (ready && row) return void store.sendSession("play_request", { request_id: row.id });
@@ -60,19 +64,23 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
         rel="noopener noreferrer" aria-label={listenLabel} title={listenLabel}>
         <RoomIcon name={branch?.source ? "listen" : "search"} />
       </a>
-      <RoomIconButton primary label={requestLabel}
-        icon={ready ? "play" : row?.copy_review ? "catalogs" : choosing ? "settings" : busy ? "recent" : "download"}
+      {stage !== "copy_missing" && <RoomIconButton primary label={requestLabel}
+        icon={ready ? "play" : review ? "catalogs" : choosing ? "settings" : busy ? "recent" : "download"}
         onClick={() => void request()}
-        disabled={submitting || (!ready && !choosing && (busy || !track.duration))} />
+        disabled={submitting || (!ready && !choosing && (busy || !track.duration))} />}
       {!store.member && row?.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={track.title} />}
       {row && <RetryRequestButton request={row} title={track.title} />}
-      {!store.member && <RecordingVersions song={track} onChoose={song => void store.createSongRequest(song)} />}
+      {!store.member && (!row || ready || stage && canChangeRecording(stage)) && <RecordingVersions
+        song={row?.musicbrainz_id ? row : track}
+        onChoose={song => void (row && !ready ? store.requestsSlice.chooseRecording(row, song) : store.createSongRequest(song))} />}
       <RoomIconButton icon="info" label="Song details" onClick={() => store.openSongInfo(track)} />
       <AddToPlaylist song={track} iconOnly />
     </div>
     {!track.duration && !row && <p>A duration is needed to verify a room copy.</p>}
     {row && <div role="status"><RequestStatus request={row} />
-      {row.message && !row.copy_review && row.message !== statusLabel(row.status) && <p>{row.message}</p>}
+      {row.musicbrainz_id && row.musicbrainz_id !== track.musicbrainz_id && <p>{[row.version || row.title, row.artist].join(" · ")}</p>}
+      {review ? <p>{stage === "copy_unavailable" ? "Choose another copy to continue." : "No copy was saved."}</p>
+        : row.message && row.message !== statusLabel(row.status) && <p>{row.message}</p>}
     </div>}
   </>;
 }

@@ -1198,8 +1198,8 @@ class RoomActivity : Activity() {
                         val item = tracks.getJSONObject(i)
                         val artist = item.getString("artist")
                         val title = item.getString("title")
-                        val waiting = item.optJSONObject("request")?.optString("status") == "waiting_format"
-                        val note = if (waiting) "Choose format" else item.optString("version").ifBlank { item.optString("album") }
+                        val note = item.optJSONObject("request")?.copyStatusLabel()?.takeIf(String::isNotBlank)
+                            ?: item.optString("version").ifBlank { item.optString("album") }
                         columns[i % columnCount].addView(ui.button(listOf(title, artist, note).filter(String::isNotBlank).joinToString("\n")) {
                             load({ target.pickRequest(item) }) { row -> openPick(target, item, row) }
                         }.apply { gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL })
@@ -1236,7 +1236,7 @@ class RoomActivity : Activity() {
                     val pending = tracks.filter { track ->
                         val request = track.optJSONObject("request")
                         val status = request?.optString("status")
-                        !track.optBoolean("in_library") && request?.optBoolean("copy_review") != true &&
+                        !track.optBoolean("in_library") && request?.needsCopyReview() != true &&
                             (status == null || status in setOf("not_found", "error", "rejected"))
                     }
                     fun readyId(track: JSONObject): Int? {
@@ -1252,9 +1252,9 @@ class RoomActivity : Activity() {
                     }
                     fun review(track: JSONObject) {
                         val request = track.getJSONObject("request")
-                        val row = JSONObject(request.toString()).put("title", track.getString("title"))
-                            .put("artist", track.getString("artist"))
-                        chooseDiscoveryFormat(row, target, browseFirst = row.optString("status") != "waiting_format") { format, copy ->
+                        val row = JSONObject(request.toString()).put("title", request.optString("title", track.getString("title")))
+                            .put("artist", request.optString("artist", track.getString("artist")))
+                        chooseDiscoveryFormat(row, target) { format, copy ->
                             load({ target.confirmFormat(row, format, copy) }) { show() }
                         }
                     }
@@ -1281,7 +1281,7 @@ class RoomActivity : Activity() {
                         }, actions.childCount - 1)
                     }
                     tracks.firstOrNull {
-                        !it.optBoolean("in_library") && it.optJSONObject("request")?.optBoolean("copy_review") == true
+                        !it.optBoolean("in_library") && it.optJSONObject("request")?.needsCopyReview() == true
                     }?.let { track ->
                         actions.addView(ui.iconButton("Review copies", Mark.BROWSE) { review(track) }, actions.childCount - 1)
                     }
@@ -1303,12 +1303,12 @@ class RoomActivity : Activity() {
                     }
                     val songs = ui.column()
                     for (track in tracks) {
-                        val title = track.getString("title")
-                        val artist = track.getString("artist")
+                        val request = track.optJSONObject("request")
+                        val title = request?.optString("title")?.takeIf(String::isNotBlank) ?: track.getString("title")
+                        val artist = request?.optString("artist")?.takeIf(String::isNotBlank) ?: track.getString("artist")
                         val via = track.optJSONArray("trail")?.let { names ->
                             (0 until (names.length() - 1)).joinToString(" → ") { names.getString(it) }
                         }.orEmpty()
-                        val request = track.optJSONObject("request")
                         val requestStatus = request?.optString("status").orEmpty()
                         val inLibrary = track.optBoolean("in_library")
                         val detail = if (inLibrary && requestStatus != "missing") "In library" else request?.copyStatusLabel().orEmpty()
@@ -1327,23 +1327,40 @@ class RoomActivity : Activity() {
                             }
                             if (!inLibrary && requestStatus in CHANGEABLE_FORMAT &&
                                 request != null && request.has("format_revision")) {
-                                val label = if (requestStatus == "waiting_format") "Choose format for $title" else "Review copies for $title"
-                                addView(ui.iconButton(label, Mark.BROWSE) { review(track) })
+                                val copies = request.needsCopyReview()
+                                val label = if (copies) "Review copies for $title" else "Choose format for $title"
+                                addView(ui.iconButton(label, if (copies) Mark.BROWSE else Mark.SETTINGS) { review(track) })
                             }
-                            if (!inLibrary && request != null && requestStatus in RETRYABLE_COPY && !request.optBoolean("copy_review")) {
+                            if (!inLibrary && request != null && requestStatus in RETRYABLE_COPY && !request.needsCopyReview()) {
                                 addView(ui.iconButton("Retry now: $title", Mark.REFRESH) {
                                     load({ target.retryCopy(request) }) { show() }
                                 })
                             }
-                            if (!inLibrary) addView(ui.iconButton("Choose a recording: $title", Mark.ALBUM) {
-                                chooseRecordingVersion(target, track) { version -> openPick(target, version, null) }
-                            })
+                            if (!inLibrary && (request == null || request.canReplaceRecording())) {
+                                addView(ui.iconButton("Choose a recording: $title", Mark.ALBUM) {
+                                    chooseRequestVersion(target, track, request)
+                                })
+                            }
                         })
                     }
                     val scroll = ScrollView(this).apply { addView(songs) }
                     weeklyScroll = scroll
                     content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
                     if (scrollY > 0) scroll.post { scroll.scrollTo(0, scrollY) }
+                }
+            }
+        }
+    }
+
+    private fun chooseRequestVersion(target: Room, item: JSONObject, row: JSONObject?) {
+        chooseRecordingVersion(target, row?.takeIf { it.optString("musicbrainz_id").isNotBlank() } ?: item) { version ->
+            if (row == null || row.optString("status") == "downloaded") {
+                openPick(target, version, null)
+            } else {
+                load({ target.requestCopy(version, row) }) { updated ->
+                    show()
+                    if (updated.optString("status") == "waiting_format") openPick(target, version, updated)
+                    else message(updated.copyStatusLabel())
                 }
             }
         }
@@ -1385,32 +1402,59 @@ class RoomActivity : Activity() {
                 load({ target.confirmFormat(rowToConfirm, format, copyKey) }) { show() }
             }
         }
-        fun openView(view: SongDetailsView) {
-            if (view == SongDetailsView.DETAILS) openPick(target, item, row, creditCache)
+        fun openView(view: SongDetailsView, current: JSONObject?) {
+            if (view == SongDetailsView.DETAILS) openPick(target, item, current, creditCache)
             else ui.showArtistConnections(this, target, item, album = view == SongDetailsView.ALBUM,
-                openView = ::openView, cache = creditCache)
+                openView = { openView(it, current) }, cache = creditCache)
         }
         showDiscoveryPick(target, item, row, onPlay = { id ->
             send("play_request", JSONObject().put("request_id", id))
             screen = Screen.PLAYER
             show()
-        }, onRequest = {
-            if (row != null && row.optString("status") in CHANGEABLE_FORMAT) choose(row)
+        }, onRequest = { current ->
+            if (current != null && current.optString("status") in CHANGEABLE_FORMAT) choose(current)
             else load({ target.requestCopy(item) }) { request ->
                 show()
                 if (request.optString("status") in CHANGEABLE_FORMAT) choose(request)
                 else openPick(target, item, request)
             }
-        }, onTryMp3 = row?.optJSONObject("mp3_retry")?.let { retry -> { requestMp3(target, retry) } },
+        }, onTryMp3 = { requestMp3(target, it) },
             openView = item.creditRecordingId()?.let { ::openView },
-            onRetry = row?.takeIf { it.optString("status") in RETRYABLE_COPY && !it.optBoolean("copy_review") }?.let {
-                { load({ target.retryCopy(it) }) { result ->
+            onRetry = { current ->
+                load({ target.retryCopy(current) }) { result ->
                     show()
-                    message(result.optString("status"))
-                } }
+                    message(result.optJSONObject("request")?.copyStatusLabel() ?: result.optString("status"))
+                }
             },
-            onVersions = { chooseRecordingVersion(target, item) { version -> openPick(target, version, null, creditCache) } },
-            onAddToPlaylist = { pickPlaylist(target, SongDraft.from(item)) })
+            onVersions = { current -> chooseRequestVersion(target, item, current) },
+            onAddToPlaylist = { pickPlaylist(target, SongDraft.from(item)) },
+            watch = { dialog, update ->
+                val requestId = row!!.getLong("id")
+                val pollRequest = object : Runnable {
+                    override fun run() {
+                        if (!dialog.isShowing || isDestroyed) return
+                        if (!active) {
+                            handler.postDelayed(this, 8_000L)
+                            return
+                        }
+                        io.execute {
+                            val result = runCatching { target.requestById(requestId) }
+                            runOnUiThread {
+                                if (!dialog.isShowing || isDestroyed || room?.id != target.id) return@runOnUiThread
+                                val latest = result.getOrNull()
+                                if (latest != null) {
+                                    update(latest)
+                                    if (latest.copyPending()) handler.postDelayed(this, 4_000L)
+                                } else if (result.isFailure) {
+                                    handler.postDelayed(this, 8_000L)
+                                }
+                            }
+                        }
+                    }
+                }
+                dialog.setOnDismissListener { handler.removeCallbacks(pollRequest) }
+                handler.postDelayed(pollRequest, 4_000L)
+            })
     }
 
     private fun schedulePoll() {
