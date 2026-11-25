@@ -94,7 +94,7 @@ internal class RoomNetwork(context: Context, origin: String, private val homeWif
             val requestClient = when {
                 transfer -> client.newBuilder().readTimeout(6, TimeUnit.MINUTES).build()
                 url.encodedPath == "/api/extensions/health" -> client.newBuilder().readTimeout(135, TimeUnit.SECONDS).build()
-                url.encodedPath.startsWith("/api/connections/") ||
+                url.encodedPath == "/api/requests/copies" || url.encodedPath.startsWith("/api/connections/") ||
                     url.encodedPath == "/api/playlists/add-song" || url.encodedPath in setOf("/api/discovery/search", "/api/discovery/import") ->
                     client.newBuilder().readTimeout(75, TimeUnit.SECONDS).build()
                 else -> client

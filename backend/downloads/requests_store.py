@@ -19,7 +19,10 @@ Connection behavior is unchanged too: WAL mode, a 30-second timeout,
 and one short connection per operation.
 """
 
+import json
+import secrets
 import sqlite3
+import time
 import zlib
 from pathlib import Path
 
@@ -37,6 +40,7 @@ def mp3_retry(row):
 def decode_request_row(row):
     """Read the request format while keeping its stored value compatible with older rooms."""
     result = dict(row)
+    result.pop("selected_copy_key", None)
     # An older room reads the narrower fallback. Revisions bind expanded
     # choices to the confirmation that set them, even after an older room edits it.
     aac_revision = result.pop("aac_revision", None)
@@ -65,6 +69,7 @@ SCHEMA = (
         aac_revision INTEGER,
         broad_revision INTEGER,
         format_confirmed INTEGER NOT NULL DEFAULT 0,
+        selected_copy_key TEXT,
         status TEXT NOT NULL DEFAULT 'queued',
         message TEXT NOT NULL DEFAULT '',
         audio_path TEXT NOT NULL DEFAULT '',
@@ -79,8 +84,16 @@ SCHEMA = (
     "CREATE INDEX IF NOT EXISTS requests_track_index ON requests (track_index)",
     "CREATE INDEX IF NOT EXISTS requests_status ON requests (status)",
     "CREATE INDEX IF NOT EXISTS requests_pick ON requests (artist, title, id DESC) WHERE track_index IS NULL",
+    """CREATE TABLE IF NOT EXISTS request_copies (
+        request_id INTEGER PRIMARY KEY,
+        revision INTEGER NOT NULL,
+        format TEXT NOT NULL,
+        expires REAL NOT NULL,
+        payload TEXT NOT NULL
+    )""",
 )
 
+EDITABLE_FORMAT = ("waiting_format", "not_found", "error", "rejected")
 # A request the user can still act on or that is already on its way.
 ACTIVE_STATUSES = ("waiting_format", "queued", "searching", "waiting_space")
 
@@ -109,7 +122,8 @@ class RequestsStore:
         """
         conn = state_database.connect(self.path, SCHEMA, row_factory=sqlite3.Row)
         try:
-            required = {"format_confirmed", "version", "musicbrainz_id", "performance", "aac_revision", "broad_revision", "resolved_at"}
+            required = {"format_confirmed", "version", "musicbrainz_id", "performance", "aac_revision",
+                        "broad_revision", "resolved_at", "selected_copy_key"}
             if not required <= {col[1] for col in conn.execute("PRAGMA table_info(requests)")}:
                 # Another server or runner may be upgrading the same room.
                 conn.execute("BEGIN IMMEDIATE")
@@ -124,6 +138,8 @@ class RequestsStore:
                     conn.execute("ALTER TABLE requests ADD COLUMN aac_revision INTEGER")
                 if "broad_revision" not in columns:
                     conn.execute("ALTER TABLE requests ADD COLUMN broad_revision INTEGER")
+                if "selected_copy_key" not in columns:
+                    conn.execute("ALTER TABLE requests ADD COLUMN selected_copy_key TEXT")
                 if "resolved_at" not in columns:
                     conn.execute("ALTER TABLE requests ADD COLUMN resolved_at TEXT")
                     conn.execute("UPDATE requests SET resolved_at=updated_at "
@@ -226,24 +242,85 @@ class RequestsStore:
                 raise ValueError("Another request already exists for this song. Open it in Requests.")
         return row
 
-    def confirm_format(self, request_id, choice, revision):
+    def save_copy_matches(self, request_id, choice, revision, recording, selection, candidates):
+        """Return opaque handles with display metadata. Keep transfer IDs server-side."""
+        picks, matches = {}, []
+        for number, candidate in enumerate(candidates, 1):
+            handle = secrets.token_hex(16)
+            picks[handle] = {key: candidate[key] for key in ("source", "id")}
+            label = candidate.get("label", "").replace("\\", "/").rsplit("/", 1)[-1]
+            matches.append({"key": handle, "label": label or f"Copy {number}",
+                            **{key: candidate[key] for key in ("format", "duration", "bitrate", "recommended")
+                               if key in candidate}})
+
+        def work(conn):
+            row = self._lock_request(conn, request_id)
+            if row["format_revision"] != revision or row["status"] not in EDITABLE_FORMAT:
+                raise ValueError("This request changed. Reopen it to browse copies.")
+            now = time.time()
+            conn.execute("DELETE FROM request_copies WHERE expires > 0 AND expires < ?", (now,))
+            conn.execute("INSERT OR REPLACE INTO request_copies VALUES (?, ?, ?, ?, ?)",
+                         (request_id, revision, choice, now + 900,
+                          json.dumps({"recording": recording, "selection": selection, "picks": picks})))
+            return matches
+        return self._run(work)
+
+    def selected_copy(self, request_id, revision):
+        def work(conn):
+            row = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND revision=? AND expires=0",
+                               (request_id, revision)).fetchone()
+            return json.loads(row["payload"]) if row else None
+        return self._run(work)
+
+    def remember_selected_audio(self, request_id, revision, reference):
+        """Bind a verified handoff to the exact selection before removing its staged bytes."""
+        def work(conn):
+            conn.execute("BEGIN IMMEDIATE")
+            saved = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND revision=? AND expires=0",
+                                 (request_id, revision)).fetchone()
+            if saved is None:
+                raise RuntimeError("The selected copy changed before its verified audio was saved.")
+            payload = json.loads(saved["payload"])
+            payload["audio_path"] = reference
+            conn.execute("UPDATE request_copies SET payload=? WHERE request_id=?", (json.dumps(payload), request_id))
+        self._run(work)
+
+    def confirm_format(self, request_id, choice, revision, copy_key=None):
         """Each picker version can release at most one search, even after it finishes."""
         if not isinstance(choice, str) or choice not in REQUEST_SUFFIXES:
             raise ValueError("Choose a supported audio format.")
         if type(revision) is not int or not 0 <= revision < 2**63 - 1:
             raise ValueError("Invalid format revision")
+        if copy_key is not None and (not isinstance(copy_key, str) or len(copy_key) != 32):
+            raise ValueError("Choose a copy from the current results.")
         def work(conn):
-            row = decode_request_row(self._lock_request(conn, request_id))
+            locked = self._lock_request(conn, request_id)
+            row = decode_request_row(locked)
             if row["requested_format"] == choice and row["format_revision"] == revision + 1:
+                if copy_key != locked["selected_copy_key"]:
+                    raise ValueError("This request already started. Reopen it to choose another copy.")
                 return row, False
+            if copy_key is not None:
+                saved = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND revision=? "
+                                     "AND format=? AND expires>?", (request_id, revision, choice, time.time())).fetchone()
+                payload = json.loads(saved["payload"]) if saved else {}
+                candidate = payload.get("picks", {}).get(copy_key)
+                if not candidate:
+                    raise ValueError("These results changed or expired. Browse copies again.")
+                del payload["picks"]
+                payload["candidate"] = candidate
+                conn.execute("UPDATE request_copies SET revision=?, expires=0, payload=? WHERE request_id=?",
+                             (revision + 1, json.dumps(payload), request_id))
+            else:
+                conn.execute("DELETE FROM request_copies WHERE request_id=?", (request_id,))
             stored_format = {"any_lossy": "mp3", "any_format": "any_lossless"}.get(choice, choice)
             changed = conn.execute(
                 "UPDATE requests SET requested_format=?, aac_revision=?, broad_revision=?, "
-                "format_confirmed=1, status='queued', message='', "
+                "selected_copy_key=?, format_confirmed=1, status='queued', message='', "
                 "format_revision=format_revision+1, updated_at=CURRENT_TIMESTAMP "
                 "WHERE id=? AND format_revision=? AND status IN ('waiting_format','not_found','error','rejected')",
                 (stored_format, revision + 1 if choice == "any_lossy" else None,
-                 revision + 1 if choice == "any_format" else None, request_id, revision)).rowcount
+                 revision + 1 if choice == "any_format" else None, copy_key, request_id, revision)).rowcount
             if not changed:
                 raise ValueError("This request changed. Reopen it to choose a format.")
             row = conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
@@ -280,6 +357,8 @@ class RequestsStore:
             conn.execute("UPDATE requests SET status=?, message=?, audio_path=?, "
                          "updated_at=CURRENT_TIMESTAMP, resolved_at=CURRENT_TIMESTAMP WHERE id=?",
                          (status, message, audio_path, request_id))
+            if status not in ("queued", "waiting_space"):
+                conn.execute("DELETE FROM request_copies WHERE request_id=? AND expires=0", (request_id,))
         self._run(work)
 
     def set_audio_path(self, request_id, audio_path):
@@ -306,7 +385,7 @@ class RequestsStore:
     @staticmethod
     def _queue_retry(conn, request_id, search_title):
         return bool(conn.execute(
-            "UPDATE requests SET search_title=?, status='queued', message='', "
+            "UPDATE requests SET search_title=?, status='queued', message='', selected_copy_key=NULL, "
             "aac_revision=CASE WHEN aac_revision=format_revision THEN format_revision+1 END, "
             "broad_revision=CASE WHEN broad_revision=format_revision THEN format_revision+1 END, "
             "updated_at=CURRENT_TIMESTAMP, format_revision=format_revision+1 "

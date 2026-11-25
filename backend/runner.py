@@ -37,7 +37,7 @@ from catalog.media_reconciliation import (BlobIndex,
                                           migrate_library,
                                           migration_status_record, unmigrated_files)
 from downloads.engine_contract import (CandidateTimeout, EngineError, InsufficientDownloadSpace,
-                                       engine_selection, fetch_recording, timed_stage)
+                                       engine_recording, engine_selection, fetch_recording, request_recording, simplify_title, timed_stage)
 from downloads.requests_store import RequestsStore
 from downloads.state_store import StateStore
 from downloads.verification import (CLI_LENGTH_TOLERANCE, FULL_DECODE_TIMEOUT, MIN_BITRATE_KBPS,
@@ -502,11 +502,6 @@ def _coverage_paths(database, stamp):
     return paths
 
 
-def simplify_title(title):
-    return re.sub(r"\s*[-(]\s*(?:(?:digital|original)\s+)?(?:\d{4}\s+)?"
-                  r"remaster(?:ed)?(?:\s+\d{4})?\)?\s*$", "", title, flags=re.IGNORECASE).strip() or title
-
-
 def request_failure(output, returncode):
     if "OutOfMemoryException" in output or "Out of memory" in output:
         return "error", "Sockseek ran out of memory during search; retry this song"
@@ -698,8 +693,13 @@ def remove_staged_duplicate(path, staging, store, key=None, stamp=None):
     return False
 
 
-def release_request_duplicates(request_id, audio_path, store):
-    pending = STATE / "requests" / "verified" / str(request_id)
+def request_pending_dir(request_dir, request_id, revision=None):
+    pending = request_dir / "verified" / str(request_id)
+    return pending / f"copy-{revision}" if revision is not None else pending
+
+
+def release_request_duplicates(request_id, audio_path, store, revision=None):
+    pending = request_pending_dir(STATE / "requests", request_id, revision)
     for candidate in pending.glob("incoming-*"):
         remove_staged_duplicate(candidate, STATE / "requests", store, blob_key(audio_path))
 
@@ -766,15 +766,6 @@ def record_download_progress(*, retry=None, scoped_attempted=(), complete=False)
     queue.record_progress(job["id"], progress)
 
 
-def engine_recording(record, search_title, suffixes, preferred):
-    return {
-        "id": str(record["key"]), "title": record["title"], "search_title": search_title,
-        "artist": record["artist"], "album": record["album"],
-        "duration": float(record["length"] or 0), "formats": list(suffixes),
-        "preferred_format": preferred,
-    }
-
-
 def verified_engine_audio(path, judge_candidate, remaining_time):
     facts = probe(path, local_audio_only=True, timeout=min(PROBE_TIMEOUT, remaining_time()))
     if facts is not None and not title_is_generic(facts["title"]) and judge_candidate(facts).ok:
@@ -782,17 +773,17 @@ def verified_engine_audio(path, judge_candidate, remaining_time):
     return None
 
 
-def managed_candidate(selection, recording, accept):
+def managed_candidate(selection, recording, accept, *, chosen=None, recommended_only=False):
     return fetch_recording(selection, recording, state=STATE, free_bytes=free_bytes, reserve=MIN_FREE,
                            estimate=estimated_bytes([{"length": recording["duration"]}]),
-                           accept=accept, timeout=REQUEST_TIMEOUT)
+                           accept=accept, timeout=REQUEST_TIMEOUT, chosen=chosen, recommended_only=recommended_only)
 
 
-def managed_request(selection, request_dir, row, record, title, search_title, length):
+def managed_request(selection, request_dir, row, record, title, length, selected):
     choice = row.get("requested_format", "any_lossless")
-    suffixes = REQUEST_SUFFIXES[choice]
-    item = record or {**row, "key": f"request:{row['id']}"}
-    recording = engine_recording(item, search_title, suffixes, suffixes[0][1:])
+    recording = request_recording(row, record, choice)
+    if selected is not None and (selected["selection"] != selection or selected["recording"] != recording):
+        return "error", "The request or its sources changed. Browse copies again.", ""
 
     def accept(path, remaining_time):
         facts = verified_engine_audio(path, lambda facts: judge_download(
@@ -812,11 +803,13 @@ def managed_request(selection, request_dir, row, record, title, search_title, le
         return True
 
     try:
-        with managed_candidate(selection, recording, accept) as path:
+        with managed_candidate(selection, recording, accept, chosen=selected["candidate"] if selected else None,
+                               recommended_only=bool(row.get("format_confirmed"))) as path:
             if path is None:
-                return "not_found", "No copy found", ""
-            # Preserve the verified handoff across restarts using the legacy request path.
-            return retain_request_file(path, path.parent, request_dir, row, record, title, length)
+                return "not_found", ("The selected copy could not be downloaded or verified. Browse copies again."
+                                     if selected else "No copy found"), ""
+            return retain_request_file(path, path.parent, request_dir, row, record, title, length,
+                                       selected=bool(selected))
     except InsufficientDownloadSpace:
         return "waiting_space", "Waiting for more free space", ""
     except EngineError as error:
@@ -832,7 +825,9 @@ def run_request(row, record):
     request_dir = STATE / "requests"
     choice = row.get("requested_format", "any_lossless")
     identity = request_identity(row)
-    pending = request_dir / "verified" / str(request_id)
+    selected = requests_store().selected_copy(request_id, row["format_revision"]) if "format_revision" in row else None
+    revision = row["format_revision"] if selected else None
+    pending = request_pending_dir(request_dir, request_id, revision)
     # Recover a committed request or release its duplicate even at the space floor.
     # A different retained candidate still needs its original verification and handoff.
     landed = ""
@@ -840,17 +835,21 @@ def run_request(row, record):
         store = media_store()
         owner = ("catalog", record["key"]) if record else ("request", str(request_id))
         reference = store.owned_audio(*owner) if store is not None else None
-        if reference:
+        if reference and (not selected or reference == selected.get("audio_path")):
             key = blob_key(reference)
             suffix = store.suffix(key)
             if (judge_download(title, length, store.probe(key), suffix, choice, **identity).ok
                     and store.verifies_original(key, suffix)):
                 landed = reference
-                release_request_duplicates(request_id, landed, store)
+                release_request_duplicates(request_id, landed, store, revision)
+    elif selected and (reference := selected.get("audio_path")):
+        path = LIBRARY / reference
+        if path.is_file() and judge_download(title, length, probe(path), path.suffix, choice, **identity).ok:
+            landed = reference
     for candidate in sorted(pending.glob("incoming-*")):
         if (candidate.is_file() and not candidate.is_symlink()
                 and judge_download(title, length, probe(candidate), candidate.suffix, choice, **identity).ok):
-            return land_request_file(candidate, row, record, title, length)
+            return land_request_file(candidate, row, record, title, length, selected=bool(selected))
     if landed:
         return "downloaded", "Ready to play", landed
     if free_bytes() - estimated_bytes([{"length": length}]) < MIN_FREE:
@@ -858,7 +857,9 @@ def run_request(row, record):
     request_dir.mkdir(exist_ok=True)
     selection = configured_engines()
     if selection is not None:
-        return managed_request(selection, request_dir, row, record, title, search_title, length)
+        return managed_request(selection, request_dir, row, record, title, length, selected)
+    if selected:
+        return "error", "The request or its sources changed. Browse copies again.", ""
     check_legacy_download_tools()
     if row.get("format_confirmed"):
         log_path = request_dir / f"request-{request_id}.log"
@@ -926,19 +927,19 @@ def download_request_candidate(staging, request_dir, csv_path, row, record, titl
     return retain_request_file(path, staging, request_dir, row, record, title, length)
 
 
-def retain_request_file(path, staging, request_dir, row, record, title, length):
+def retain_request_file(path, staging, request_dir, row, record, title, length, *, selected=False):
     request_id = row["id"]
-    pending = request_dir / "verified" / str(request_id)
+    pending = request_pending_dir(request_dir, request_id, row["format_revision"] if selected else None)
     pending.mkdir(mode=0o700, parents=True, exist_ok=True)
     staged_name = staging.name
     if not staged_name.startswith("incoming-"):
         staged_name = f"incoming-{request_id}-{staged_name}"
     retained = pending / (staged_name + path.suffix.lower())
     path.rename(retained)
-    return land_request_file(retained, row, record, title, length)
+    return land_request_file(retained, row, record, title, length, selected=selected)
 
 
-def land_request_file(path, row, record, title, length):
+def land_request_file(path, row, record, title, length, *, selected=False):
     request_id = row["id"]
     if free_bytes() - 3 * path.stat().st_size < MIN_FREE:
         return "waiting_space", "Verified download retained until more space is available", ""
@@ -952,11 +953,13 @@ def land_request_file(path, row, record, title, length):
         owner = ("catalog", record["key"]) if record else ("request", str(request_id))
         store = media_store(create=True)
         key = store.put_file(path, facts, owners=(owner,), expected_stamp=stamp)
+        reference = blob_ref(key)
+        if selected:
+            requests_store().remember_selected_audio(request_id, row["format_revision"], reference)
         if not remove_staged_duplicate(path, STATE / "requests", store, key, stamp):
             if path.exists():
                 raise OSError("Could not release the verified transfer. Its staged copy was kept.")
-        reference = blob_ref(key)
-        release_request_duplicates(request_id, reference, store)
+        release_request_duplicates(request_id, reference, store, row["format_revision"] if selected else None)
         return "downloaded", "Ready to play", reference
     if record:
         target = LIBRARY / f"{record['index']} - requested-{request_id}{path.suffix.lower()}"
@@ -965,9 +968,12 @@ def land_request_file(path, row, record, title, length):
         custom_dir.mkdir(exist_ok=True)
         target = custom_dir / f"{request_id}{path.suffix.lower()}"
     saved = publish_verified_download(path, target, stamp)
+    reference = stored_path(saved, LIBRARY)
+    if selected:
+        requests_store().remember_selected_audio(request_id, row["format_revision"], reference)
     if source_stamp(path.stat()) == stamp:
         path.unlink()
-    return "downloaded", "Ready to play", stored_path(saved, LIBRARY)
+    return "downloaded", "Ready to play", reference
 
 
 def publish_verified_download(source, target, stamp):
@@ -988,7 +994,8 @@ def process_requests(records, limit=3):
         row = store.get(request_id)
         record = records[row["track_index"] - 1] if row["track_index"] else None
         try:
-            existing = verified_existing(record["index"], record) if record else None
+            existing = (verified_existing(record["index"], record) if record
+                        and not store.selected_copy(request_id, row["format_revision"]) else None)
             if is_blob_ref(str(existing)):
                 store_key = blob_key(str(existing))
                 media = media_store()

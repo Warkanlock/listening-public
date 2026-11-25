@@ -445,8 +445,8 @@ class RoomActivity : Activity() {
 
     private fun requestCopy(target: Room, id: Int) {
         load({ target.requestCatalogCopy(id) }) { request ->
-            if (request.optString("status") in CHANGEABLE_FORMAT) chooseDiscoveryFormat(request, target) { format ->
-                load({ target.confirmFormat(request, format) }) { message("Requested a copy.") }
+            if (request.optString("status") in CHANGEABLE_FORMAT) chooseDiscoveryFormat(request, target) { format, copyKey ->
+                load({ target.confirmFormat(request, format, copyKey) }) { message("Requested a copy.") }
             } else message(request.optString("message").ifBlank { "Request saved." })
         }
     }
@@ -1289,8 +1289,8 @@ class RoomActivity : Activity() {
     private fun openPick(target: Room, item: JSONObject, row: JSONObject?,
                          creditCache: MutableMap<CreditTarget, Credits> = mutableMapOf()) {
         fun choose(rowToConfirm: JSONObject) {
-            chooseDiscoveryFormat(rowToConfirm, target) { format ->
-                load({ target.confirmFormat(rowToConfirm, format) }) { show() }
+            chooseDiscoveryFormat(rowToConfirm, target) { format, copyKey ->
+                load({ target.confirmFormat(rowToConfirm, format, copyKey) }) { show() }
             }
         }
         fun openView(view: SongDetailsView) {
