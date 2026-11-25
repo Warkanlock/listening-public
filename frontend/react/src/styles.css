@@ -359,15 +359,6 @@ button:disabled, .primary-action:disabled, .quiet-button:disabled { opacity: .52
 .playlist-card-art img { width: 100%; height: 100%; object-fit: cover; }
 .playlist-card strong { display: block; align-self: end; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-lg); font-weight: var(--weight-bold); }
 .playlist-card > span:last-child { display: block; align-self: start; margin-top: var(--space-2); color: var(--quiet); font-size: var(--font-md); }
-.playlist-card.is-selecting { position: relative; }
-.playlist-card.is-selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-tint); }
-.merge-check { position: absolute; top: var(--space-2); right: var(--space-2); display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--accent); border-radius: var(--radius-full); background: var(--card); color: var(--on-accent); font-size: 11px; }
-.playlist-card.is-selected .merge-check { background: var(--accent); }
-.merge-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-6); margin: 0 0 var(--space-6); padding: var(--space-5) var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); }
-.merge-count { margin: 0; font-weight: var(--weight-bold); }
-.merge-note { flex-basis: 100%; margin: 0; color: var(--quiet); font-size: var(--font-sm); }
-.merge-actions { display: flex; gap: var(--space-4); margin-left: auto; }
-
 .tracks-section { margin-top: var(--space-13); scroll-margin-top: 116px; }
 .collection-view.is-searching .tracks-section { margin-top: var(--space-2); }
 .collection-view .tracks-section:has(> .section-header h1) { margin-top: 0; }
@@ -1488,16 +1479,7 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .browse-item:hover, .browse-item:focus-visible { border-color: var(--accent); background: var(--hover); }
 .browse-error { color: var(--danger); font-size: var(--font-md); }
 
-/* Item 37 retargets (plan 046 in React): the shelf header groups
-   the Merge toggle with the shelf toggle; the toggle's pressed
-   state takes the player toggles' treatment; the merge bar's
-   target Select and name Input are ui-sdk parts, styled like the
-   Settings form controls; the bar's labels wrap their parts
-   inline the way the vanilla labels wrapped native controls. */
 .shelf-actions { display: flex; gap: var(--space-4); }
-.merge-toggle[data-pressed] { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-ink); box-shadow: inset 0 0 0 1px var(--accent); }
-.merge-name-label { display: inline-flex; align-items: center; gap: var(--space-3); }
-.merge-bar [data-slot="input"] { height: 39px; padding: 0 var(--space-5); border: 1px solid var(--input-line); border-radius: var(--radius-lg); background: var(--card); color: var(--text); font: inherit; font-size: var(--font-md); }
 
 /* Lyrics stage (plan 049): the one bold surface. A full-viewport
    overlay: the song's cover blurred under a deep tint, large tracked
@@ -1998,6 +1980,8 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .weekly-discovery-header { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: var(--space-6); }
 .weekly-discovery-header p { margin: 0; color: var(--muted); max-width: 54ch; }
 .weekly-discovery-actions { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.weekly-discovery-progress progress { display: block; width: 100%; accent-color: var(--accent); }
+.weekly-discovery-progress p { color: var(--muted); margin-block: var(--space-3) 0; }
 .weekly-discovery-tracks { margin: var(--space-7) 0; padding: 0; list-style: none; border-block-start: 1px solid var(--line); }
 .weekly-discovery-tracks li {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-5);
@@ -2890,6 +2874,11 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
 .composer-form [role="alert"] { color: var(--danger); }
 .composer-destination { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); color: var(--accent-ink); overflow-wrap: anywhere; }
 .composer-actions { display: flex; justify-content: end; }
+.playlist-merge-sources { display: grid; gap: var(--space-3); max-block-size: 13rem; overflow-y: auto; min-inline-size: 0; margin: 0; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.playlist-merge-sources legend { padding-inline: var(--space-2); }
+.composer-form .playlist-merge-sources label { display: flex; align-items: center; overflow-wrap: anywhere; }
+.composer-form .playlist-merge-sources input { appearance: auto; accent-color: var(--accent); inline-size: 1rem; min-block-size: auto; block-size: 1rem; padding: 0; flex-shrink: 0; }
+
 .catalog-search-panel { display: grid; gap: var(--space-7); padding-block: var(--space-2) var(--space-7); }
 .discovery-scope { display: inline-flex; width: fit-content; padding: var(--space-2); background: var(--tint); border-radius: var(--radius-lg); }
 .discovery-scope .room-action { border: 1px solid transparent; background: transparent; }

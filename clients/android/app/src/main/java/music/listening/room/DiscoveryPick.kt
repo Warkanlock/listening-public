@@ -47,6 +47,7 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
             when {
                 onPlay != null && status == "downloaded" && (request.optString("audio").isNotBlank() || request.optString("audio_path").isNotBlank()) ->
                     action("Play", Mark.PLAY) { onPlay(request.getInt("id")) }
+                request?.optBoolean("copy_review") == true -> action("Review copies", Mark.BROWSE, onRequest)
                 status in CHANGEABLE_FORMAT -> action("Choose format", Mark.SETTINGS, onRequest)
                 missingDuration -> info.section(label("A duration is needed to verify a room copy."))
                 status !in listOf("queued", "searching", "waiting_space", "downloaded") ->
@@ -64,7 +65,9 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
     window.show()
 }
 
-internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm: (String, String?) -> Unit) {
+internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room,
+                                            browseFirst: Boolean = row.optBoolean("copy_review"),
+                                            confirm: (String, String?) -> Unit) {
     val options = listOf(
         "any_format" to "Any supported format (FLAC, ALAC, MP3 or AAC)",
         "any_lossless" to "Any lossless (prefer FLAC)", "flac" to "FLAC only",
@@ -94,11 +97,11 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         visibility = View.GONE
         accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
     }
+    val browse = ui.iconButton("Browse copies", Mark.BROWSE) {}
     with(ui) {
         content.section(choices)
         content.section(line(), gap = 8)
         content.section(feedback, gap = 8)
-        val browse = iconButton("Browse copies", Mark.BROWSE) {}
         browse.setOnClickListener {
             val format = selectedFormat()
             browse.isEnabled = false
@@ -147,4 +150,5 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         ), alignEnd = true))
     }
     dialog.show()
+    if (browseFirst) browse.performClick()
 }

@@ -38,7 +38,7 @@ from catalog.media_reconciliation import (BlobIndex,
                                           migration_status_record, unmigrated_files)
 from downloads.engine_contract import (CandidateTimeout, EngineError, InsufficientDownloadSpace,
                                        engine_recording, engine_selection, fetch_recording, request_recording, simplify_title, timed_stage)
-from downloads.requests_store import RequestsStore
+from downloads.requests_store import COPY_REVIEW_MESSAGE, RequestsStore
 from downloads.state_store import StateStore
 from downloads.verification import (CLI_LENGTH_TOLERANCE, FULL_DECODE_TIMEOUT, MIN_BITRATE_KBPS,
                                     PROBE_CACHE_VERSION, PROBE_TIMEOUT, decode_audio, judge, judge_bulk_download,
@@ -773,10 +773,11 @@ def verified_engine_audio(path, judge_candidate, remaining_time):
     return None
 
 
-def managed_candidate(selection, recording, accept, *, chosen=None, recommended_only=False):
+def managed_candidate(selection, recording, accept, *, chosen=None, recommended_only=False, on_review=None):
     return fetch_recording(selection, recording, state=STATE, free_bytes=free_bytes, reserve=MIN_FREE,
                            estimate=estimated_bytes([{"length": recording["duration"]}]),
-                           accept=accept, timeout=REQUEST_TIMEOUT, chosen=chosen, recommended_only=recommended_only)
+                           accept=accept, timeout=REQUEST_TIMEOUT, chosen=chosen, recommended_only=recommended_only,
+                           on_review=on_review)
 
 
 def managed_request(selection, request_dir, row, record, title, length, selected):
@@ -784,6 +785,11 @@ def managed_request(selection, request_dir, row, record, title, length, selected
     recording = request_recording(row, record, choice)
     if selected is not None and (selected["selection"] != selection or selected["recording"] != recording):
         return "error", "The request or its sources changed. Browse copies again.", ""
+    review = []
+
+    def save_review(candidates):
+        review.extend(requests_store().save_copy_matches(
+            row["id"], choice, row["format_revision"], recording, selection, candidates, for_review=True))
 
     def accept(path, remaining_time):
         facts = verified_engine_audio(path, lambda facts: judge_download(
@@ -804,8 +810,10 @@ def managed_request(selection, request_dir, row, record, title, length, selected
 
     try:
         with managed_candidate(selection, recording, accept, chosen=selected["candidate"] if selected else None,
-                               recommended_only=bool(row.get("format_confirmed"))) as path:
+                               recommended_only=bool(row.get("format_confirmed")), on_review=save_review) as path:
             if path is None:
+                if review:
+                    return "rejected", COPY_REVIEW_MESSAGE, ""
                 return "not_found", ("The selected copy could not be downloaded or verified. Browse copies again."
                                      if selected else "No copy found"), ""
             return retain_request_file(path, path.parent, request_dir, row, record, title, length,

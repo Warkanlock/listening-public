@@ -78,7 +78,7 @@ function RequestItem({ row }: { row: RequestRow }) {
       {row.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={row.title} />}
       {(row.status === "waiting_format" || RETRYABLE.includes(row.status)) && (
         <button type="button" className="quiet-button" onClick={() => store.requestsSlice.chooseFormat(row)}>
-          {row.status === "waiting_format" ? "Choose format" : "Change format"}
+          {row.copy_review ? "Review copies" : row.status === "waiting_format" ? "Choose format" : "Change format"}
         </button>
       )}
       {RETRYABLE.includes(row.status) ? (

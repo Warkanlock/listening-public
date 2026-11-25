@@ -1,18 +1,10 @@
 import { FindCopySources } from "./Extensions";
-import { RoomDialogContent, RoomAlertContent } from "../components/WindowContent";
+import { RoomDialogContent } from "../components/WindowContent";
 import { useEffect, useRef, useState } from "react";
-import {
-  AlertDialog,
-  AlertDialogBackdrop,
-  AlertDialogClose,
-  AlertDialogDescription,
-  AlertDialogTitle,
-} from "@ui-sdk/react/alert-dialog";
 import { Dialog, DialogTrigger, DialogBackdrop, DialogClose, DialogTitle, DialogDescription } from "@ui-sdk/react/dialog";
 import { audioExportFormats, RoomAction, RoomSelect } from "../components/RoomControls";
 import { RoomIcon, RoomIconButton } from "../components/RoomIcon";
 import { AddToPlaylist, usePlaylistComposer } from "../components/PlaylistComposer";
-import { Input } from "@ui-sdk/react/input";
 import {
   createTabsController,
   Tabs,
@@ -20,15 +12,12 @@ import {
   TabsPanel,
   TabsTab,
 } from "@ui-sdk/react/tabs";
-import { Toggle } from "@ui-sdk/react/toggle";
 import {
-  ApiError,
   isHost,
   postJson,
   readable,
   scrollBehavior,
   type ExternalResult,
-  type MergeResult,
 } from "../api";
 import { isDestinationFilter, useStore, type TrackFilter } from "../store";
 import {
@@ -38,6 +27,8 @@ import { notify } from "../toasts";
 import { CoverArt } from "../components/Artwork";
 import { GenreTagFilter } from "../components/GenreTagFilter";
 import { PlaylistShare } from "../components/PlaylistShare";
+import { PlaylistCards } from "../components/PlaylistCards";
+import { PlaylistMerge } from "../components/PlaylistMerge";
 import { SourceBadge } from "../components/SourceBadge";
 import { SkeletonLines, StateCard } from "../components/StateCard";
 import { panelHasState, TrackListBody } from "../components/TrackTable";
@@ -58,6 +49,9 @@ function Hero() {
   const [exporting, setExporting] = useState(false);
   const exportStatus = store.settings?.export_status;
   const canExport = !!selected && isHost(store.settings);
+  const spotifyTarget = selected?.spotify_link?.targets?.find(target => target.needs_write_permission)
+    ?? selected?.spotify_link;
+  const backLabel = store.playlistFromMyPlaylists ? "Back to my playlists" : "Back to library";
   const [exportFormat, setExportFormat] = useState("original");
   const startPlaylistExport = async () => {
     if (!selected || exporting) return;
@@ -84,8 +78,8 @@ function Hero() {
         <CoverArt cover={selected.cover} fallback={selected.name.trim().slice(0, 1)} />
       </div>}
       <div className="hero-copy">
-        {selected ? <button className="library-back icon-control" title="Back to library" aria-label="Back to library" type="button"
-          onClick={() => store.setView("all")}><RoomIcon name="back" /></button> : null}
+        {selected ? <button className="library-back icon-control" title={backLabel} aria-label={backLabel} type="button"
+          onClick={() => store.setView(store.playlistFromMyPlaylists ? "private-playlists" : "all")}><RoomIcon name="back" /></button> : null}
         {selected && <SourceBadge playlist={selected} />}
         <h1>{selected?.name ?? "Library"}</h1>
         {total != null && ready != null ? (
@@ -100,6 +94,8 @@ function Hero() {
           {selected ? "Play playlist" : "Play library"}
         </RoomAction>
         {selected?.can_add && <RoomAction icon="add" onClick={() => composer.open({ list: selected })}>Add song</RoomAction>}
+        {selected && selected.can_merge && playlists.length > 1 && <PlaylistMerge key={selected.id}
+          playlist={selected} playlists={playlists} />}
         {canExport && selected && <>
           <PlaylistShare playlist={selected.id} />
           <Dialog open={exportOpen} onOpenChange={setExportOpen}>
@@ -119,159 +115,14 @@ function Hero() {
           </Dialog>
           {(selected.spotify_link || selected.source?.startsWith("spotify")) &&
             <RoomAction icon="magnet" onClick={() => {
-              const link = selected.spotify_link;
-              store.spotifyDestination = link?.playlist_id && link.account_id
-                ? { playlist: link.playlist_id, account: link.account_id } : null;
+              store.spotifyDestination = spotifyTarget?.playlist_id && spotifyTarget.account_id
+                ? { playlist: spotifyTarget.playlist_id, account: spotifyTarget.account_id } : null;
               store.settingsTab = "spotify";
               store.setView("settings");
-            }}>Manage Spotify link</RoomAction>}
+            }}>{spotifyTarget?.needs_write_permission ? "Enable Spotify edits" : "Manage Spotify link"}</RoomAction>}
         </>}
       </div>
     </section>
-  );
-}
-
-const NEW_TARGET = "__new__";
-const OWNED_TARGET_REFUSAL =
-  "That playlist is kept in sync from its source; merging into it would be overwritten by the next sync. Choose one of your own lists, or merge into a new list.";
-
-// Playlist merge (plan 046): pick playlists on the shelf, union
-// them into one of your own lists or a new one. The server owns
-// the union; this only collects the choice. Playlists with a
-// magnet are kept in sync from their source, so they can be
-// merged from but never into: the target select shows them
-// disabled, with the reason on the item and in the note.
-function MergeBar() {
-  const store = useStore();
-  const playlists = store.overview?.playlists ?? [];
-  const selected = playlists.filter((playlist) =>
-    store.mergeSelection.has(playlist.id),
-  );
-  const [target, setTarget] = useState(NEW_TARGET);
-  const [typedName, setTypedName] = useState<string>();
-  const [merging, setMerging] = useState(false);
-  const [conflict, setConflict] = useState<string[] | null>(null);
-  const nameFieldRef = useRef<HTMLLabelElement>(null);
-
-  const prefill = selected[0] ? `${selected[0].name} (merged)` : "";
-  const shownName = typedName ?? prefill;
-
-  useEffect(() => {
-    nameFieldRef.current?.querySelector("input")?.focus();
-  }, []);
-
-  const focusNameField = () =>
-    requestAnimationFrame(() =>
-      nameFieldRef.current?.querySelector("input")?.focus(),
-    );
-
-  const submitMerge = async (extra: Record<string, unknown> = {}) => {
-    const intoExisting = target !== NEW_TARGET;
-    const body = {
-      sources: [...store.mergeSelection],
-      target: intoExisting
-        ? { playlist: target }
-        : { name: shownName.trim() },
-      ...extra,
-    };
-    setMerging(true);
-    try {
-      const result = await postJson<MergeResult>("/api/playlists/merge", body);
-      store.exitMergeMode();
-      await store.refreshOverview();
-      notify(
-        `Merged into ${result.name}: ${readable(result.tracks)} ${result.tracks === 1 ? "song" : "songs"}${
-          intoExisting ? `, ${readable(result.added)} added` : ""
-        }`,
-      );
-    } catch (error) {
-      const conflicts =
-        error instanceof ApiError
-          ? (error.data as { conflicts?: unknown })?.conflicts
-          : undefined;
-      if (Array.isArray(conflicts) && conflicts.length) {
-        setConflict(conflicts as string[]);
-      } else {
-        notify(error instanceof Error ? error.message : "Merge failed");
-      }
-    } finally {
-      setMerging(false);
-    }
-  };
-
-  return (
-    <div className="merge-bar">
-      <p className="merge-count" role="status">
-        {selected.length} selected
-      </p>
-      <RoomSelect label="Merge into" value={target} onChange={setTarget}
-        options={[{ value: NEW_TARGET, label: "New list…" }, ...playlists.map(playlist => {
-          const owned = playlist.source !== "local";
-          return { value: playlist.id, label: playlist.name, icon: owned ? "magnet" as const : undefined,
-            disabled: owned, title: owned ? OWNED_TARGET_REFUSAL : undefined };
-        })]} />
-      {target === NEW_TARGET ? (
-        <label className="merge-name-label" ref={nameFieldRef}>
-          Name{" "}
-          <Input
-            value={shownName}
-            maxLength={120}
-            onValueChange={(value) => setTypedName(value)}
-          />
-        </label>
-      ) : null}
-      <p className="merge-note">
-        Linked playlists can be merge sources. Choose a local playlist for the result.
-      </p>
-      <div className="merge-actions">
-        <button
-          className="primary-action"
-          type="button"
-          disabled={merging || !selected.length}
-          onClick={() => void submitMerge()}
-        >
-          Merge
-        </button>
-        <button
-          className="quiet-button"
-          type="button"
-          onClick={() => store.exitMergeMode()}
-        >
-          Cancel
-        </button>
-      </div>
-      <AlertDialog
-        open={!!conflict}
-        onOpenChange={(
-          open: boolean,
-          details: { returnValue?: string },
-        ) => {
-          if (open) return;
-          const choice = details.returnValue;
-          setConflict(null);
-          if (choice === "rename") void submitMerge({ on_conflict: "rename" });
-          else focusNameField();
-        }}
-      >
-        <AlertDialogBackdrop />
-        <RoomAlertContent className="import-conflict-dialog">
-          <AlertDialogTitle>{conflict?.join(", ")}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {conflict
-              ? `Nothing was merged. This list already exists with different content: ${conflict.join(", ")}. Keep both under a new name, or go back and use a different name?`
-              : ""}
-          </AlertDialogDescription>
-          <div className="settings-actions import-conflict-actions">
-            <AlertDialogClose className="quiet-button" value="different">
-              Use a different name
-            </AlertDialogClose>
-            <AlertDialogClose className="primary-action" value="rename">
-              Keep both
-            </AlertDialogClose>
-          </div>
-        </RoomAlertContent>
-      </AlertDialog>
-    </div>
   );
 }
 
@@ -290,16 +141,6 @@ function Shelf() {
       <div className="section-header">
         <h2>Playlists</h2>
         <div className="shelf-actions">
-          {isHost(store.settings) ? <Toggle
-            className="quiet-button merge-toggle"
-            pressed={store.mergeMode}
-            onPressedChange={(pressed) => {
-              if (pressed) store.enterMergeMode();
-              else store.exitMergeMode();
-            }}
-          >
-            Merge
-          </Toggle> : null}
           {playlists.length > 6 ? (
             <button
               className="quiet-button"
@@ -314,48 +155,7 @@ function Shelf() {
           ) : null}
         </div>
       </div>
-      {store.mergeMode ? <MergeBar /> : null}
-      <div className="playlist-cards">
-        {visible.map((playlist) => {
-          const isSelected = store.mergeSelection.has(playlist.id);
-          return (
-            <button
-              className={`playlist-card${store.mergeMode ? " is-selecting" : ""}${
-                store.mergeMode && isSelected ? " is-selected" : ""
-              }`}
-              type="button"
-              key={playlist.id}
-              aria-pressed={store.mergeMode ? isSelected : undefined}
-              onClick={() => {
-                if (store.mergeMode) {
-                  store.toggleMergeSelection(playlist.id);
-                } else {
-                  store.clearSearch();
-                  store.setView("all", playlist.id);
-                }
-              }}
-            >
-              <span className="playlist-card-art" aria-hidden="true">
-                <CoverArt cover={playlist.cover} fallback={playlist.name.trim().slice(0, 1)} />
-              </span>
-              {store.mergeMode ? (
-                <span className="merge-check" aria-hidden="true">
-                  {isSelected ? "✓" : ""}
-                </span>
-              ) : null}
-              <strong title={playlist.name}>
-                {playlist.name}
-              </strong>
-              <span>
-                {readable(playlist.playable)} ready ·{" "}
-                {readable(playlist.entries)}{" "}
-                {playlist.entries === 1 ? "song" : "songs"}
-                <SourceBadge playlist={playlist} />
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <PlaylistCards playlists={visible} />
     </section>
   );
 }

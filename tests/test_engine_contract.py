@@ -335,6 +335,27 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual(runner.probe(self.library / result["audio_path"])["codec"], "aac")
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_uncertain_copy_waits_for_review_then_uses_the_selected_candidate(self):
+        record = self.record(1, "First Light", length=2)
+        self.write_manifest([record])
+        self.make_audio("good.mp3", "First Light", duration=2)
+        store = runner.requests_store()
+        row, _ = store.create_or_find(1, record["artist"], record["title"], record["album"], 2, "", individual=True)
+        request_id = row["id"]
+        row, _ = store.confirm_format(request_id, "mp3", 0)
+        candidate = {"source": "fixture", "id": "good.mp3", "label": "First Light.mp3", "recommended": False}
+        with mock.patch.object(engine_contract, "search_recording", return_value=[candidate]):
+            runner.run_requests()
+        review = store.get(request_id)
+        self.assertTrue(review["copy_review"])
+        self.assertFalse(any(call["action"] == "fetch" for call in self.requests))
+        recording = engine_contract.request_recording(review, record, "mp3")
+        matches = store.review_matches(request_id, "mp3", 1, recording, self.selection)
+        store.confirm_format(request_id, "mp3", 1, matches[0]["key"])
+        runner.run_requests()
+        self.assertEqual(store.get(request_id)["status"], "downloaded")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_selected_copy_transfers_exact_candidate_and_still_checks_the_title(self):
         record = self.record(1, "First Light", length=2)
         self.write_manifest([record])

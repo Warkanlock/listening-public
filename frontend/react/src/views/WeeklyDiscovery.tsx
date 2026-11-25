@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, api, BUSY_STATUSES, postJson, statusLabel } from "../api";
+import { ApiError, api, BUSY_STATUSES, postJson, statusLabel, type RequestRow } from "../api";
 import { RoomAction } from "../components/RoomControls";
 import { RoomIconButton } from "../components/RoomIcon";
 import { useStore } from "../store";
@@ -11,7 +11,8 @@ type WeeklyTrack = {
   depth: number;
   trail?: string[];
   in_library?: boolean;
-  request?: { id: number; status: string; audio?: string } | null;
+  request?: (Pick<RequestRow, "id" | "status" | "audio" | "copy_review"> &
+    Partial<Pick<RequestRow, "requested_format" | "format_revision">>) | null;
 };
 
 type WeeklyPlaylist = {
@@ -19,13 +20,14 @@ type WeeklyPlaylist = {
   state: "waiting" | "building" | "ready" | "unavailable";
   tracks: WeeklyTrack[];
   can_request: boolean;
+  download_progress?: { total: number; downloaded: number; pending: number; needs_attention: number; percent: number };
 };
 
 const route = "/api/discover/weekly";
 const ready = (request: WeeklyTrack["request"]) =>
   request?.status === "downloaded" && request.audio ? request.id : null;
 const needsCopy = (track: WeeklyTrack) => !track.in_library &&
-  (!track.request || ["not_found", "error", "rejected"].includes(track.request.status));
+  (!track.request || !track.request.copy_review && ["not_found", "error", "rejected"].includes(track.request.status));
 
 export function WeeklyDiscovery() {
   const store = useStore();
@@ -71,6 +73,16 @@ export function WeeklyDiscovery() {
   });
   const downloads = tracks.filter(needsCopy);
   const edition = playlist?.week && new Date(playlist.week + "T00:00:00");
+  const progress = playlist?.download_progress;
+  const nextReview = tracks.find(track => !track.in_library && track.request?.copy_review);
+
+  function reviewCopies(track: WeeklyTrack) {
+    const request = track.request;
+    if (!request || typeof request.format_revision !== "number") return;
+    store.requestsSlice.chooseFormat({ ...request, track_index: null, title: track.title, artist: track.artist,
+      requested_format: request.requested_format ?? "any_lossy", format_revision: request.format_revision,
+      message: "", copy_review: request.status !== "waiting_format" });
+  }
 
   async function download(ids: string[]) {
     if (sending || !ids.length) return;
@@ -99,7 +111,7 @@ export function WeeklyDiscovery() {
             {edition.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
           </time></p>}
         </div>
-        {(requestIds.length > 0 || (playlist?.can_request && downloads.length > 0)) && (
+        {(nextReview || requestIds.length > 0 || (playlist?.can_request && downloads.length > 0)) && (
           <div className="weekly-discovery-actions">
             {requestIds.length > 0 && <RoomAction primary icon="play"
               onClick={() => void store.sendSession("play_requests", { request_ids: requestIds })}>Play downloaded songs</RoomAction>}
@@ -107,10 +119,16 @@ export function WeeklyDiscovery() {
               onClick={() => void download(downloads.map(track => track.id))}>
               {sending ? "Queuing…" : "Download playlist"}
             </RoomAction>}
+            {nextReview && <RoomAction icon="catalogs" onClick={() => reviewCopies(nextReview)}>Review copies</RoomAction>}
           </div>
         )}
       </header>
       {notice && <p role="status">{notice}</p>}
+      {progress && progress.total > 0 && <div className="weekly-discovery-progress">
+        <progress aria-label="Playlist downloads" max={100} value={progress.percent} />
+        <p>{progress.downloaded} of {progress.total} downloaded · {progress.percent}%
+          {progress.needs_attention > 0 && ` · ${progress.needs_attention} ${progress.needs_attention === 1 ? "needs" : "need"} attention`}</p>
+      </div>}
       {error ? <p role="status">{error} <RoomAction onClick={() => setRevision(value => value + 1)}>Try again</RoomAction></p>
         : !state || state === "building" ? <p role="status">Building this week’s playlist…</p>
         : state === "waiting" ? <p>Listen to a few songs to get your first playlist.</p>
@@ -122,16 +140,22 @@ export function WeeklyDiscovery() {
         <ol className="weekly-discovery-tracks" aria-label="Weekly Discovery playlist">
           {tracks.slice(0, expanded ? tracks.length : 6).map(track => {
             const id = ready(track.request);
+            const review = track.request && typeof track.request.format_revision === "number" &&
+              ["waiting_format", "not_found", "error", "rejected"].includes(track.request.status);
             const relation = track.trail?.length ? track.trail.join(" → ") : track.depth === 0
               ? "Artist you’ve played" : `${track.depth} artist ${track.depth === 1 ? "connection" : "connections"} away`;
             return <li key={track.id}>
               <div><strong>{track.title}</strong><small>{track.artist} · {relation}</small>
-                {track.request && needsCopy(track) && <small>{statusLabel(track.request.status)}</small>}
+                {track.request && (review || needsCopy(track)) &&
+                  <small>{track.request.copy_review ? "Choose a copy" : statusLabel(track.request.status)}</small>}
               </div>
               {id !== null ? <RoomIconButton icon="play" label={`Play ${track.title}`}
                 onClick={() => void store.sendSession("play_request", { request_id: id })} />
                 : track.request?.status === "missing" ? <small>Copy unavailable</small>
                 : track.in_library ? <small>In library</small>
+                : review ? <RoomIconButton icon="catalogs" label={track.request?.status === "waiting_format"
+                  ? `Choose format for ${track.title}` : `Review copies for ${track.title}`}
+                  onClick={() => reviewCopies(track)} />
                 : playlist?.can_request && needsCopy(track) ? <RoomIconButton icon={track.request ? "refresh" : "download"}
                   disabled={sending} label={track.request ? `Retry ${track.title}` : `Download ${track.title}`}
                   onClick={() => void download([track.id])} />

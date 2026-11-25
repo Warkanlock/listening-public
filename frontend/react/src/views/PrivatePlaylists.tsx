@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, postJson, type TracksPage } from "../api";
 import { RoomIcon } from "../components/RoomIcon";
 import { usePlaylistComposer } from "../components/PlaylistComposer";
+import { PlaylistCards } from "../components/PlaylistCards";
 import { RoomAction, RoomConfirm } from "../components/RoomControls";
 import { StateCard } from "../components/StateCard";
 import { useStore } from "../store";
@@ -159,6 +160,8 @@ function Editor({ id, owner, close }: { id: string; owner: boolean; close: () =>
 }
 
 export function PrivatePlaylists({ owner }: { owner: boolean }) {
+  const store = useStore();
+  const roomPlaylists = store.overview?.playlists ?? [];
   const [items, setItems] = useState<(Playlist & { count: number })[] | null>(null);
   const [selected, setSelected] = useState("");
   const [working, setWorking] = useState(false);
@@ -196,11 +199,11 @@ export function PrivatePlaylists({ owner }: { owner: boolean }) {
       setSelected("");
     }} /> : <>
       <header className="listening-view-head">
-        <div><h1>My playlists</h1><p>Only you can see and edit these playlists.</p></div>
-        {items && <span>{items.length} {items.length === 1 ? "playlist" : "playlists"}</span>}
+        <div><h1>My playlists</h1></div>
       </header>
       <div className="private-playlist-workspace">
         <div>
+          <h2>Private playlists</h2>
           {error ? <StateCard kind="error" title="Couldn’t open playlists" body={error}
             action={<RoomAction type="button" onClick={() => {
               setError("");
@@ -225,6 +228,10 @@ export function PrivatePlaylists({ owner }: { owner: boolean }) {
           <RoomAction type="submit" primary disabled={working}>Create playlist</RoomAction>
         </form>
       </div>
+      {roomPlaylists.length > 0 && <section className="playlist-shelf" aria-labelledby="room-playlists-heading">
+        <div className="section-header"><h2 id="room-playlists-heading">Room playlists</h2></div>
+        <PlaylistCards playlists={roomPlaylists} />
+      </section>}
     </>}
   </section>;
 }

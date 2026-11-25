@@ -2000,6 +2000,15 @@ def verify_household_browser(browser, root, output):
         first.screenshot(path=str(output))
 
         owner = visit("room-owner")
+        owner.get_by_role("button", name="My playlists", exact=True).click()
+        shared_shelf = owner.get_by_role("region", name="Room playlists")
+        shared_card = shared_shelf.locator(".playlist-card").first
+        shared_name = shared_card.locator("strong").inner_text()
+        shared_card.click()
+        owner.get_by_role("heading", name=shared_name, exact=True).wait_for()
+        owner.get_by_role("button", name="Back to my playlists", exact=True).click()
+        shared_card.wait_for()
+        owner.get_by_role("button", name="Library", exact=True).click()
         remote_output = {"Origin": server.base, "X-Listening-Output": "fixture-other-device"}
         tuning = "a" * 32
         radio_bookmark = {"source": {"kind": "noise", "name": "Brown noise", "profile": "brown"},
@@ -2161,14 +2170,14 @@ def verify_household_browser(browser, root, output):
         spotify_targets = [
             {"mode": "two_way", "account_id": "fixture-owner", "playlist_id": "fixture-A", "name": "Late radio"},
             {"mode": "two_way", "account_id": "fixture-owner", "playlist_id": "fixture-B", "name": "Day radio"}]
-        spotify_link = {"mode": "multiple", "targets": spotify_targets}
+        spotify_link = {**spotify_targets[0], "mode": "read_only", "needs_write_permission": True}
         playlist_revision = "first-order"
 
         def spotify_overview(route):
             upstream = route.fetch()
             data = upstream.json()
             group = next(row for row in data["playlists"] if re.search("fresh.picks", row["name"], re.I))
-            group.update(can_add=True, spotify_link=spotify_link, revision=playlist_revision)
+            group.update(can_add=spotify_link["mode"] != "read_only", spotify_link=spotify_link, revision=playlist_revision)
             route.fulfill(response=upstream, json=data)
 
         writes = []
@@ -2178,6 +2187,12 @@ def verify_household_browser(browser, root, output):
 
         owner.route("**/api/overview", spotify_overview)
         owner.route("**/api/playlists/add-song", save_spotify)
+        owner.reload()
+        shelf.get_by_text("Spotify · read-only", exact=True).wait_for()
+        shelf.click()
+        owner.get_by_role("button", name="Enable Spotify edits", exact=True).wait_for()
+        assert not owner.get_by_role("button", name="Add song", exact=True).count()
+        spotify_link = {"mode": "multiple", "targets": spotify_targets}
         owner.reload()
         shelf.get_by_text("Spotify · multiple links", exact=True).wait_for()
         shelf.click()
@@ -2281,7 +2296,15 @@ def verify_discovery_trail(page, screenshot):
 
     page.route("**/api/discover", lambda route: route.fulfill(json={"week": "2026-W47", "weekly_edition": "2026-11-23", "tracks": shelf}))
     page.route("**/api/discover/weekly", lambda route: route.fulfill(json={"week": "2026-11-23", "state": "ready",
-        "can_request": True, "tracks": [{"id": seed, "title": "Weekly edition track", "artist": "Fixture Ensemble", "depth": 2}]}))
+        "can_request": True, "download_progress": {"total": 2, "downloaded": 1, "pending": 0,
+                                                     "needs_attention": 1, "percent": 50},
+        "tracks": [{"id": seed, "title": "Weekly edition track", "artist": "Fixture Ensemble", "depth": 2,
+                    "request": {"id": 901, "status": "downloaded", "audio": "/api/audio/custom/901"}},
+                   {"id": live, "title": "Recording to review", "artist": "Fixture Ensemble", "depth": 2,
+                    "request": {"id": 902, "status": "rejected", "copy_review": True,
+                                "format_revision": 2, "requested_format": "any_lossy"}}]}))
+    page.route("**/api/requests/copies", lambda route: route.fulfill(json={"matches": [
+        {"key": "a" * 32, "label": "Possible copy.mp3", "format": "mp3", "recommended": False}]}))
     page.route("**/api/discover/*/*", branch)
     activity = {"liked": [{"id": 1, "artist": "Massive Attack", "title": "Atlas Air"}],
                 "played": [{"id": 2, "artist": "The Smiths", "title": "Asleep"}]}
@@ -2312,6 +2335,13 @@ def verify_discovery_trail(page, screenshot):
         page.get_by_role("button", name="Open Weekly Discovery").click()
         page.get_by_role("heading", name="Weekly Discovery").wait_for()
         page.get_by_text("Weekly edition track", exact=True).wait_for()
+        assert page.get_by_role("progressbar", name="Playlist downloads").get_attribute("value") == "50"
+        assert page.get_by_text("1 of 2 downloaded · 50% · 1 needs attention").is_visible()
+        assert page.get_by_role("button", name="Review copies for Recording to review").is_visible()
+        page.get_by_role("button", name="Review copies", exact=True).click()
+        page.get_by_role("dialog", name="Choose a copy").get_by_role("button", name=re.compile("Possible copy")).wait_for()
+        page.get_by_role("button", name="Back to format").click()
+        page.get_by_role("button", name="Later", exact=True).click()
         assert not board.is_visible()
         page.get_by_role("button", name="Back to Deep Dive").click()
         first.wait_for()
@@ -2392,6 +2422,7 @@ def verify_discovery_trail(page, screenshot):
         page.emulate_media(reduced_motion="no-preference")
         page.unroute("**/api/discover")
         page.unroute("**/api/discover/weekly")
+        page.unroute("**/api/requests/copies")
         page.unroute("**/api/discover/*/*")
         for pattern in ("**/api/connections/song/1", "**/api/discover/activity", "**/api/discover/press", "**/api/discover/matches?*", "**/api/search?q=Fixture*"):
             page.unroute(pattern)
@@ -2742,27 +2773,32 @@ def run_browser(server, output):
             except Exception as error:
                 item.detail = str(error)
 
-            # -- Merge bar ----------------------------------------------
-            item = surface("merge-bar")
+            # -- Merge from a playlist ----------------------------------
+            item = surface("playlist-merge")
             try:
-                page.locator(".merge-toggle").click()
-                page.wait_for_selector(".merge-bar", timeout=10000)
-                cards = page.locator(
-                    "section.playlist-shelf .playlist-card")
+                merge = page.get_by_role("button", name="Merge playlist", exact=True)
+                assert not merge.is_visible()
+                cards = page.locator("section.playlist-shelf .playlist-card")
+                source_name = cards.nth(0).locator("strong").inner_text()
+                other_name = cards.nth(1).locator("strong").inner_text()
                 cards.nth(0).click()
-                cards.nth(1).click()
-                page.wait_for_function(
-                    "document.querySelector('.merge-count') && "
-                    "document.querySelector('.merge-count').textContent"
-                    ".includes('2')", timeout=10000)
+                page.get_by_role("heading", name=source_name, exact=True).wait_for()
+                merge.click()
+                dialog = page.get_by_role("dialog", name="Merge playlist")
+                assert dialog.get_by_role("checkbox", name=source_name, exact=True).is_checked()
+                assert dialog.get_by_role("button", name="Merge", exact=True).is_disabled()
+                dialog.get_by_role("checkbox", name=other_name, exact=True).check()
+                assert dialog.get_by_role("button", name="Merge", exact=True).is_enabled()
+                shot(item, "04-playlist-merge.png")
+                dialog.get_by_role("button", name="Close merge playlist").click()
+                page.get_by_role("button", name="Back to library").click()
+                cards.nth(0).wait_for()
                 item.ok = True
-                item.detail = "merge mode selects both playlists as sources"
-                shot(item, "04-merge-bar.png")
-                page.locator(".merge-toggle").click()
-                page.wait_for_selector(".merge-bar", state="detached",
-                                       timeout=10000)
+                item.detail = "A room playlist opens Merge with its source already selected"
             except Exception as error:
                 item.detail = str(error)
+            finally:
+                close_any_dialog()
 
             # -- Queue: render + reorder --------------------------------
             item = surface("queue-reorder")
