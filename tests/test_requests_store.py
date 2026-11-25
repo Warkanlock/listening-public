@@ -55,7 +55,7 @@ class SchemaTests(StoreTestCase):
         tables = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         conn.close()
-        self.assertEqual(tables, {"requests", "external_cache"})
+        self.assertEqual(tables, {"requests", "external_cache", "request_copies"})
 
     def test_reopening_an_existing_database_keeps_its_rows(self):
         request_id = self.enqueue_track()
@@ -135,6 +135,32 @@ class LifecycleTests(StoreTestCase):
 class FormatSelectionTests(StoreTestCase):
     def create(self, *, individual=True):
         return self.store.create_or_find(1, "Artist", "Song", "Album", 200, "Song", individual=individual)
+
+    def test_copy_handles_are_scoped_to_the_request_revision_and_format(self):
+        row, _ = self.create()
+        request_id = row["id"]
+        candidates = [
+            {"source": "fixture", "id": "private:first", "label": "/private/first.mp3"},
+            {"source": "fixture", "id": "private:second", "label": "Second", "recommended": False},
+        ]
+        first, second = self.store.save_copy_matches(request_id, "mp3", 0, {}, {}, candidates)
+        self.assertEqual(first, {"key": first["key"], "label": "first.mp3"})
+        self.assertNotIn("private", str(second))
+        with self.assertRaisesRegex(ValueError, "changed or expired"):
+            self.store.confirm_format(request_id, "any_format", 0, second["key"])
+        queued, released = self.store.confirm_format(request_id, "mp3", 0, second["key"])
+        self.assertTrue(released)
+        reopened = RequestsStore(self.path)
+        self.assertEqual(reopened.selected_copy(request_id, queued["format_revision"])["candidate"],
+                         {"source": "fixture", "id": "private:second"})
+        self.assertFalse(reopened.confirm_format(request_id, "mp3", 0, second["key"])[1])
+        with self.assertRaisesRegex(ValueError, "already started"):
+            reopened.confirm_format(request_id, "mp3", 0, first["key"])
+        reopened.finish(request_id, "downloaded", "Ready to play", "first.mp3")
+        self.assertIsNone(reopened.selected_copy(request_id, queued["format_revision"]))
+        self.assertFalse(reopened.confirm_format(request_id, "mp3", 0, second["key"])[1])
+        with self.assertRaisesRegex(ValueError, "already started"):
+            reopened.confirm_format(request_id, "mp3", 0)
 
     def test_mp3_shortcut_appears_after_a_lossless_miss_and_stays_with_one_request(self):
         request, _ = self.create()

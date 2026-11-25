@@ -243,9 +243,12 @@ internal class Room(val origin: String, val id: String, private val token: Strin
         for (key in listOf("artist", "title", "album", "musicbrainz_id", "duration", "version", "performance"))
             if (item.has(key)) put(key, item.get(key))
     })
-    fun confirmFormat(row: JSONObject, format: String) = request("/api/requests/format",
+    private fun copyRequestFields(row: JSONObject, format: String) =
         JSONObject().put("request_id", row.getLong("id")).put("format_revision", row.getLong("format_revision"))
-            .put("requested_format", format))
+            .put("requested_format", format)
+    fun confirmFormat(row: JSONObject, format: String, copyKey: String? = null) = request("/api/requests/format",
+        copyRequestFields(row, format).apply { if (copyKey != null) put("copy_key", copyKey) })
+    fun browseCopies(row: JSONObject, format: String) = request("/api/requests/copies", copyRequestFields(row, format))
     fun heartbeat() = request("/api/device", registration(id))
     fun radioPresence(source: String?): Boolean {
         val body = JSONObject().put("output", id).put("source", source ?: JSONObject.NULL)

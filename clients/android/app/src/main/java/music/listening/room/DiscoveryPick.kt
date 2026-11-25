@@ -64,7 +64,7 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
     window.show()
 }
 
-internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm: (String) -> Unit) {
+internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm: (String, String?) -> Unit) {
     val options = listOf(
         "any_format" to "Any supported format (FLAC, ALAC, MP3 or AAC)",
         "any_lossless" to "Any lossless (prefer FLAC)", "flac" to "FLAC only",
@@ -89,15 +89,60 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
     }, RadioGroup.LayoutParams(-1, -2))
     val current = row.optString("requested_format").takeIf { value -> options.any { it.first == value } } ?: "any_lossless"
     choices.check(ids[options.indexOfFirst { it.first == current }])
+    fun selectedFormat() = options[ids.indexOf(choices.checkedRadioButtonId)].first
+    val feedback = ui.label("", 14f, ui.secondary).apply {
+        visibility = View.GONE
+        accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+    }
     with(ui) {
         content.section(choices)
         content.section(line(), gap = 8)
+        content.section(feedback, gap = 8)
+        val browse = iconButton("Browse copies", Mark.BROWSE) {}
+        browse.setOnClickListener {
+            val format = selectedFormat()
+            browse.isEnabled = false
+            feedback.visibility = View.VISIBLE
+            feedback.text = "Searching for copies…"
+            Thread {
+                val result = runCatching { room.browseCopies(row, format).getJSONArray("matches") }
+                runOnUiThread {
+                    if (isDestroyed || !dialog.isShowing) return@runOnUiThread
+                    browse.isEnabled = true
+                    result.onSuccess { matches ->
+                        if (matches.length() == 0) {
+                            feedback.text = "No copies found in this format."
+                            return@onSuccess
+                        }
+                        val entries = (0 until matches.length()).map { index ->
+                            val match = matches.getJSONObject(index)
+                            val detail = listOf(
+                                match.optString("format").uppercase(),
+                                match.optInt("duration").takeIf { it > 0 }?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" }.orEmpty(),
+                                match.optInt("bitrate").takeIf { it > 0 }?.let { "$it kbps" }.orEmpty(),
+                                when {
+                                    match.optBoolean("recommended") -> "Recommended"
+                                    match.has("recommended") -> "Check match"
+                                    else -> ""
+                                },
+                            ).filter(String::isNotBlank).joinToString(" · ")
+                            Entry(match.getString("label"), detail, mark = Mark.DOWNLOAD) {
+                                dialog.dismiss()
+                                confirm(format, match.getString("key"))
+                            }
+                        }
+                        feedback.visibility = View.GONE
+                        ui.choices(this@chooseDiscoveryFormat, "Choose a copy", entries)
+                    }.onFailure { feedback.text = it.message ?: "Couldn’t search for copies." }
+                }
+            }.start()
+        }
         content.section(actionStrip(listOf(
             iconButton("View extensions", Mark.EXTENSIONS) { showRoomExtensions(room, backLabel = "Back to format") },
+            browse,
             iconButton("Confirm and search", Mark.SEARCH) {
-                val selected = options[ids.indexOf(choices.checkedRadioButtonId)].first
                 dialog.dismiss()
-                confirm(selected)
+                confirm(selectedFormat(), null)
             },
         ), alignEnd = true))
     }
