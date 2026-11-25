@@ -21,6 +21,20 @@ SONGS_PER_ARTIST = 3
 LOOKUP_ERRORS = (ConnectionsBusy, OSError, ValueError, sqlite3.Error)
 
 
+def download_progress(tracks):
+    attempts = {}
+    for track in tracks:
+        request = track.get("request")
+        if request and (not track.get("in_library") or request.get("audio") or request["status"] == "missing"):
+            attempts[request["id"]] = request
+    total = len(attempts)
+    downloaded = sum(request["status"] == "downloaded" and bool(request.get("audio")) for request in attempts.values())
+    pending = sum(request["status"] in ("queued", "searching", "waiting_space") for request in attempts.values())
+    return {"total": total, "downloaded": downloaded, "pending": pending,
+            "needs_attention": total - downloaded - pending,
+            "percent": downloaded * 100 // total if total else 0}
+
+
 def _song_key(track):
     return credit_key(track.get("artist")), credit_key(track.get("title"))
 

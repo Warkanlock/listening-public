@@ -174,6 +174,7 @@ class SpotifySyncTest(unittest.TestCase):
                                                     "scope": "user-library-read playlist-read-private"}
         self.manager._refresh()
         self.assertEqual(self.manager.playlist_links()[key]["mode"], "read_only")
+        self.assertTrue(self.manager.playlist_links()[key]["needs_write_permission"])
         with self.assertRaisesRegex(ValueError, "read-only"):
             self.manager.add_metadata(key, remote.owner, fields)
         self.manager.auth["scope"] = SCOPES

@@ -10,11 +10,13 @@ export interface PlaylistSummary {
   // from its source and wears the magnet badge.
   source?: string;
   can_add?: boolean;
+  can_merge?: boolean;
   spotify_link?: {
     mode: "two_way" | "read_only" | "paused" | "disconnected" | "multiple";
     account_id?: string;
     playlist_id?: string;
-    targets?: { mode: string; playlist_id: string; account_id: string; name: string }[];
+    needs_write_permission?: boolean;
+    targets?: { mode: string; playlist_id: string; account_id: string; name: string; needs_write_permission?: boolean }[];
   };
 }
 
@@ -224,9 +226,13 @@ export type RequestSong = { track_id: number } | { artist: string; title: string
 
 export interface RequestRow {
   musicbrainz_id?: string;
+  version?: string;
+  phase?: string;
+  retry_at?: number;
   requested_format: RequestFormat | null;
   format_revision: number;
   mp3_retry?: Mp3Retry;
+  copy_review?: boolean;
   id: number;
   track_index: number | null;
   artist: string;

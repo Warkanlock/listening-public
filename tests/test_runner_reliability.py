@@ -355,6 +355,33 @@ class ReportBatchingTests(WorkspaceTestCase):
             runner.process_requests([], limit=100000)
         self.assertEqual(calls, [])
 
+    def test_transient_failure_releases_the_next_request_and_eventually_stops_retrying(self):
+        self.seed_requests(2)
+        store = runner.requests_store()
+        attempted = []
+
+        def run_request(row, _):
+            attempted.append(row["id"])
+            if row["id"] == 1:
+                raise runner.CandidateTimeout("Transfer timed out")
+            return "not_found", "No copy found", ""
+
+        with mock.patch.object(runner, "run_request", run_request), \
+                mock.patch("downloads.requests_store.time.time", return_value=1000) as clock:
+            runner.process_requests([])
+            self.assertEqual(attempted, [1, 2])
+            self.assertEqual(store.get(2)["status"], "not_found")
+            self.assertEqual(store.get(1)["retry_at"], 1030)
+            self.assertFalse(store.has_queued())
+            self.assertFalse(store.claim(1))
+            for timestamp in (1030, 1150, 1450):
+                clock.return_value = timestamp
+                runner.process_requests([])
+            self.assertEqual(attempted, [1, 2, 1, 1, 1])
+            self.assertEqual(store.get(1)["status"], "error")
+            self.assertTrue(store.retry(1))
+            self.assertEqual(store.queued(1)[0]["id"], 1)
+
 
 class ProbeCacheTests(WorkspaceTestCase):
     """A3 PERF-03: verified_existing shares report()'s stamp-keyed cache."""
@@ -521,10 +548,8 @@ class SockseekTimeoutTests(WorkspaceTestCase):
                 mock.patch.object(runner, "REQUEST_TIMEOUT", 0, create=True), \
                 mock.patch.object(subprocess, "Popen", HangingProcess), \
                 mock.patch.object(time, "sleep", lambda seconds: None):
-            status, message, audio_path = runner.run_request(row, None)
-        self.assertEqual(status, "error")
-        self.assertIn("timed out", message)
-        self.assertEqual(audio_path, "")
+            with self.assertRaisesRegex(runner.EngineTimeout, "timed out"):
+                runner.run_request(row, None)
         self.assertTrue(HangingProcess.instances[0].signals)
 
 

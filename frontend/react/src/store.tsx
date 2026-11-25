@@ -278,10 +278,7 @@ export class Store implements SliceHost {
 
   get playlistsExpanded(): boolean { return this.browsingSlice.playlistsExpanded; }
   set playlistsExpanded(value: boolean) { this.browsingSlice.playlistsExpanded = value; }
-  get mergeMode(): boolean { return this.browsingSlice.mergeMode; }
-  set mergeMode(value: boolean) { this.browsingSlice.mergeMode = value; }
-  get mergeSelection(): Set<string> { return this.browsingSlice.mergeSelection; }
-  set mergeSelection(value: Set<string>) { this.browsingSlice.mergeSelection = value; }
+  get playlistFromMyPlaylists(): boolean { return this.browsingSlice.playlistFromMyPlaylists; }
   get queueOpen(): boolean {
     return (this.view !== "moods" || this.queuePreference !== null) && this.sessionSlice.queueOpen;
   }
@@ -382,7 +379,7 @@ export class Store implements SliceHost {
   createSongRequest(song: RequestSong): Promise<RequestRow | null> {
     return this.requestsSlice.createSongRequest(song);
   }
-  retryRequest(id: number, searchTitle: string) {
+  retryRequest(id: number, searchTitle?: string) {
     return this.requestsSlice.retryRequest(id, searchTitle);
   }
   playRequest(row: RequestRow) { this.requestsSlice.playRequest(row); }
@@ -518,9 +515,6 @@ export class Store implements SliceHost {
   retryVisibleCopies() { return this.browsingSlice.retryVisibleCopies(); }
   openSource(ref: number | string) { return this.browsingSlice.openSource(ref); }
   togglePlaylistsExpanded() { this.browsingSlice.togglePlaylistsExpanded(); }
-  enterMergeMode() { this.browsingSlice.enterMergeMode(); }
-  exitMergeMode() { this.browsingSlice.exitMergeMode(); }
-  toggleMergeSelection(id: string) { this.browsingSlice.toggleMergeSelection(id); }
 
   setQueueOpen(open: boolean, remember = true) {
     this.sessionSlice.setQueueOpen(open, remember);

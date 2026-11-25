@@ -36,9 +36,10 @@ from catalog.media_reconciliation import (BlobIndex,
                                           dumps_migration_status,
                                           migrate_library,
                                           migration_status_record, unmigrated_files)
-from downloads.engine_contract import (CandidateTimeout, EngineError, InsufficientDownloadSpace,
+from downloads.engine_contract import (CandidateTimeout, EngineBusy, EngineCooldown, EngineError, EngineTimeout,
+                                       InsufficientDownloadSpace,
                                        engine_recording, engine_selection, fetch_recording, request_recording, simplify_title, timed_stage)
-from downloads.requests_store import RequestsStore
+from downloads.requests_store import COPY_REVIEW_MESSAGE, RequestsStore
 from downloads.state_store import StateStore
 from downloads.verification import (CLI_LENGTH_TOLERANCE, FULL_DECODE_TIMEOUT, MIN_BITRATE_KBPS,
                                     PROBE_CACHE_VERSION, PROBE_TIMEOUT, decode_audio, judge, judge_bulk_download,
@@ -626,7 +627,11 @@ def focused_download(subject, title, length, staging, log_path, *, requested_for
         if individual and result.returncode:
             raise RuntimeError(request_failure(result.stderr, result.returncode)[1])
         groups = json.loads(result.stdout)
-    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+    except subprocess.TimeoutExpired as error:
+        if individual:
+            raise EngineTimeout("The search timed out.") from error
+        groups = []
+    except (OSError, ValueError) as error:
         if individual:
             raise RuntimeError("Sockseek could not complete the search; retry this song") from error
         groups = []
@@ -636,12 +641,15 @@ def focused_download(subject, title, length, staging, log_path, *, requested_for
     deadline = time.monotonic() + REQUEST_TIMEOUT
     if not matches:
         return False
+    transfer_timed_out = False
     with log_path.open("a", encoding="utf-8") as log:
         log.write(f"Focused search: {query}; {len(matches)} candidate peers\n")
         log.flush()
         for _, username, filename in matches:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                if individual:
+                    raise EngineTimeout("The search reached the time limit for this recording.")
                 raise RuntimeError("Sockseek timed out while checking candidate copies")
             if individual and free_bytes() < MIN_FREE:
                 raise InsufficientDownloadSpace
@@ -656,7 +664,10 @@ def focused_download(subject, title, length, staging, log_path, *, requested_for
                     returncode = transfer_with_reserve(direct, log, min(90, remaining))
                 else:
                     returncode = subprocess.run(direct, stdout=log, stderr=subprocess.STDOUT, timeout=90).returncode
-            except (OSError, subprocess.TimeoutExpired):
+            except subprocess.TimeoutExpired:
+                transfer_timed_out = True
+                continue
+            except OSError:
                 continue
             # Only a file this candidate's download produced can answer
             # the request, and only after verification judges it (A2
@@ -672,6 +683,8 @@ def focused_download(subject, title, length, staging, log_path, *, requested_for
                 if individual:
                     # This private staging directory belongs to this search alone.
                     path.unlink(missing_ok=True)
+    if individual and transfer_timed_out:
+        raise CandidateTimeout("The download timed out while transferring a copy.")
     return False
 
 
@@ -752,13 +765,15 @@ def download_job_progress():
     return queue, queue.get(int(job_id))
 
 
-def record_download_progress(*, retry=None, scoped_attempted=(), complete=False):
+def record_download_progress(*, retry=None, retry_delay=0, scoped_attempted=(), complete=False):
     queue, job = download_job_progress()
     if not job:
         return
     progress = job["progress"]
     if retry is not None:
         progress["engine_retry"] = retry
+        if retry_delay:
+            progress["retry_after"] = time.time() + retry_delay
     if complete and not progress.get("engine_retry"):
         progress["engine_complete"] = True
     if scoped_attempted:
@@ -773,10 +788,12 @@ def verified_engine_audio(path, judge_candidate, remaining_time):
     return None
 
 
-def managed_candidate(selection, recording, accept, *, chosen=None, recommended_only=False):
+def managed_candidate(selection, recording, accept, *, chosen=None, recommended_only=False, on_review=None,
+                      on_transfer=None):
     return fetch_recording(selection, recording, state=STATE, free_bytes=free_bytes, reserve=MIN_FREE,
                            estimate=estimated_bytes([{"length": recording["duration"]}]),
-                           accept=accept, timeout=REQUEST_TIMEOUT, chosen=chosen, recommended_only=recommended_only)
+                           accept=accept, timeout=REQUEST_TIMEOUT, chosen=chosen, recommended_only=recommended_only,
+                           on_review=on_review, on_transfer=on_transfer)
 
 
 def managed_request(selection, request_dir, row, record, title, length, selected):
@@ -784,8 +801,15 @@ def managed_request(selection, request_dir, row, record, title, length, selected
     recording = request_recording(row, record, choice)
     if selected is not None and (selected["selection"] != selection or selected["recording"] != recording):
         return "error", "The request or its sources changed. Browse copies again.", ""
+    store = requests_store()
+    review = []
+
+    def save_review(candidates):
+        review.extend(store.save_copy_matches(
+            row["id"], choice, row["format_revision"], recording, selection, candidates, for_review=True))
 
     def accept(path, remaining_time):
+        store.set_phase(row["id"], "verifying")
         facts = verified_engine_audio(path, lambda facts: judge_download(
             title, length, facts, path.suffix, choice, **request_identity(row)), remaining_time)
         if facts is None:
@@ -804,16 +828,17 @@ def managed_request(selection, request_dir, row, record, title, length, selected
 
     try:
         with managed_candidate(selection, recording, accept, chosen=selected["candidate"] if selected else None,
-                               recommended_only=bool(row.get("format_confirmed"))) as path:
+                               recommended_only=bool(row.get("format_confirmed")), on_review=save_review,
+                               on_transfer=lambda: store.set_phase(row["id"], "downloading")) as path:
             if path is None:
+                if review:
+                    return "rejected", COPY_REVIEW_MESSAGE, ""
                 return "not_found", ("The selected copy could not be downloaded or verified. Browse copies again."
                                      if selected else "No copy found"), ""
             return retain_request_file(path, path.parent, request_dir, row, record, title, length,
                                        selected=bool(selected))
     except InsufficientDownloadSpace:
         return "waiting_space", "Waiting for more free space", ""
-    except EngineError as error:
-        return ("queued" if error.retryable else "error"), str(error), ""
 
 
 def run_request(row, record):
@@ -908,8 +933,8 @@ def download_request_candidate(staging, request_dir, csv_path, row, record, titl
                 returncode = transfer_with_reserve(command, log, REQUEST_TIMEOUT)
             except InsufficientDownloadSpace:
                 return "waiting_space", "Stopped at the 20 GiB free space reserve", ""
-            except subprocess.TimeoutExpired:
-                return "error", "Sockseek timed out during the request; retry this song", ""
+            except subprocess.TimeoutExpired as error:
+                raise EngineTimeout("The download engine timed out during the request.") from error
     candidates = []
     for path in staging.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in AUDIO_FORMATS:
@@ -987,13 +1012,20 @@ def publish_verified_download(source, target, stamp):
 def process_requests(records, limit=3):
     global _REPORT_DIRTY
     store = requests_store()
-    for row in store.queued(limit):
-        request_id = row["id"]
+    for _ in range(limit):
+        due = store.queued(1)
+        if not due:
+            break
+        request_id = due[0]["id"]
         if not store.claim(request_id):
             continue
         row = store.get(request_id)
-        record = records[row["track_index"] - 1] if row["track_index"] else None
+        record = None
+        provider_delay = 0
+        retryable = False
         try:
+            if row["track_index"]:
+                record = records[row["track_index"] - 1]
             existing = (verified_existing(record["index"], record) if record
                         and not store.selected_copy(request_id, row["format_revision"]) else None)
             if is_blob_ref(str(existing)):
@@ -1019,18 +1051,28 @@ def process_requests(records, limit=3):
                 status, message, audio_path = "downloaded", "Already in the library", audio_path
             else:
                 status, message, audio_path = run_request(row, record)
+        except EngineError as error:
+            status, message, audio_path = "error", str(error), ""
+            retryable = error.retryable
+            if isinstance(error, EngineCooldown):
+                provider_delay = error.seconds
+            elif isinstance(error, EngineBusy):
+                provider_delay = 15
         except Exception as error:
             status, message, audio_path = "error", str(error)[:300], ""
         if record and row["format_confirmed"] and status == "downloaded":
             # Publish the verified replacement before the report consults older coverage.
             catalog_store().update_coverage_path(record["index"], audio_path)
-        store.finish(request_id, status, message, audio_path)
+        if retryable:
+            status = store.defer_attempt(row, message, provider_delay=provider_delay)
+        else:
+            store.finish(request_id, status, message, audio_path)
         print(f"Request {request_id}: {status}", flush=True)
         # Per-request work only marks the report dirty (A3 PERF-02);
         # the full report is written once, after the loop.
         _REPORT_DIRTY = True
-        if status == "queued" or (status == "waiting_space" and configured_engines() is not None):
-            record_download_progress(retry=message)
+        if provider_delay or (status == "waiting_space" and configured_engines() is not None):
+            record_download_progress(retry=message, retry_delay=provider_delay)
             save_probe_cache()
             flush_report()
             return False
