@@ -65,8 +65,8 @@ internal fun RoomUi.showMusicProfile(
                         if (id > 0) playback("play", JSONObject().put("track_id", id).put("playlist", "all"))
                         else playback("play_request", JSONObject().put("request_id", request.getInt("id")))
                     }
-                    request.optString("status") in CHANGEABLE_FORMAT -> activity.chooseDiscoveryFormat(request, room) { format ->
-                        load({ room.confirmFormat(request, format) }) { result ->
+                    request.optString("status") in CHANGEABLE_FORMAT -> activity.chooseDiscoveryFormat(request, room) { format, copyKey ->
+                        load({ room.confirmFormat(request, format, copyKey) }) { result ->
                             Toast.makeText(activity, if (result.isSuccess) "Requested a copy."
                                 else "The format could not be saved.", Toast.LENGTH_SHORT).show()
                         }

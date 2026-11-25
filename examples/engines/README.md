@@ -30,6 +30,15 @@ each candidate ID stable, scoped to its source, and within 512 characters.
 Return at most 20 candidates in preference order. The fetcher must check
 whether it understands the candidate's source before attempting retrieval.
 
+For authors using the Python SDK, implement `list(recording)`. The SDK maps it
+to the existing `search` action. An individual request can include a `version`
+such as `"Live"`. Candidates may include a public `label`, a
+short `format`, and positive whole numbers for `duration` in seconds and
+`bitrate` in kbps. Set `recommended` to false for uncertain alternatives.
+Browse copies shows them and queues a user's selection with the original
+source and ID kept on the server. Individual automatic requests skip
+candidates explicitly marked uncertain.
+
 The signed catalog entry declares the candidate namespaces for each capability
 it offers. For example, the catalog worker declares
 `"sources":{"search":["example-catalog"],"fetch":["example-catalog"]}`

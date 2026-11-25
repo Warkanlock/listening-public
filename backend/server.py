@@ -58,13 +58,14 @@ from playback.play_events import PlayEventsStore
 from playback import radio_resume
 from playback.radio import (PROVIDERS, RADIO_PRESETS, SOMAFM_CHANNELS, clean_live_stations, clean_stations,
                             live_catalog, live_stations_from, provider_enabled, source_enabled, stations_from)
-from downloads.engine_contract import EngineError, engine_selection, engines_ready, extension_health, manager_call, source_summary
+from downloads.engine_contract import (EngineError, engine_selection, engines_ready, extension_health,
+                                       manager_call, request_recording, search_recording, source_summary)
 from system import client_artifacts
 from devices.announcements import AnnouncementBoard
 from devices.device_store import DeviceStore, invitation_room_proof
 from devices.presence import Presence
 from downloads.download_activity import recent_events
-from downloads.requests_store import RequestsStore, mp3_retry
+from downloads.requests_store import EDITABLE_FORMAT, RequestsStore, mp3_retry
 from downloads.state_store import StateStore
 from downloads.verification import PROBE_CACHE_VERSION, probe
 from metadata.artist_connections import ArtistConnections, CONNECTION_PATH, ConnectionsBusy, valid_id
@@ -80,7 +81,7 @@ from library.local_sources import (discover_folders, is_music_list, list_files, 
                                    sync_files, sync_folders)
 from adapters import opensubsonic, public_discovery, youtube_search
 from adapters.spotify_sync import SpotifyError, SpotifySync
-from system.formats import BULK_DOWNLOAD_FORMATS, bulk_download_format
+from system.formats import BULK_DOWNLOAD_FORMATS, REQUEST_SUFFIXES, bulk_download_format
 from system.config import host_database
 from system.config import AppConfig, default_root, legacy_config_path, resolve_config_path
 from system import server_control
@@ -3216,7 +3217,7 @@ class Handler(BaseHTTPRequestHandler):
         profile = self._member_profile() if not account_action else None
         if profile is not None and self.path not in MEMBER_POST:
             return self.error_json("This action is unavailable to household members.", HTTPStatus.FORBIDDEN)
-        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {weekly_discovery.PATH, "/api/radio/presence", "/api/radio/somafm", "/api/extensions", EXTENSION_HEALTH, "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
+        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {weekly_discovery.PATH, "/api/radio/presence", "/api/radio/somafm", "/api/extensions", EXTENSION_HEALTH, "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/copies", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
                              "/api/sync", "/api/import-csv", "/api/import-list", "/api/import-bundle", "/api/device", "/api/devices/revoke", "/api/devices/offline", "/api/devices/invites", "/api/pairing/rotate",
                              "/api/announcements", "/api/process", "/api/jobs", "/api/open-source", "/api/playlists/merge",
                              "/api/playlists/add-song", "/api/discovery/import", "/api/devices/playlist-access",
@@ -3446,17 +3447,37 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(ANNOUNCEMENTS.post(body.get("message"), recipient), HTTPStatus.CREATED)
             except ValueError as error:
                 return self.error_json(str(error))
-        if self.path == "/api/requests/format":
+        if self.path in {"/api/requests/format", "/api/requests/copies"}:
             try:
                 request_id = body.get("request_id") if isinstance(body, dict) else None
                 if type(request_id) is not int or not 0 < request_id < 2**63:
                     raise ValueError("Invalid request ID")
-                row, released = requests_store().confirm_format(
-                    request_id, body.get("requested_format"), body.get("format_revision"))
+                store = requests_store()
+                choice, revision = body.get("requested_format"), body.get("format_revision")
+                if self.path == "/api/requests/copies":
+                    if not isinstance(choice, str) or choice not in REQUEST_SUFFIXES or type(revision) is not int:
+                        raise ValueError("Choose a supported audio format.")
+                    with ROOT_LOCK:
+                        row = store.get(request_id)
+                        if not row or row["format_revision"] != revision or row["status"] not in EDITABLE_FORMAT:
+                            raise ValueError("This request changed. Reopen it to browse copies.")
+                        record = catalog.active_record_at(row["track_index"])
+                        if row["track_index"] is not None and record is None:
+                            raise ValueError("This song is no longer in the library.")
+                        selection = engine_selection(SETTINGS)
+                        if not selection:
+                            raise ValueError("Choose search and download sources in Extensions to browse copies.")
+                        recording = request_recording(row, record, choice)
+                    candidates = search_recording(selection, recording)
+                    matches = store.save_copy_matches(request_id, choice, revision, recording, selection, candidates)
+                    return self.json_response({"matches": matches})
+                row, released = store.confirm_format(request_id, choice, revision, body.get("copy_key"))
                 if released:
                     with ROOT_LOCK:
                         start_worker("requests", force=True)
                 return self.json_response(row)
+            except EngineError as error:
+                return self.error_json(str(error), HTTPStatus.SERVICE_UNAVAILABLE)
             except ValueError as error:
                 return self.error_json(str(error))
         if self.path == "/api/requests/retry":

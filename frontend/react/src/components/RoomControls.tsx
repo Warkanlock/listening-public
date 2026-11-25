@@ -1,11 +1,11 @@
 import { RoomAlertContent } from "./WindowContent";
-import { useId, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { useId, type ComponentPropsWithRef, type ReactNode } from "react";
 import { Button } from "@ui-sdk/react/button";
 import { AlertDialog, AlertDialogBackdrop, AlertDialogClose, AlertDialogDescription, AlertDialogTitle } from "@ui-sdk/react/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectItemIndicator, SelectLabel, SelectTrigger, SelectValue } from "@ui-sdk/react/select";
 import { RoomIcon, type RoomIconName } from "./RoomIcon";
 
-type ActionProps = Omit<ComponentPropsWithoutRef<typeof Button>, "children"> & { children: ReactNode; icon?: RoomIconName; primary?: boolean };
+type ActionProps = Omit<ComponentPropsWithRef<typeof Button>, "children"> & { children: ReactNode; icon?: RoomIconName; primary?: boolean };
 
 export function RoomAction({ icon, primary, children, type = "button", ...props }: ActionProps) {
   const appearance = primary ? "room-action primary-action" : "room-action quiet-button";
