@@ -1350,11 +1350,21 @@ class RoomActivity : Activity() {
     }
 
     private fun chooseRecordingVersion(target: Room, item: JSONObject, choose: (JSONObject) -> Unit) {
-        load({ target.recordingVersions(item) }) { versions ->
-            val content = ui.column(8)
-            val style = SongDetailsStyle(ui)
-            val dialog = style.dialog(this, "Choose a recording", ScrollView(this).apply { addView(content) },
-                artist = item.optString("title"))
+        val content = ui.column(8)
+        val status = ui.label("Looking for versions…")
+        content.addView(status)
+        val style = SongDetailsStyle(ui)
+        val dialog = style.dialog(this, "Choose a recording", ScrollView(this).apply { addView(content) },
+            artist = item.optString("title"))
+        handler.removeCallbacks(refreshDiscover)
+        dialog.setOnDismissListener {
+            if (active && screen == Screen.WEEKLY) handler.postDelayed(refreshDiscover, 8_000L)
+        }
+        dialog.show()
+        load({ target.recordingVersions(item) }, reportErrors = false,
+            failed = { status.text = "Couldn’t load versions. Try again." }) { versions ->
+            if (!dialog.isShowing) return@load
+            content.removeView(status)
             if (versions.isEmpty()) content.addView(ui.label("No other recordings found."))
             for (version in versions) {
                 val duration = version.getDouble("duration").toInt()
@@ -1365,7 +1375,6 @@ class RoomActivity : Activity() {
                     choose(version)
                 })
             }
-            dialog.show()
         }
     }
 
