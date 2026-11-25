@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "listening-room"
-version = "1.5.16"
+version = "1.5.17"
 description = "A small, self-hosted music room for one household."
 authors = ["Listening Room"]
 package-mode = false
