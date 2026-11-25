@@ -164,7 +164,10 @@ class WeeklyHttpTests(ServerFixture, unittest.TestCase):
             audio = server.LIBRARY / "fixture.mp3"
             audio.parent.mkdir(parents=True, exist_ok=True)
             store.finish(request["id"], "downloaded", "", audio.name)
-            self.assertEqual(call("GET")[1]["tracks"][0]["request"], {"id": request["id"], "status": "missing"})
+            missing = call("GET")[1]
+            self.assertEqual(missing["tracks"][0]["request"], {"id": request["id"], "status": "missing"})
+            self.assertEqual(missing["download_progress"],
+                             {"total": 1, "downloaded": 0, "pending": 0, "needs_attention": 1, "percent": 0})
             refs = {"op": "play_requests", "request_ids": [request["id"]]}
             self.assertEqual(server.selected_playback_tracks(refs), [])
             audio.touch()

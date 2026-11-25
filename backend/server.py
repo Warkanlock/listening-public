@@ -573,7 +573,7 @@ def start_worker(action, root=None, force=False, scope=None, download_format=Non
     The imperative starter: the watchdog's standing duties and the
     request kicks call here. Console starts go through the job
     queue instead (ADR 0002); the dispatcher's starter is
-    start_job_worker below. The 90-second throttle keeps a worker
+    start_job_worker below. The restart throttle keeps a worker
     that exits immediately from being restarted on every watchdog
     pass; forced starts (a person asked, an update restarting what
     was running) bypass it.
@@ -587,7 +587,8 @@ def start_worker(action, root=None, force=False, scope=None, download_format=Non
             return False
         if any_library_worker_running():
             return False
-        if not force and time.monotonic() - LAST_WORKER_START < 90:
+        restart_delay = 15 if action == "requests" else 90
+        if not force and time.monotonic() - LAST_WORKER_START < restart_delay:
             return False
         kind = "downloads" if action == "run" else "requests"
         argv, env = runner_invocation(action, root or ROOT, scope=scope, download_format=download_format)
@@ -624,9 +625,11 @@ def playlist_name_resolver(spotify_names):
 
     def resolve(key):
         declared = titles.get(key)
-        if declared and not EXPORTED_PLAYLIST_NAME.fullmatch(declared):
+        generated = EXPORTED_PLAYLIST_NAME.fullmatch(declared or "")
+        imported_key = EXPORTED_PLAYLIST_NAME.fullmatch(key)
+        if declared and not generated and not (imported_key and declared == imported_key[1]):
             return declared
-        generated = EXPORTED_PLAYLIST_NAME.fullmatch(declared or key)
+        generated = generated or imported_key
         if generated:
             return (owner_names.get(key) or spotify_names.get(key)
                     or spotify_names.get("spotify_" + generated[1]) or "Spotify playlist")
@@ -2478,6 +2481,8 @@ class Handler(BaseHTTPRequestHandler):
                 for track, key in zip(tracks, by_recording):
                     row = rows.get(key) or rows.get(key[:2])
                     request = {field: row[field] for field in ("id", "status")} if row else None
+                    if row:
+                        request.update({field: row[field] for field in ("phase", "retry_at") if row[field]})
                     if row and row["status"] in EDITABLE_FORMAT:
                         request.update(requested_format=row["requested_format"], format_revision=row["format_revision"])
                         if row.get("copy_review"):
@@ -3498,16 +3503,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error_json(str(error))
         if self.path == "/api/requests/retry":
             try:
-                request_id = int(body.get("request_id"))
-                search_title = str(body.get("search_title", "")).strip()[:200]
-                if not search_title:
-                    raise ValueError("Enter another search phrase")
+                request_id = body.get("request_id")
+                if type(request_id) is not int or not 0 < request_id < 2**63:
+                    raise ValueError("Choose a song request")
+                search_title = body.get("search_title")
+                if search_title is not None:
+                    if not isinstance(search_title, str) or not search_title.strip():
+                        raise ValueError("Enter another search phrase")
+                    search_title = search_title.strip()[:200]
                 store = requests_store()
                 if not store.retry(request_id, search_title):
-                    raise ValueError("Only failed searches can be retried")
+                    raise ValueError("Only queued or failed searches can be retried")
                 with ROOT_LOCK:
                     start_worker("requests", force=True)
-                return self.json_response({"status": "Queued with a broader search"})
+                return self.json_response({"status": "Search moved to the front of the queue"})
             except (ValueError, TypeError) as error:
                 return self.error_json(str(error))
         if self.path == "/api/requests/batch":

@@ -14,6 +14,7 @@ import {
 import { useStore } from "../store";
 import { RoomSelect } from "../components/RoomControls";
 import { StateCard } from "../components/StateCard";
+import { RefreshButton } from "../components/RefreshButton";
 
 const TITLES: Record<JobKind, string> = {
   downloads: "Download missing songs",
@@ -411,6 +412,7 @@ export function Jobs() {
             {store.settings && !isHost(store.settings) && " Manage jobs from a room owner session."}
           </p>
         </div>
+        <RefreshButton target="jobs" onRefresh={() => store.refreshJobs()} />
       </header>
       <div className="job-queue">
         {result ? (

@@ -142,10 +142,12 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
             </label>
           ))}
         </fieldset>
-        <FindCopySources disabled={saving} buttonRef={sourceReturn} open={() => {
-          restoreSourceFocus.current = true;
-          setShowExtensions(true);
-        }} />
+        <FindCopySources button={
+          <RoomIconButton icon="extensions" label="View extensions" ref={sourceReturn} disabled={saving} onClick={() => {
+            restoreSourceFocus.current = true;
+            setShowExtensions(true);
+          }} />
+        } />
         {error && <p role="alert">{error}</p>}
         <div className="format-dialog-footer">
           <RoomAction ref={browseButton} icon="catalogs" disabled={saving} onClick={() => void showMatches()}>Browse copies</RoomAction>

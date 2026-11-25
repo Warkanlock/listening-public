@@ -1,4 +1,4 @@
-import { useEffect, useState, type Ref } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Dialog, DialogBackdrop, DialogClose, DialogTitle, DialogTrigger } from "@ui-sdk/react/dialog";
 import { ApiError, isHost, postJson, type ExtensionHealth, type ExtensionSources } from "../api";
 import { useStore } from "../store";
@@ -127,25 +127,25 @@ export function Extensions() {
   </section>;
 }
 
-// The request form can reuse its dialog while keeping its chosen format in memory.
-export function FindCopySources({ open, buttonRef, disabled }: {
-  open?: () => void; buttonRef?: Ref<HTMLButtonElement>; disabled?: boolean;
-}) {
-  const [shown, setShown] = useState(false);
+export function FindCopySources({ button = <FindCopyExtensionsButton /> }: { button?: ReactNode }) {
   return <div className="find-copy-sources">
     <SourceStatus />
-    {open ? <RoomIconButton icon="extensions" label="View extensions" ref={buttonRef} disabled={disabled} onClick={open} /> :
-      <Dialog open={shown} onOpenChange={setShown}>
-        <DialogTrigger className="quiet-button icon-control" aria-label="View extensions" title="View extensions">
-          <RoomIcon name="extensions" />
-        </DialogTrigger>
-        {shown && <><DialogBackdrop /><RoomDialogContent className="extensions-dialog">
-          <DialogTitle>Extensions</DialogTitle>
-          <DialogClose className="dialog-close icon-control" aria-label="Close extensions" title="Close extensions"><RoomIcon name="close" /></DialogClose>
-          <ExtensionsContent />
-        </RoomDialogContent></>}
-      </Dialog>}
+    {button}
   </div>;
+}
+
+export function FindCopyExtensionsButton() {
+  const [shown, setShown] = useState(false);
+  return <Dialog open={shown} onOpenChange={setShown}>
+    <DialogTrigger className="quiet-button icon-control" aria-label="View extensions" title="View extensions">
+      <RoomIcon name="extensions" />
+    </DialogTrigger>
+    {shown && <><DialogBackdrop /><RoomDialogContent className="extensions-dialog">
+      <DialogTitle>Extensions</DialogTitle>
+      <DialogClose className="dialog-close icon-control" aria-label="Close extensions" title="Close extensions"><RoomIcon name="close" /></DialogClose>
+      <ExtensionsContent />
+    </RoomDialogContent></>}
+  </Dialog>;
 }
 
 export { ExtensionsContent };

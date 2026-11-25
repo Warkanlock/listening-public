@@ -25,7 +25,7 @@ def download_progress(tracks):
     attempts = {}
     for track in tracks:
         request = track.get("request")
-        if request and (not track.get("in_library") or request.get("audio")):
+        if request and (not track.get("in_library") or request.get("audio") or request["status"] == "missing"):
             attempts[request["id"]] = request
     total = len(attempts)
     downloaded = sum(request["status"] == "downloaded" and bool(request.get("audio")) for request in attempts.values())

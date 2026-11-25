@@ -226,6 +226,9 @@ export type RequestSong = { track_id: number } | { artist: string; title: string
 
 export interface RequestRow {
   musicbrainz_id?: string;
+  version?: string;
+  phase?: string;
+  retry_at?: number;
   requested_format: RequestFormat | null;
   format_revision: number;
   mp3_retry?: Mp3Retry;

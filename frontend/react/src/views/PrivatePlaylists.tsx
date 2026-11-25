@@ -201,6 +201,11 @@ export function PrivatePlaylists({ owner }: { owner: boolean }) {
       <header className="listening-view-head">
         <div><h1>My playlists</h1></div>
       </header>
+      <section className="playlist-shelf" aria-labelledby="room-playlists-heading">
+        <div className="section-header"><h2 id="room-playlists-heading">Room playlists</h2></div>
+        {roomPlaylists.length > 0 ? <PlaylistCards playlists={roomPlaylists} />
+          : store.overview ? <p>No room playlists yet.</p> : <p role="status">Loading room playlists…</p>}
+      </section>
       <div className="private-playlist-workspace">
         <div>
           <h2>Private playlists</h2>
@@ -228,10 +233,6 @@ export function PrivatePlaylists({ owner }: { owner: boolean }) {
           <RoomAction type="submit" primary disabled={working}>Create playlist</RoomAction>
         </form>
       </div>
-      {roomPlaylists.length > 0 && <section className="playlist-shelf" aria-labelledby="room-playlists-heading">
-        <div className="section-header"><h2 id="room-playlists-heading">Room playlists</h2></div>
-        <PlaylistCards playlists={roomPlaylists} />
-      </section>}
     </>}
   </section>;
 }
