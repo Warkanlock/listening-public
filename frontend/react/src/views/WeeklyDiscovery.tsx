@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { ApiError, api, BUSY_STATUSES, postJson, statusLabel, type RequestRow } from "../api";
+import { ApiError, api, BUSY_STATUSES, postJson, type RequestRow } from "../api";
 import { RoomAction } from "../components/RoomControls";
 import { RoomIconButton } from "../components/RoomIcon";
+import { RequestStatus, RetryRequestButton } from "../components/RequestStatus";
+import { RecordingVersions } from "../components/RecordingVersions";
 import { useStore } from "../store";
 
 type WeeklyTrack = {
@@ -11,7 +13,7 @@ type WeeklyTrack = {
   depth: number;
   trail?: string[];
   in_library?: boolean;
-  request?: (Pick<RequestRow, "id" | "status" | "audio" | "copy_review"> &
+  request?: (Pick<RequestRow, "id" | "status" | "audio" | "copy_review" | "phase" | "retry_at"> &
     Partial<Pick<RequestRow, "requested_format" | "format_revision">>) | null;
 };
 
@@ -145,21 +147,25 @@ export function WeeklyDiscovery() {
             const relation = track.trail?.length ? track.trail.join(" → ") : track.depth === 0
               ? "Artist you’ve played" : `${track.depth} artist ${track.depth === 1 ? "connection" : "connections"} away`;
             return <li key={track.id}>
-              <div><strong>{track.title}</strong><small>{track.artist} · {relation}</small>
-                {track.request && (review || needsCopy(track)) &&
-                  <small>{track.request.copy_review ? "Choose a copy" : statusLabel(track.request.status)}</small>}
+              <div><strong>{track.title}</strong><small>{track.artist} · {relation}</small></div>
+              <div className="request-actions">
+                {track.request && track.request.status !== "missing" && <RequestStatus request={track.request} />}
+                {track.request && !track.in_library && <RetryRequestButton request={track.request} title={track.title}
+                  onRetry={() => setRevision(value => value + 1)} />}
+                {!store.member && !track.in_library && <RecordingVersions song={{ ...track, musicbrainz_id: track.id }}
+                  onChoose={song => void store.createSongRequest(song)} />}
+                {id !== null ? <RoomIconButton icon="play" label={`Play ${track.title}`}
+                  onClick={() => void store.sendSession("play_request", { request_id: id })} />
+                  : track.request?.status === "missing" ? <small>Copy unavailable</small>
+                  : track.in_library ? <small>In library</small>
+                  : review ? <RoomIconButton icon="catalogs" label={track.request?.status === "waiting_format"
+                    ? `Choose format for ${track.title}` : `Review copies for ${track.title}`}
+                    onClick={() => reviewCopies(track)} />
+                  : playlist?.can_request && needsCopy(track) && !track.request ? <RoomIconButton icon="download"
+                    disabled={sending} label={`Download ${track.title}`}
+                    onClick={() => void download([track.id])} />
+                  : null}
               </div>
-              {id !== null ? <RoomIconButton icon="play" label={`Play ${track.title}`}
-                onClick={() => void store.sendSession("play_request", { request_id: id })} />
-                : track.request?.status === "missing" ? <small>Copy unavailable</small>
-                : track.in_library ? <small>In library</small>
-                : review ? <RoomIconButton icon="catalogs" label={track.request?.status === "waiting_format"
-                  ? `Choose format for ${track.title}` : `Review copies for ${track.title}`}
-                  onClick={() => reviewCopies(track)} />
-                : playlist?.can_request && needsCopy(track) ? <RoomIconButton icon={track.request ? "refresh" : "download"}
-                  disabled={sending} label={track.request ? `Retry ${track.title}` : `Download ${track.title}`}
-                  onClick={() => void download([track.id])} />
-                : track.request && !needsCopy(track) ? <small>{statusLabel(track.request.status)}</small> : null}
             </li>;
           })}
         </ol>

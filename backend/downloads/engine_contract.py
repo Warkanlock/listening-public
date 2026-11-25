@@ -42,6 +42,12 @@ class EngineBusy(EngineError):
     """The worker is already in use by another request."""
 
 
+class EngineCooldown(EngineError):
+    def __init__(self, message, seconds):
+        super().__init__(message)
+        self.seconds = seconds
+
+
 class CandidateTimeout(EngineTimeout):
     """A candidate timed out and released its worker so another can be tried."""
 
@@ -94,8 +100,8 @@ def engine_selection(settings):
 def login_wait(seconds):
     minutes = max(1, (seconds + 59) // 60)
     unit = "minute" if minutes == 1 else "minutes"
-    return EngineError(f"The source could not sign in. Searches and downloads are paused for about {minutes} {unit}. "
-                       "Your requests stay queued. Check Extensions for the next attempt.")
+    return EngineCooldown(f"The source could not sign in. Your requests stay queued for about {minutes} {unit}. "
+                          "Check Extensions for details.", seconds)
 
 
 def manager_call(action, *, timeout=2, check_space=None, server_release=None, **fields):
@@ -152,7 +158,7 @@ def manager_call(action, *, timeout=2, check_space=None, server_release=None, **
             seconds = response.get("retry_after_seconds")
             if type(seconds) is int and 1 <= seconds <= 86401:
                 raise login_wait(seconds)
-            raise EngineError("The source could not sign in. Check its connection and account in Extensions.")
+            raise login_wait(90)
         # Engine text may contain peer data or credentials. Use a room-owned diagnostic.
         raise EngineError("The download engine could not complete the operation.",
                           retryable=response.get("retryable") is not False)
@@ -406,7 +412,7 @@ def _recover_interrupted_transfers(root, state):
 
 @contextlib.contextmanager
 def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimate, accept, timeout,
-                    chosen=None, recommended_only=False, on_review=None):
+                    chosen=None, recommended_only=False, on_review=None, on_transfer=None):
     """Yield one core-owned candidate or None. A provider never gets its path."""
     staging = os.environ.get("LISTENING_ENGINE_STAGING")
     if not selection or not staging:
@@ -450,6 +456,8 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
         fetch_budget = WORKER_TIMEOUT_SECONDS["fetch"] + MANAGER_RESPONSE_GRACE_SECONDS
         timed_out = None
         for attempt, candidate in enumerate(candidates, 1):
+            if on_transfer is not None:
+                on_transfer()
             check_space(estimate)
             budget = min(fetch_budget, remaining_time())
             job = uuid.uuid4().hex
@@ -481,8 +489,8 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
                     # holds the bounded handoff to the core.
                     if directory.exists():
                         shutil.rmtree(directory)
+        if timed_out is not None:
+            raise timed_out
         if uncertain and on_review is not None:
             on_review(uncertain)
-        elif timed_out is not None:
-            raise timed_out
         yield None

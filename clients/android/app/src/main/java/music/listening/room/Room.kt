@@ -249,6 +249,21 @@ internal class Room(val origin: String, val id: String, private val token: Strin
     fun confirmFormat(row: JSONObject, format: String, copyKey: String? = null) = request("/api/requests/format",
         copyRequestFields(row, format).apply { if (copyKey != null) put("copy_key", copyKey) })
     fun browseCopies(row: JSONObject, format: String) = request("/api/requests/copies", copyRequestFields(row, format))
+    fun retryCopy(row: JSONObject) = request("/api/requests/retry", JSONObject().put("request_id", row.getLong("id")))
+    fun recordingVersions(item: JSONObject): List<JSONObject> {
+        val id = item.optString("musicbrainz_id").ifBlank { item.optString("id") }
+        val query = "${item.optString("artist").take(70)} - ${item.optString("title")}".take(160)
+        val path = if (id.matches(Regex("[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")))
+            "/api/discover/recording/$id" else "/api/discover/matches?q=${encode(query)}"
+        val leads = get(path).getJSONArray("leads")
+        return (0 until leads.length()).mapNotNull { index ->
+            val lead = leads.optJSONObject(index) ?: return@mapNotNull null
+            lead.optJSONObject("track")?.takeIf {
+                lead.optString("kind") == "recording" && it.optDouble("duration", 0.0) > 0 &&
+                    it.optString("musicbrainz_id").let { mbid -> mbid.isNotBlank() && mbid != id }
+            }
+        }.distinctBy { it.optString("musicbrainz_id") }
+    }
     fun heartbeat() = request("/api/device", registration(id))
     fun radioPresence(source: String?): Boolean {
         val body = JSONObject().put("output", id).put("source", source ?: JSONObject.NULL)

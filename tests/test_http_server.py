@@ -1149,10 +1149,13 @@ class OverviewNamingTests(ServerFixture, unittest.TestCase):
         tracks = [{"title": "Song", "artist": "Fixture Artist"}]
         self.import_list("projected-import.xspf", write_xspf("spotify " + provider_id, tracks))
         self.import_list(key + ".xspf", write_xspf(key, tracks))
-        self.stub_spotify_names({key: "Spotify · Evening records"})
+        bare_id = "b" * 22
+        self.import_list("spotify_" + bare_id + ".xspf", write_xspf(bare_id, tracks))
+        self.stub_spotify_names({key: "Spotify · Evening records", "spotify_" + bare_id: "Spotify · Daytime records"})
         names = self.overview_names()
         self.assertEqual(names["projected-import"], "Spotify · Evening records")
         self.assertEqual(names[key], "Spotify · Evening records")
+        self.assertEqual(names["spotify_" + bare_id], "Spotify · Daytime records")
         self.stub_spotify_names({})
         self.assertEqual(self.overview_names()[key], "Spotify playlist")
 

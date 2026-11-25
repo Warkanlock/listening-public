@@ -1,4 +1,4 @@
-import { FindCopySources } from "./Extensions";
+import { FindCopyExtensionsButton, FindCopySources } from "./Extensions";
 import { RoomIcon, RoomIconButton } from "../components/RoomIcon";
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "@ui-sdk/react/button";
@@ -9,15 +9,22 @@ import { useStore } from "../store";
 import { StateCard } from "../components/StateCard";
 import { YouTubeLink } from "../components/YouTubeLink";
 import { TryMp3Button } from "../components/TryMp3Button";
+import { FAILED_REQUESTS, RequestStatus, RetryRequestButton } from "../components/RequestStatus";
+import { RecordingVersions } from "../components/RecordingVersions";
+import { RefreshButton } from "../components/RefreshButton";
 
-const RETRYABLE = ["not_found", "error", "rejected"];
-
-function RetryForm({ row }: { row: RequestRow }) {
+function RetryForm({ row, onRetry }: { row: RequestRow; onRetry: () => void }) {
   const store = useStore();
   const [value, setValue] = useState(row.search_title || row.title);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const [sending, setSending] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void store.retryRequest(row.id, value);
+    setSending(true);
+    try {
+      if (await store.retryRequest(row.id, value)) onRetry();
+    } finally {
+      setSending(false);
+    }
   };
   return (
     <form className="retry-form" onSubmit={submit}>
@@ -28,7 +35,7 @@ function RetryForm({ row }: { row: RequestRow }) {
         onValueChange={setValue}
         required
       />
-      <Button className="quiet-button" type="submit">
+      <Button className="quiet-button" type="submit" disabled={sending}>
         Retry search
       </Button>
     </form>
@@ -37,7 +44,10 @@ function RetryForm({ row }: { row: RequestRow }) {
 
 function RequestItem({ row }: { row: RequestRow }) {
   const store = useStore();
+  const [editingSearch, setEditingSearch] = useState(false);
   const format = REQUEST_FORMATS.find(format => format.key === row.requested_format)?.label;
+  const failed = FAILED_REQUESTS.includes(row.status);
+  const editSearch = failed && !row.copy_review;
   return (
     <div className="request-item">
       <span className="request-symbol">
@@ -46,47 +56,39 @@ function RequestItem({ row }: { row: RequestRow }) {
       <span className="request-details">
         <strong>{row.title}</strong>
         <span>
-          {row.artist}{format ? ` · ${format}` : ""}{row.message && row.message !== statusLabel(row.status) ? ` · ${row.message}` : ""}
+          {[row.artist, row.version, format].filter(Boolean).join(" · ")}
         </span>
+        {row.message && !row.copy_review && row.message !== statusLabel(row.status) && <span>{row.message}</span>}
       </span>
-      <span className={`status-pill ${row.status}`}>
-        {statusLabel(row.status)}
-      </span>
-      {row.audio ? (
-        <>
-          <button
-            className="quiet-button"
-            type="button"
-            onClick={() => store.playRequest(row)}
-          >
-            Play
+      <div className="request-actions">
+        <RequestStatus request={row} />
+        {row.audio ? (
+          <>
+            <RoomIconButton icon="play" label={`Play ${row.title}`} onClick={() => store.playRequest(row)} />
+            <RoomIconButton icon="outputs" label="Open in room player"
+              onClick={event => void store.openRoomPlayer(row.track_index ?? `custom-${row.id}`, event.currentTarget)} />
+            {store.settings?.desktop_player_available && (
+              <RoomIconButton icon="northeast" label="Open in server’s desktop music app"
+                onClick={() => void store.openSource(row.track_index ?? `custom-${row.id}`)} />
+            )}
+          </>
+        ) : null}
+        {row.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={row.title} />}
+        {row.copy_review ? (
+          <button type="button" className="quiet-button" onClick={() => store.requestsSlice.chooseFormat(row)}>
+            Review copies
           </button>
-          <button className="quiet-button" type="button" onClick={event => void store.openRoomPlayer(row.track_index ?? `custom-${row.id}`, event.currentTarget)}>
-            Open in room player
-          </button>
-          {store.settings?.desktop_player_available && (
-            <button
-              className="quiet-button"
-              type="button"
-              onClick={() => void store.openSource(row.track_index ?? `custom-${row.id}`)}
-            >
-              Open in server’s desktop music app
-            </button>
-          )}
-        </>
-      ) : null}
-      {row.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={row.title} />}
-      {(row.status === "waiting_format" || RETRYABLE.includes(row.status)) && (
-        <button type="button" className="quiet-button" onClick={() => store.requestsSlice.chooseFormat(row)}>
-          {row.copy_review ? "Review copies" : row.status === "waiting_format" ? "Choose format" : "Change format"}
-        </button>
-      )}
-      {RETRYABLE.includes(row.status) ? (
-        <>
-          <YouTubeLink artist={row.artist} title={row.title} />
-          <RetryForm row={row} />
-        </>
-      ) : null}
+        ) : (row.status === "waiting_format" || failed) && (
+          <RoomIconButton icon="settings" label={row.status === "waiting_format" ? "Choose format" : "Change format"}
+            onClick={() => store.requestsSlice.chooseFormat(row)} />
+        )}
+        <RetryRequestButton request={row} title={row.title} onRetry={() => setEditingSearch(false)} />
+        {!store.member && <RecordingVersions song={row} onChoose={song => void store.createSongRequest(song)} />}
+        {editSearch && <RoomIconButton icon="search" label={`Edit search: ${row.title}`}
+          aria-expanded={editingSearch} onClick={() => setEditingSearch(value => !value)} />}
+        {failed && <YouTubeLink artist={row.artist} title={row.title} iconOnly />}
+      </div>
+      {editSearch && editingSearch && <RetryForm row={row} onRetry={() => setEditingSearch(false)} />}
     </div>
   );
 }
@@ -112,11 +114,11 @@ export function Requests() {
   };
 
   return (
-    <div className="view">
+    <div className="view requests-view">
       <header className="listening-view-head">
         <h1>Requests</h1>
       </header>
-      <FindCopySources />
+      <FindCopySources button={null} />
       <section className="request-form-section">
         <form id="customRequestForm" aria-label="Request a song" ref={formRef} onSubmit={submit}>
           <Field name="artist">
@@ -148,7 +150,10 @@ export function Requests() {
       <section>
         <div className="section-header">
           <h2>Recent requests</h2>
-          <RoomIconButton icon="refresh" label="Refresh requests" onClick={() => void store.loadRequests()} />
+          <div className="request-actions">
+            <FindCopyExtensionsButton />
+            <RefreshButton target="requests" onRefresh={() => store.loadRequests()} />
+          </div>
         </div>
         <div className="requests-list">
           {rows.length ? (

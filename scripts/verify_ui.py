@@ -273,9 +273,11 @@ def seed_state(app):
         metadata_store.cache_put(key, json.dumps(payload), time.time())
     for title, genre in GENRES.items():
         store.set(keys[title], genre, "file")
-    metadata_store.enqueue(
+    deferred = metadata_store.enqueue(
         None, "Nina Simone", "Feeling Good", "", None,
         "Nina Simone Feeling Good")
+    metadata_store.claim(deferred)
+    metadata_store.defer_attempt(metadata_store.get(deferred), "Transfer timed out")
     missing_copy = metadata_store.enqueue(
         None, "Fixture Artist", "Unavailable Copy", "", 60,
         "Unavailable Copy")
@@ -440,7 +442,7 @@ def verify_request_restart(page, root, screenshot):
         sources.get_by_text("Find copy uses the room’s configured download sources.", exact=True).wait_for()
         assert "fixture-search" not in sources.inner_text()
         assert "fixture-download" not in sources.inner_text()
-        assert sources.get_by_role("button", name="View extensions").is_visible()
+        page.get_by_role("button", name="View extensions").wait_for()
         form = page.get_by_role("form", name="Request a song")
         form.get_by_label("Artist").fill("Fixture")
         form.get_by_label("Song title").fill("Format fixture")
@@ -3043,6 +3045,13 @@ def run_browser(server, output):
                 cards = page.locator(".job-card")
                 expect(item, cards.count() == 5,
                        f"jobs view holds {cards.count()} cards, want 5")
+                refresh = page.get_by_role("button", name="Refresh jobs", exact=True)
+                background = refresh.evaluate("button => getComputedStyle(button).backgroundColor")
+                refresh.hover()
+                assert refresh.evaluate("button => getComputedStyle(button).backgroundColor") != background
+                with page.expect_response(lambda res: res.url.endswith("/api/jobs") and res.request.method == "GET" and res.ok):
+                    refresh.click()
+                page.get_by_title("Refreshed jobs", exact=True).wait_for()
                 downloads = page.get_by_role("region", name="Download missing songs")
                 format_picker = downloads.get_by_role("combobox", name="Download format", exact=True)
                 format_picker.get_by_text("Room default (MP3 first)").wait_for()
@@ -3250,7 +3259,18 @@ def run_browser(server, output):
             try:
                 page.get_by_role("button", name="Requests", exact=True).click()
                 page.get_by_role("heading", name="Recent requests").wait_for(timeout=20000)
-                page.wait_for_selector("text=Feeling Good", timeout=20000)
+                extensions = page.get_by_role("button", name="View extensions", exact=True)
+                refresh_requests = page.get_by_role("button", name="Refresh requests", exact=True)
+                for width, height in ((1440, 900), (320, 740), (390, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    left, right = extensions.bounding_box(), refresh_requests.bounding_box()
+                    assert left and right and left["x"] + left["width"] <= right["x"] and abs(left["y"] - right["y"]) < 1
+                extensions.click()
+                page.get_by_role("dialog", name="Extensions", exact=True).get_by_role("button", name="Close extensions").click()
+                page.set_viewport_size({"width": 1440, "height": 900})
+                queued = page.locator(".request-item", has_text="Feeling Good")
+                scheduled = queued.locator(".request-status").filter(has_text=re.compile("^Retry scheduled$"))
+                scheduled.wait_for(timeout=20000)
                 missing_copy = page.locator(".request-item", has_text="Unavailable Copy")
                 result = missing_copy.get_by_text("No copy found", exact=True)
                 retry = missing_copy.get_by_role("button", name="Try MP3 for Unavailable Copy", exact=True)
@@ -3259,12 +3279,38 @@ def run_browser(server, output):
                 page.set_viewport_size({"width": 390, "height": 844})
                 result.wait_for(state="visible")
                 retry.wait_for(state="visible")
+                manual_retry = queued.get_by_role("button", name="Retry now: Feeling Good", exact=True)
+                with page.expect_response(lambda res: res.url.endswith("/api/requests/retry") and res.ok):
+                    manual_retry.click()
+                queued.locator(".request-status").filter(has_text=re.compile("^Queued$")).wait_for()
+                live_id = "00000000-0000-4000-8000-000000000091"
+                studio_id = "00000000-0000-4000-8000-000000000092"
+                versions = [{
+                    "kind": "recording", "track": {"musicbrainz_id": mbid, "title": "Feeling Good", "artist": "Nina Simone",
+                                                  "duration": duration, "version": kind, "album": album}
+                } for mbid, kind, album, duration in (
+                    (live_id, "Live", "Concert sessions", 185), (studio_id, "Studio", "Studio album", 190))]
+                page.route("**/api/discover/matches?*", lambda route: route.fulfill(json={"leads": versions}))
+                try:
+                    queued.get_by_role("button", name="Choose a version: Feeling Good").click()
+                    picker = page.get_by_role("dialog", name="Choose a recording")
+                    picker.get_by_role("button", name=re.compile("Studio album")).wait_for()
+                    with page.expect_response(lambda res: res.url.endswith("/api/requests") and res.request.method == "POST" and res.ok) as submitted:
+                        picker.get_by_role("button", name=re.compile("Concert sessions")).click()
+                    assert submitted.value.json()["musicbrainz_id"] == live_id
+                    assert submitted.value.json()["length"] == 185
+                    page.get_by_role("dialog", name="Choose format").get_by_role("button", name="Later").click()
+                finally:
+                    page.unroute("**/api/discover/matches?*")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 item.ok = True
-                item.detail = "pending and no-copy outcomes render on desktop and mobile"
+                item.detail = "Retry scheduled chip, manual retry, recording choices, and no-copy action at mobile width"
                 shot(item, "13-requests.png")
             except Exception as error:
                 item.detail = str(error)
+            finally:
+                page.set_viewport_size({"width": 1440, "height": 900})
+                close_any_dialog()
 
             item = surface("recent-downloads")
             try:
@@ -3274,6 +3320,7 @@ def run_browser(server, output):
                 page.route("**/api/requests", lambda route: route.fulfill(json=request_data))
                 with page.expect_response(lambda response: response.url.endswith("/api/requests")):
                     page.get_by_role("button", name="Refresh requests").click()
+                page.get_by_title("Refreshed requests", exact=True).wait_for()
                 request_data["outcomes"] = [{"key": "fixture/902", "title": download["title"], "status": "downloaded"}]
                 page.get_by_role("button", name="Refresh requests").click()
                 page.get_by_text("Verified fixture copy · Ready to play", exact=True).wait_for()
@@ -3685,16 +3732,51 @@ def run_browser(server, output):
                 }""")
                 profiles_panel = profiles.get_by_role("region", name="Music profile")
                 artist_path = f"**/api/music-profile/artist/{index}"
+                album_path = f"**/api/music-profile/album/{index}"
                 pending_profile = []
+                pending_album = []
                 profiles.route(artist_path, lambda route: pending_profile.append(route))
+                profiles.route(album_path, lambda route: pending_album.append(route))
+
+                def check_album_skeleton(screenshot):
+                    profiles_panel.get_by_role("status").filter(has_text="Loading album").wait_for()
+                    profiles_panel.get_by_role("heading", name="Track list").wait_for()
+                    rows = profiles_panel.locator(".music-profile-track[data-loading]")
+                    assert rows.count() == 4
+                    assert rows.first.get_attribute("data-ranked") is None
+                    assert profiles_panel.evaluate("(el) => el.scrollWidth <= el.clientWidth + 1")
+                    positions = rows.first.evaluate("""el => {
+                      const heading = el.closest('section').querySelector('h3');
+                      const row = el.getBoundingClientRect();
+                      return [
+                        el.querySelector('.music-profile-track-copy').getBoundingClientRect().left - row.left,
+                        row.top - heading.getBoundingClientRect().top,
+                        row.height,
+                      ];
+                    }""")
+                    profiles.screenshot(path=str(output / screenshot))
+                    return positions
+
+                def check_album_alignment(positions):
+                    profiles_panel.get_by_role("button", name="Play Asleep", exact=True).wait_for()
+                    rows = profiles_panel.locator(".music-profile-track:not([data-loading])")
+                    copy = rows.first.locator(".music-profile-track-copy").bounding_box()
+                    row = rows.first.bounding_box()
+                    heading = profiles_panel.get_by_role("heading", name="Track list").bounding_box()
+                    assert abs(copy["x"] - row["x"] - positions[0]) < 2
+                    assert abs(row["y"] - heading["y"] - positions[1]) < 2
+                    assert abs(row["height"] - positions[2]) < 2
                 row.get_by_role("button", name="Asleep", exact=True).click()
                 album_byline = profiles.get_by_role("region", name="Recording details").get_by_role(
                     "button", name="Open album Louder Than Bombs", exact=True)
                 album_byline.hover()
                 assert album_byline.evaluate("(el) => getComputedStyle(el).cursor === 'pointer'")
                 album_byline.click()
+                loading_rows = check_album_skeleton("music-profile-album-loading-desktop.png")
+                pending_album.pop().continue_()
+                profiles.unroute(album_path)
                 profiles_panel.get_by_role("heading", name="Louder Than Bombs").wait_for()
-                profiles_panel.get_by_role("heading", name="Track list").wait_for()
+                check_album_alignment(loading_rows)
                 tracklist_tab = profiles.get_by_role("tab", name="Track list", exact=True)
                 assert tracklist_tab.get_attribute("aria-selected") == "true"
                 assert tracklist_tab.evaluate("(el) => document.activeElement === el")
@@ -3705,7 +3787,9 @@ def run_browser(server, output):
                 profiles_panel.get_by_role("status").filter(has_text="Loading artist").wait_for()
                 artist_tab = profiles.get_by_role("tab", name="Artist", exact=True)
                 assert artist_tab.evaluate("(el) => document.activeElement === el")
-                assert profiles_panel.locator(".song-detail-placeholder").count() == 4
+                assert profiles_panel.locator(".artist-overview-hero").is_visible()
+                assert profiles_panel.locator(".music-profile-track[data-loading][data-ranked]").count() == 4
+                profiles.screenshot(path=str(output / "music-profile-artist-loading.png"))
                 pending_profile.pop().continue_()
                 profiles.unroute(artist_path)
                 profiles_panel.get_by_role("heading", name="The Smiths").wait_for()
@@ -3734,8 +3818,17 @@ def run_browser(server, output):
                 assert profiles_panel.evaluate("(el) => el.scrollWidth <= el.clientWidth + 1"), "Artist overview overflows"
                 profiles.screenshot(path=str(output / "music-profile-artist-mobile.png"))
                 album_release = discography.get_by_role("button", name=re.compile(r"^Louder Than Bombs"))
+                release_path = f"**/api/music-profile/release-group/{PROFILE_ALBUM}"
+                profiles.route(release_path, lambda route: pending_album.append(route))
+                profiles.emulate_media(reduced_motion="reduce")
                 album_release.click()
-                profiles.get_by_role("heading", name="Track list").wait_for()
+                loading_rows = check_album_skeleton("music-profile-album-loading-phone.png")
+                line = profiles_panel.locator(".music-profile-track[data-loading] .ui-skeleton-line").first
+                assert line.evaluate("(el) => getComputedStyle(el).animationName") == "none"
+                pending_album.pop().continue_()
+                profiles.unroute(release_path)
+                check_album_alignment(loading_rows)
+                profiles.emulate_media(reduced_motion="no-preference")
                 profiles_panel.get_by_role("button", name="Back", exact=True).click()
                 album_release.click()
                 profiles.get_by_role("heading", name="Track list").wait_for()
@@ -3787,7 +3880,7 @@ def run_browser(server, output):
                 pending_request.pop().continue_()
                 profiles.get_by_role("button", name="Confirm and search", exact=True).wait_for()
                 item.ok = True
-                item.detail = "Artist popularity and release filters, mobile overview, direct album navigation, ordered playback, and a missing song request"
+                item.detail = "Aligned album loading rows on desktop and phone, artist loading state, reduced motion, direct album navigation, playback, and copy requests"
             except Exception as error:
                 item.detail = repr(error)
             finally:

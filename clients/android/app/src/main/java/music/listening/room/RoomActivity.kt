@@ -1310,30 +1310,34 @@ class RoomActivity : Activity() {
                         }.orEmpty()
                         val request = track.optJSONObject("request")
                         val requestStatus = request?.optString("status").orEmpty()
-                        val detail = when {
-                            requestStatus == "missing" -> "Copy unavailable"
-                            track.optBoolean("in_library") -> "In library"
-                            request?.optBoolean("copy_review") == true -> "Choose a copy"
-                            requestStatus.isNotBlank() -> requestStatus.replace('_', ' ').replaceFirstChar { it.uppercase() }
-                            else -> ""
-                        }
+                        val inLibrary = track.optBoolean("in_library")
+                        val detail = if (inLibrary && requestStatus != "missing") "In library" else request?.copyStatusLabel().orEmpty()
                         songs.addView(ui.line())
                         songs.addView(ui.row(8).apply {
                             part(ui.column().apply {
                                 addView(ui.heading(title, 17f))
-                                addView(ui.label(if (detail.isBlank()) artist else "$artist · $detail", 14f, ui.secondary))
+                                addView(ui.label(artist, 14f, ui.secondary))
                                 if (via.isNotBlank()) addView(ui.label("Via $via", 13f, ui.secondary))
+                                if (detail.isNotBlank()) addView(ui.row().apply { addView(ui.statusChip(detail)) })
                             })
                             readyId(track)?.let { id ->
                                 addView(ui.iconButton("Play $title", Mark.PLAY) {
                                     play("play_request", JSONObject().put("request_id", id))
                                 })
                             }
-                            if (!track.optBoolean("in_library") && requestStatus in CHANGEABLE_FORMAT &&
+                            if (!inLibrary && requestStatus in CHANGEABLE_FORMAT &&
                                 request != null && request.has("format_revision")) {
                                 val label = if (requestStatus == "waiting_format") "Choose format for $title" else "Review copies for $title"
                                 addView(ui.iconButton(label, Mark.BROWSE) { review(track) })
                             }
+                            if (!inLibrary && request != null && requestStatus in RETRYABLE_COPY && !request.optBoolean("copy_review")) {
+                                addView(ui.iconButton("Retry now: $title", Mark.REFRESH) {
+                                    load({ target.retryCopy(request) }) { show() }
+                                })
+                            }
+                            if (!inLibrary) addView(ui.iconButton("Choose a recording: $title", Mark.ALBUM) {
+                                chooseRecordingVersion(target, track) { version -> openPick(target, version, null) }
+                            })
                         })
                     }
                     val scroll = ScrollView(this).apply { addView(songs) }
@@ -1342,6 +1346,26 @@ class RoomActivity : Activity() {
                     if (scrollY > 0) scroll.post { scroll.scrollTo(0, scrollY) }
                 }
             }
+        }
+    }
+
+    private fun chooseRecordingVersion(target: Room, item: JSONObject, choose: (JSONObject) -> Unit) {
+        load({ target.recordingVersions(item) }) { versions ->
+            val content = ui.column(8)
+            val style = SongDetailsStyle(ui)
+            val dialog = style.dialog(this, "Choose a recording", ScrollView(this).apply { addView(content) },
+                artist = item.optString("title"))
+            if (versions.isEmpty()) content.addView(ui.label("No other recordings found."))
+            for (version in versions) {
+                val duration = version.getDouble("duration").toInt()
+                val detail = listOf("artist", "version", "performance", "album").map(version::optString)
+                    .filter(String::isNotBlank) + "${duration / 60}:${(duration % 60).toString().padStart(2, '0')}"
+                content.addView(ui.button(version.getString("title") + "\n" + detail.joinToString(" · ")) {
+                    dialog.dismiss()
+                    choose(version)
+                })
+            }
+            dialog.show()
         }
     }
 
@@ -1370,6 +1394,13 @@ class RoomActivity : Activity() {
             }
         }, onTryMp3 = row?.optJSONObject("mp3_retry")?.let { retry -> { requestMp3(target, retry) } },
             openView = item.creditRecordingId()?.let { ::openView },
+            onRetry = row?.takeIf { it.optString("status") in RETRYABLE_COPY && !it.optBoolean("copy_review") }?.let {
+                { load({ target.retryCopy(it) }) { result ->
+                    show()
+                    message(result.optString("status"))
+                } }
+            },
+            onVersions = { chooseRecordingVersion(target, item) { version -> openPick(target, version, null, creditCache) } },
             onAddToPlaylist = { pickPlaylist(target, SongDraft.from(item)) })
     }
 

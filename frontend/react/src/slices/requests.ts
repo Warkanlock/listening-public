@@ -7,6 +7,9 @@ const requestsSignature = (rows: RequestRow[]) =>
     rows.map((row) => [
       row.id,
       row.status,
+      row.phase,
+      row.retry_at,
+      row.copy_review,
       row.requested_format,
       row.format_revision,
       row.mp3_retry,
@@ -16,6 +19,7 @@ const requestsSignature = (rows: RequestRow[]) =>
       row.search_title,
       row.title,
       row.artist,
+      row.version,
     ]),
   );
 
@@ -51,7 +55,7 @@ export class RequestsSlice {
     const revision = ++this.readRevision;
     try {
       const result = await api<{ requests: RequestRow[]; downloads?: RecentDownload[]; outcomes?: DownloadOutcome[] }>("/api/requests");
-      if (revision !== this.readRevision) return;
+      if (revision !== this.readRevision) return true;
       this.requestRows = result.requests;
       this.recentDownloads = result.downloads ?? [];
       if (result.outcomes) this.announceOutcomes(result.outcomes);
@@ -62,11 +66,13 @@ export class RequestsSlice {
         this.renderedRequestsSignature = signature;
         this.host.bump();
       }
+      return true;
     } catch (error) {
-      if (revision !== this.readRevision) return;
+      if (revision !== this.readRevision) return false;
       this.renderedRequestsSignature = null;
       this.requestsError = errorMessage(error, "Requests could not load");
       this.host.bump();
+      return false;
     }
   }
 
@@ -105,16 +111,18 @@ export class RequestsSlice {
     }
   }
 
-  async retryRequest(id: number, searchTitle: string) {
+  async retryRequest(id: number, searchTitle?: string) {
     try {
       const result = await postJson<{ status: string }>("/api/requests/retry", {
         request_id: id,
         search_title: searchTitle,
       });
       notify(result.status);
-      void this.loadRequests();
+      await this.loadRequests();
+      return true;
     } catch (error) {
       notify(errorMessage(error, "Retry failed"));
+      return false;
     }
   }
 

@@ -379,7 +379,7 @@ export class Store implements SliceHost {
   createSongRequest(song: RequestSong): Promise<RequestRow | null> {
     return this.requestsSlice.createSongRequest(song);
   }
-  retryRequest(id: number, searchTitle: string) {
+  retryRequest(id: number, searchTitle?: string) {
     return this.requestsSlice.retryRequest(id, searchTitle);
   }
   playRequest(row: RequestRow) { this.requestsSlice.playRequest(row); }
