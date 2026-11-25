@@ -273,9 +273,10 @@ def seed_state(app):
         metadata_store.cache_put(key, json.dumps(payload), time.time())
     for title, genre in GENRES.items():
         store.set(keys[title], genre, "file")
-    deferred = metadata_store.enqueue(
-        None, "Nina Simone", "Feeling Good", "", None,
-        "Nina Simone Feeling Good")
+    deferred, _ = metadata_store.create_or_find(
+        None, "Nina Simone", "Feeling Good", "", None, "Nina Simone Feeling Good", individual=True)
+    metadata_store.confirm_format(deferred["id"], "any_lossless", deferred["format_revision"])
+    deferred = deferred["id"]
     metadata_store.claim(deferred)
     metadata_store.defer_attempt(metadata_store.get(deferred), "Transfer timed out")
     missing_copy = metadata_store.enqueue(
@@ -3268,6 +3269,40 @@ def run_browser(server, output):
                 extensions.click()
                 page.get_by_role("dialog", name="Extensions", exact=True).get_by_role("button", name="Close extensions").click()
                 page.set_viewport_size({"width": 1440, "height": 900})
+                progress_row = {"id": 10000, "title": "Transfer fixture", "artist": "Fixture Artist",
+                                "status": "searching", "phase": "testing", "download_percent": 42}
+
+                def requests_with_progress(route):
+                    upstream = route.fetch()
+                    data = upstream.json()
+                    data["requests"].append(progress_row)
+                    route.fulfill(response=upstream, json=data)
+
+                page.route("**/api/requests", requests_with_progress)
+                try:
+                    progress = page.locator(".request-item", has_text="Transfer fixture")
+                    refresh_requests.click()
+                    progress.get_by_text("Trying a copy · 42%", exact=True).wait_for()
+                    progress_row["download_percent"] = 76
+                    progress.get_by_text("Trying a copy · 76%", exact=True).wait_for()
+                    progress_row.update(status="rejected", copy_review=True)
+                    refresh_requests.click()
+                    progress.get_by_text("No copy was saved.", exact=True).wait_for()
+                    progress.get_by_role("button", name="Review copies", exact=True).wait_for()
+                    progress_row.update(status="searching", phase="downloading", copy_review=False, download_percent=13)
+                    refresh_requests.click()
+                    progress.get_by_text("Downloading · 13%", exact=True).wait_for()
+                    progress_row["phase"] = "verifying"
+                    refresh_requests.click()
+                    progress.get_by_text("Verifying", exact=True).wait_for()
+                    assert not progress.get_by_text("Downloading · 13%", exact=True).is_visible()
+                    progress_row.update(status="rejected", request_state="copy_unavailable")
+                    refresh_requests.click()
+                    progress.get_by_text("Copy unavailable", exact=True).wait_for()
+                    progress.get_by_role("button", name="Browse copies", exact=True).wait_for()
+                    assert not progress.get_by_role("button", name=re.compile("Retry now|Change format")).count()
+                finally:
+                    page.unroute("**/api/requests", requests_with_progress)
                 queued = page.locator(".request-item", has_text="Feeling Good")
                 scheduled = queued.locator(".request-status").filter(has_text=re.compile("^Retry scheduled$"))
                 scheduled.wait_for(timeout=20000)
@@ -3280,7 +3315,7 @@ def run_browser(server, output):
                 result.wait_for(state="visible")
                 retry.wait_for(state="visible")
                 manual_retry = queued.get_by_role("button", name="Retry now: Feeling Good", exact=True)
-                with page.expect_response(lambda res: res.url.endswith("/api/requests/retry") and res.ok):
+                with page.expect_response(lambda res: res.url.endswith("/api/requests/retry") and res.ok) as retried:
                     manual_retry.click()
                 queued.locator(".request-status").filter(has_text=re.compile("^Queued$")).wait_for()
                 live_id = "00000000-0000-4000-8000-000000000091"
@@ -3297,14 +3332,19 @@ def run_browser(server, output):
                     picker.get_by_role("button", name=re.compile("Studio album")).wait_for()
                     with page.expect_response(lambda res: res.url.endswith("/api/requests") and res.request.method == "POST" and res.ok) as submitted:
                         picker.get_by_role("button", name=re.compile("Concert sessions")).click()
-                    assert submitted.value.json()["musicbrainz_id"] == live_id
-                    assert submitted.value.json()["length"] == 185
-                    page.get_by_role("dialog", name="Choose format").get_by_role("button", name="Later").click()
+                    updated = submitted.value.json()
+                    assert updated["id"] == retried.value.json()["request"]["id"]
+                    assert updated["musicbrainz_id"] == live_id
+                    assert updated["length"] == 185
+                    assert updated["requested_format"] == "any_lossless"
+                    assert not page.get_by_role("dialog", name="Choose format").count()
+                    history = page.request.get(server.base + "/api/requests").json()["requests"]
+                    assert [row["id"] for row in history if row["title"] == "Feeling Good"] == [updated["id"]]
                 finally:
                     page.unroute("**/api/discover/matches?*")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 item.ok = True
-                item.detail = "Retry scheduled chip, manual retry, recording choices, and no-copy action at mobile width"
+                item.detail = "Transfer and verification, selected-copy recovery, and recording changes on the same request"
                 shot(item, "13-requests.png")
             except Exception as error:
                 item.detail = str(error)

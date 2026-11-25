@@ -396,7 +396,8 @@ function Shell({ role }: { role: RoomRole }) {
         )}
       </ToastRegion>
       {store.requestsSlice.formatPicker && (
-        <RequestFormatPicker key={store.requestsSlice.formatPicker.id} row={store.requestsSlice.formatPicker} />
+        <RequestFormatPicker key={`${store.requestsSlice.formatPicker.id}/${store.requestsSlice.formatPicker.format_revision}`}
+          row={store.requestsSlice.formatPicker} />
       )}
       <ShortcutsDialog />
       <AnnouncementsDialog />

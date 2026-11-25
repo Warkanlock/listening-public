@@ -1,6 +1,7 @@
 package music.listening.room
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.res.ColorStateList
 import android.view.View
 import android.widget.ImageButton
@@ -12,10 +13,35 @@ import org.json.JSONObject
 internal val CHANGEABLE_FORMAT = setOf("waiting_format", "not_found", "error", "rejected")
 internal val RETRYABLE_COPY = setOf("queued", "not_found", "error", "rejected")
 
-internal fun JSONObject.copyStatusLabel(): String = when (optString("status")) {
+internal fun JSONObject.needsCopyReview(): Boolean = optBoolean("copy_review") ||
+    optString("request_state") in setOf("choose_copy", "copy_unavailable")
+
+internal fun JSONObject.canReplaceRecording(): Boolean =
+    has("request_state") && has("format_revision") &&
+        (optString("status") in CHANGEABLE_FORMAT || optString("status") == "queued")
+
+internal fun JSONObject.copyPending(): Boolean = optString("status") in setOf("queued", "searching", "waiting_space")
+
+internal fun JSONObject.copyStatusLabel(): String {
+    val specific = when (optString("request_state")) {
+        "queued_copy" -> "Copy queued"
+        "retry_copy" -> "Copy retry scheduled"
+        "choose_copy" -> "Choose a copy"
+        "copy_unavailable", "copy_missing" -> "Copy unavailable"
+        "preparing" -> "Preparing playback"
+        else -> null
+    }
+    return specific ?: legacyCopyStatusLabel()
+}
+
+private fun JSONObject.legacyCopyStatusLabel(): String = when (optString("status")) {
     "queued" -> if (optDouble("retry_at", 0.0) > 0) "Retry scheduled" else "Queued"
     "searching" -> when (optString("phase")) {
-        "downloading" -> "Downloading"
+        "testing", "downloading" -> {
+            val label = if (optString("phase") == "testing") "Trying a copy" else "Downloading"
+            val percent = optInt("download_percent", -1)
+            if (percent in 0..100) "$label · $percent%" else label
+        }
         "verifying" -> "Verifying"
         else -> "Searching"
     }
@@ -30,63 +56,89 @@ internal fun JSONObject.copyStatusLabel(): String = when (optString("status")) {
 }
 
 internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: JSONObject?,
-                                        onPlay: ((Int) -> Unit)?, onRequest: () -> Unit, onTryMp3: (() -> Unit)?,
-                                        openView: ((SongDetailsView) -> Unit)?,
-                                        onRetry: (() -> Unit)?, onVersions: () -> Unit,
-                                        onAddToPlaylist: () -> Unit) {
-    val status = request?.optString("status")
-    val failure = request?.optString("message").orEmpty().takeIf {
-        it != request?.copyStatusLabel() && request?.optBoolean("copy_review") != true
-    }.orEmpty()
-    val details = listOf(item.optString("version"), item.optString("album"), item.optString("reason"), failure)
-        .filter { it.isNotBlank() }.joinToString("\n\n")
+                                        onPlay: (Int) -> Unit, onRequest: (JSONObject?) -> Unit, onTryMp3: (JSONObject) -> Unit,
+                                        openView: ((SongDetailsView, JSONObject?) -> Unit)?,
+                                        onRetry: (JSONObject) -> Unit, onVersions: (JSONObject?) -> Unit,
+                                        onAddToPlaylist: () -> Unit, watch: (Dialog, (JSONObject) -> Unit) -> Unit) {
     val ui = RoomUi(this)
     val style = SongDetailsStyle(ui)
     val info = style.column()
     val window = style.dialog(this, item.getString("title"), ScrollView(this).apply { addView(info) }, artist = item.optString("artist"))
+    var current = request
     with(ui) {
         if (openView != null) {
             val hasAlbum = item.creditTrackId() != null && item.optString("album").isNotBlank()
             info.section(style.navigation(SongDetailsView.DETAILS, hasAlbum) {
                 window.dismiss()
-                openView(it)
+                openView(it, current)
             })
         }
+        val details = listOf(item.optString("version"), item.optString("album"), item.optString("reason"))
+            .filter(String::isNotBlank).joinToString("\n\n")
         if (details.isNotBlank()) info.section(label(details))
-        request?.copyStatusLabel()?.takeIf(String::isNotBlank)?.let { status ->
-            info.section(row().apply { addView(statusChip(status)) })
-        }
+        val feedback = label("", 14f, secondary)
+        val statusChip = statusChip("")
+        info.section(feedback)
+        info.section(row().apply { addView(statusChip) })
+        val controls = style.column()
+        info.section(controls, gap = 6)
         val missingDuration = item.has("musicbrainz_id") && item.optDouble("duration", 0.0) <= 0
-        val actions = buildList<ImageButton> {
-            fun action(name: String, mark: Mark, click: () -> Unit) = add(iconButton(name, mark) {
-                window.dismiss()
-                click()
-            })
-            when {
-                onPlay != null && status == "downloaded" && (request.optString("audio").isNotBlank() || request.optString("audio_path").isNotBlank()) ->
-                    action("Play", Mark.PLAY) { onPlay(request.getInt("id")) }
-                request?.optBoolean("copy_review") == true -> action("Review copies", Mark.BROWSE, onRequest)
-                status in CHANGEABLE_FORMAT -> action("Choose format", Mark.SETTINGS, onRequest)
-                missingDuration -> info.section(label("A duration is needed to verify a room copy."))
-                status !in listOf("queued", "searching", "waiting_space", "downloaded") ->
-                    action("Find a copy", Mark.DOWNLOAD, onRequest)
+        var actionKey: List<Any?>? = null
+        fun render(row: JSONObject?) {
+            current = row
+            val status = row?.optString("status")
+            val stage = row?.optString("request_state")
+            val retry = row?.optJSONObject("mp3_retry")
+            val canPlay = row != null && status == "downloaded" && stage != "copy_missing" &&
+                (row.optString("audio").isNotBlank() || row.optString("audio_path").isNotBlank())
+            val detail = when {
+                stage == "copy_unavailable" -> "Choose another copy to continue."
+                row?.needsCopyReview() == true -> "No copy was saved."
+                else -> row?.optString("message").orEmpty().takeUnless { it == row?.copyStatusLabel() }.orEmpty()
             }
-            if (onTryMp3 != null) action("Try MP3", Mark.REFRESH, onTryMp3)
-            if (onRetry != null) action("Retry now", Mark.REFRESH, onRetry)
-            action("Choose a recording", Mark.ALBUM, onVersions)
-            action("Add to playlist", Mark.PLAYLIST_ADD, onAddToPlaylist)
-            if (status != "downloaded") {
-                action("Find on YouTube", Mark.YOUTUBE) { openYouTube(this@showDiscoveryPick, item.optString("artist"), item.getString("title")) }
-                add(iconButton("View extensions", Mark.EXTENSIONS) { showRoomExtensions(room) })
+            feedback.text = detail
+            feedback.visibility = if (detail.isBlank()) View.GONE else View.VISIBLE
+            statusChip.text = row?.copyStatusLabel().orEmpty()
+            statusChip.visibility = if (statusChip.text.isBlank()) View.GONE else View.VISIBLE
+            val key = listOf(status, stage, row?.needsCopyReview(), row?.optLong("format_revision"),
+                row?.optString("musicbrainz_id"), canPlay, retry?.toString())
+            if (key == actionKey) return
+            actionKey = key
+            controls.removeAllViews()
+            val actions = buildList<ImageButton> {
+                fun action(name: String, mark: Mark, click: () -> Unit) = add(iconButton(name, mark) {
+                    window.dismiss()
+                    click()
+                })
+                when {
+                    canPlay && row != null -> action("Play", Mark.PLAY) { onPlay(row.getInt("id")) }
+                    row?.needsCopyReview() == true -> action("Review copies", Mark.BROWSE) { onRequest(current) }
+                    status in CHANGEABLE_FORMAT -> action("Choose format", Mark.SETTINGS) { onRequest(current) }
+                    missingDuration -> controls.section(label("A duration is needed to verify a room copy."))
+                    status !in listOf("queued", "searching", "waiting_space", "downloaded") ->
+                        action("Find a copy", Mark.DOWNLOAD) { onRequest(current) }
+                }
+                if (retry != null) action("Try MP3", Mark.REFRESH) { onTryMp3(retry) }
+                if (row != null && status in RETRYABLE_COPY && !row.needsCopyReview())
+                    action("Retry now", Mark.REFRESH) { onRetry(row) }
+                if (row == null || row.canReplaceRecording() || canPlay)
+                    action("Choose a recording", Mark.ALBUM) { onVersions(row) }
+                action("Add to playlist", Mark.PLAYLIST_ADD, onAddToPlaylist)
+                if (status != "downloaded") {
+                    action("Find on YouTube", Mark.YOUTUBE) { openYouTube(this@showDiscoveryPick, item.optString("artist"), item.getString("title")) }
+                    add(iconButton("View extensions", Mark.EXTENSIONS) { showRoomExtensions(room) })
+                }
             }
+            controls.addView(actionStrip(actions))
         }
-        info.section(actionStrip(actions), gap = 6)
+        render(request)
+        window.show()
+        if (request?.copyPending() == true) watch(window, ::render)
     }
-    window.show()
 }
 
 internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room,
-                                            browseFirst: Boolean = row.optBoolean("copy_review"),
+                                            browseFirst: Boolean = row.needsCopyReview(),
                                             confirm: (String, String?) -> Unit) {
     val options = listOf(
         "any_format" to "Any supported format (FLAC, ALAC, MP3 or AAC)",

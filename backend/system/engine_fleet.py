@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from downloads.engine_contract import WORKER_TIMEOUT_SECONDS
+from downloads.engine_contract import PROGRESS_FILE, WORKER_TIMEOUT_SECONDS, read_transfer_percent
 from system import engine_settings
 from system.private_files import private_write
 
@@ -187,7 +187,7 @@ class Fleet:
         self.docker("rm", "-f", self.container(identity), check=False)
         self.invalidate_status()
 
-    def worker(self, identity, request, connection, *, scratch=None):
+    def worker(self, identity, request, connection, *, scratch=None, on_tick=None):
         # Keep protocol output bounded independently of the worker implementation.
         with subprocess.Popen(["docker", "exec", "-i", self.container(identity),
                                "/usr/local/bin/listening-engine"],
@@ -204,6 +204,8 @@ class Fleet:
                         raise WorkerDeadlineExceeded("The engine timed out.")
                     if scratch is not None and shutil.disk_usage(scratch).free < RESERVE:
                         raise OSError("Listening is keeping 20 GiB free on engine staging.")
+                    if on_tick is not None:
+                        on_tick()
                     readable, writable, _ = select.select([process.stdout, connection],
                                                           [process.stdin] if payload else [],
                                                           [], min(remaining, 0.5))
@@ -349,7 +351,26 @@ class Fleet:
                 with tempfile.TemporaryDirectory(dir=scratch, prefix="job-") as directory:
                     worker_request = {"version": 1, "action": "fetch", "candidate": candidate,
                                       "staging": "/scratch/" + Path(directory).name}
-                    result = self.acquire_worker(identity, worker_request, connection, scratch=scratch)
+                    options = {"scratch": scratch}
+                    job = request.get("job")
+                    if request.get("report_progress") is True and isinstance(job, str) and TOKEN.fullmatch(job):
+                        target = self.staging / job
+                        last_percent = None
+
+                        def relay_progress():
+                            nonlocal last_percent
+                            percent = read_transfer_percent(directory)
+                            if percent is None or percent == last_percent or not target.is_dir() or target.is_symlink():
+                                return
+                            try:
+                                private_write(target / PROGRESS_FILE, str(percent))
+                            except OSError:
+                                return
+                            else:
+                                last_percent = percent
+
+                        options["on_tick"] = relay_progress
+                    result = self.acquire_worker(identity, worker_request, connection, **options)
                     if result["ok"]:
                         self.snapshot(Path(directory), request.get("job"), result.get("file"))
                         return {"ok": True, "file": result["file"]}

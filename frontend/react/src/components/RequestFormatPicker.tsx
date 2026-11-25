@@ -7,6 +7,7 @@ import { useStore } from "../store";
 import { notify } from "../toasts";
 import { RoomIcon, RoomIconButton } from "./RoomIcon";
 import { RoomAction } from "./RoomControls";
+import { needsCopyChoice, requestStage } from "../requestState";
 
 type BrowseState = { kind: "idle" | "searching" } |
   { kind: "results"; matches: CopyMatch[] } | { kind: "error"; message: string };
@@ -24,9 +25,10 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
   }, [showExtensions]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [browse, setBrowse] = useState<BrowseState>(row.copy_review ? { kind: "searching" } : { kind: "idle" });
+  const review = needsCopyChoice(requestStage(row));
+  const [browse, setBrowse] = useState<BrowseState>(review ? { kind: "searching" } : { kind: "idle" });
   const [browseRequest, setBrowseRequest] = useState<{ format: RequestFormat } | null>(
-    () => row.copy_review ? { format: choice } : null);
+    () => review ? { format: choice } : null);
   const browsing = browse.kind !== "idle";
   const browseBack = useRef<HTMLButtonElement>(null);
   const browseButton = useRef<HTMLButtonElement>(null);
@@ -73,11 +75,12 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
     setSaving(true);
     setError("");
     try {
-      await postJson("/api/requests/format", {
+      const updated = await postJson<RequestRow>("/api/requests/format", {
         ...fields, ...(copyKey ? { copy_key: copyKey } : {}),
       });
+      store.requestsSlice.applyRequest(updated);
       close();
-      notify(copyKey ? `Copy queued for ${row.title}` : `Format confirmed for ${row.title}`);
+      notify(copyKey ? `Copy queued for ${row.title}` : `Search queued for ${row.title}`);
       void store.loadRequests();
       if (store.view === "all" || store.view === "moods") void store.loadTracks(true);
     } catch (error) {
@@ -112,6 +115,7 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
           {browse.kind === "searching" && <p role="status">Searching for copies…</p>}
           {browse.kind === "error" && <p role="alert">{browse.message}</p>}
           {browse.kind === "results" && (browse.matches.length ? <div aria-label="Available copies">
+            {review && <p>No copy was saved. Choose one to download.</p>}
             {browse.matches.map(match => {
               const facts = [match.format?.toUpperCase(), match.duration ? time(match.duration) : "",
                 match.bitrate ? `${match.bitrate} kbps` : "",

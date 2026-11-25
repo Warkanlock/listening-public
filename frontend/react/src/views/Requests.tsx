@@ -9,7 +9,8 @@ import { useStore } from "../store";
 import { StateCard } from "../components/StateCard";
 import { YouTubeLink } from "../components/YouTubeLink";
 import { TryMp3Button } from "../components/TryMp3Button";
-import { FAILED_REQUESTS, RequestStatus, RetryRequestButton } from "../components/RequestStatus";
+import { RequestStatus, RetryRequestButton } from "../components/RequestStatus";
+import { canChangeRecording, canChooseFormat, needsCopyChoice, requestStage } from "../requestState";
 import { RecordingVersions } from "../components/RecordingVersions";
 import { RefreshButton } from "../components/RefreshButton";
 
@@ -21,7 +22,7 @@ function RetryForm({ row, onRetry }: { row: RequestRow; onRetry: () => void }) {
     event.preventDefault();
     setSending(true);
     try {
-      if (await store.retryRequest(row.id, value)) onRetry();
+      if (await store.retryRequest(row.id, value, row.format_revision)) onRetry();
     } finally {
       setSending(false);
     }
@@ -46,8 +47,9 @@ function RequestItem({ row }: { row: RequestRow }) {
   const store = useStore();
   const [editingSearch, setEditingSearch] = useState(false);
   const format = REQUEST_FORMATS.find(format => format.key === row.requested_format)?.label;
-  const failed = FAILED_REQUESTS.includes(row.status);
-  const editSearch = failed && !row.copy_review;
+  const stage = requestStage(row);
+  const review = needsCopyChoice(stage);
+  const editSearch = ["no_matches", "search_failed", "verification_failed"].includes(stage);
   return (
     <div className="request-item">
       <span className="request-symbol">
@@ -58,7 +60,8 @@ function RequestItem({ row }: { row: RequestRow }) {
         <span>
           {[row.artist, row.version, format].filter(Boolean).join(" · ")}
         </span>
-        {row.message && !row.copy_review && row.message !== statusLabel(row.status) && <span>{row.message}</span>}
+        {review ? <span>{stage === "copy_unavailable" ? "Choose another copy to continue." : "No copy was saved."}</span>
+          : row.message && row.message !== statusLabel(row.status) && <span>{row.message}</span>}
       </span>
       <div className="request-actions">
         <RequestStatus request={row} />
@@ -73,20 +76,21 @@ function RequestItem({ row }: { row: RequestRow }) {
             )}
           </>
         ) : null}
-        {row.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={row.title} />}
-        {row.copy_review ? (
+        {!review && row.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={row.title} />}
+        {review ? (
           <button type="button" className="quiet-button" onClick={() => store.requestsSlice.chooseFormat(row)}>
-            Review copies
+            {stage === "copy_unavailable" ? "Browse copies" : "Review copies"}
           </button>
-        ) : (row.status === "waiting_format" || failed) && (
-          <RoomIconButton icon="settings" label={row.status === "waiting_format" ? "Choose format" : "Change format"}
+        ) : canChooseFormat(stage) && (
+          <RoomIconButton icon="settings" label={stage === "choose_format" ? "Choose format" : "Change format"}
             onClick={() => store.requestsSlice.chooseFormat(row)} />
         )}
         <RetryRequestButton request={row} title={row.title} onRetry={() => setEditingSearch(false)} />
-        {!store.member && <RecordingVersions song={row} onChoose={song => void store.createSongRequest(song)} />}
+        {!store.member && (row.audio || canChangeRecording(stage)) && <RecordingVersions song={row}
+          onChoose={song => void (row.audio ? store.createSongRequest(song) : store.requestsSlice.chooseRecording(row, song))} />}
         {editSearch && <RoomIconButton icon="search" label={`Edit search: ${row.title}`}
           aria-expanded={editingSearch} onClick={() => setEditingSearch(value => !value)} />}
-        {failed && <YouTubeLink artist={row.artist} title={row.title} iconOnly />}
+        {editSearch && <YouTubeLink artist={row.artist} title={row.title} iconOnly />}
       </div>
       {editSearch && editingSearch && <RetryForm row={row} onRetry={() => setEditingSearch(false)} />}
     </div>

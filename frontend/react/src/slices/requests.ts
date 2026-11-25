@@ -1,5 +1,6 @@
-import { api, postJson, statusLabel, type DownloadOutcome, type RecentDownload, type RequestRow, type RequestSong } from "../api";
+import { api, postJson, type DownloadOutcome, type RecentDownload, type RequestRow, type RequestSong } from "../api";
 import { notify } from "../toasts";
+import { canChooseFormat, requestStage, requestStageLabel } from "../requestState";
 import { errorMessage, type SliceHost } from "./host";
 
 const requestsSignature = (rows: RequestRow[]) =>
@@ -7,7 +8,9 @@ const requestsSignature = (rows: RequestRow[]) =>
     rows.map((row) => [
       row.id,
       row.status,
+      row.request_state,
       row.phase,
+      row.download_percent,
       row.retry_at,
       row.copy_review,
       row.requested_format,
@@ -16,6 +19,8 @@ const requestsSignature = (rows: RequestRow[]) =>
       row.message,
       row.audio,
       row.track_index,
+      row.musicbrainz_id,
+      row.original_recording_id,
       row.search_title,
       row.title,
       row.artist,
@@ -87,10 +92,10 @@ export class RequestsSlice {
     const latest = fresh[0];
     if (fresh.length > 1) {
       const ready = fresh.filter(row => row.status === "downloaded").length;
-      const missing = fresh.filter(row => row.status === "not_found").length;
+      const missing = fresh.filter(row => requestStage(row) === "no_matches").length;
       const review = fresh.length - ready - missing;
       notify([ready && `${ready} ready to play`, missing && `${missing} no copy found`, review && `${review} need review`].filter(Boolean).join(" · "));
-    } else if (latest) notify(`${latest.title} · ${latest.status === "downloaded" ? "Ready to play" : statusLabel(latest.status)}`);
+    } else if (latest) notify(`${latest.title} · ${latest.status === "downloaded" ? "Ready to play" : requestStageLabel(latest)}`);
   }
 
   chooseFormat(row: RequestRow | null) {
@@ -98,11 +103,22 @@ export class RequestsSlice {
     this.host.bump();
   }
 
+  applyRequest(row: RequestRow) {
+    const existing = this.requestRows.find(request => request.id === row.id);
+    if (existing && existing.format_revision > row.format_revision) return;
+    this.readRevision++;
+    this.requestRows = existing ? this.requestRows.map(request => request.id === row.id ? row : request)
+      : [row, ...this.requestRows];
+    this.resetRequestsSignature();
+    this.host.bump();
+  }
+
   async createSongRequest(song: RequestSong): Promise<RequestRow | null> {
     try {
       const row = await postJson<RequestRow>("/api/requests", song);
-      if (row.status === "waiting_format" || row.copy_review) this.chooseFormat(row);
-      else notify(`${row.title}: ${statusLabel(row.status)}`);
+      this.applyRequest(row);
+      if (canChooseFormat(requestStage(row))) this.chooseFormat(row);
+      else notify(`${row.title} · ${requestStageLabel(row)}`);
       void this.loadRequests();
       return row;
     } catch (error) {
@@ -111,12 +127,31 @@ export class RequestsSlice {
     }
   }
 
-  async retryRequest(id: number, searchTitle?: string) {
+  async chooseRecording(current: RequestRow, song: RequestSong) {
     try {
-      const result = await postJson<{ status: string }>("/api/requests/retry", {
+      const row = await postJson<RequestRow>("/api/requests", {
+        ...song, request_id: current.id, format_revision: current.format_revision,
+      });
+      this.applyRequest(row);
+      if (requestStage(row) === "choose_format") this.chooseFormat(row);
+      else notify(`${row.title} · ${requestStageLabel(row)}`);
+      void this.loadRequests();
+      return row;
+    } catch (error) {
+      notify(errorMessage(error, "Couldn’t change the recording"));
+      void this.loadRequests();
+      return null;
+    }
+  }
+
+  async retryRequest(id: number, searchTitle?: string, revision?: number) {
+    try {
+      const result = await postJson<{ status: string; request?: RequestRow }>("/api/requests/retry", {
         request_id: id,
         search_title: searchTitle,
+        format_revision: revision,
       });
+      if (result.request) this.applyRequest(result.request);
       notify(result.status);
       await this.loadRequests();
       return true;

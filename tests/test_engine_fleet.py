@@ -226,6 +226,33 @@ class FleetStorageTests(unittest.TestCase):
                 self.fleet.worker("fixture", request, connection, scratch=self.fleet.mount("fixture"))
         docker.assert_called_once_with("restart", self.fleet.container("fixture"))
 
+    def test_opted_in_transfer_relays_only_valid_progress(self):
+        request = {"action": "fetch", "engine": "fixture", "job": self.job, "report_progress": True,
+                   "candidate": {"source": "fixture", "id": "track"}}
+        target = self.fleet.staging / self.job
+
+        def download(identity, request, connection, *, scratch, on_tick):
+            directory = scratch / Path(request["staging"]).name
+            progress = directory / engine_fleet.PROGRESS_FILE
+            staged = target / engine_fleet.PROGRESS_FILE
+            track = directory / "song.mp3"
+            track.write_bytes(b"audio")
+            progress.symlink_to(track)
+            on_tick()
+            self.assertFalse(staged.exists())
+            progress.unlink()
+            progress.write_text("103")
+            on_tick()
+            self.assertFalse(staged.exists())
+            progress.write_text("48")
+            on_tick()
+            self.assertEqual(staged.read_text(), "48")
+            return {"ok": True, "file": track.name}
+
+        with mock.patch.object(self.fleet, "worker", side_effect=download):
+            self.assertTrue(self.fleet.acquire(request, None)["ok"])
+        self.assertEqual((target / "song.mp3").read_bytes(), b"audio")
+
     def test_snapshot_leaves_worker_symlinks_and_links_outside_staging(self):
         scratch = self.fleet.mount("fixture")
         original = scratch / "real.mp3"

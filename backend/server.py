@@ -139,7 +139,10 @@ def recent_requests(rows=None, *, check_audio=False):
         for row in rows:
             if retry := mp3_retry(row):
                 row["mp3_retry"] = retry
-            if row["status"] != "downloaded" or not row["audio_path"]:
+            if row["status"] != "downloaded":
+                continue
+            if not row["audio_path"]:
+                row.update(request_state="copy_missing", message="No playable copy in the library")
                 continue
             index = row["track_index"]
             if index is None:
@@ -161,17 +164,19 @@ def recent_requests(rows=None, *, check_audio=False):
                     row["audio"] = f"/api/audio/{index}"
                     continue
                 row.update(status="searching" if preparing else "pending",
+                           request_state="preparing" if preparing else "copy_missing",
                            message="Preparing playback" if preparing else "No playable copy in the library")
         if check_audio:
             library, media_access = LIBRARY, MEDIA
             paths = [(row, row["audio_path"] if row["track_index"] is None else
                       catalog.coverage.get(row["track_index"], {}).get("path")) for row in rows if row.get("audio")]
-    if check_audio:
+    if check_audio and paths:
         media = media_access.store()
         available = {path: stored_audio_available(path, library, media) for path in {value for _, value in paths}}
         for row, path in paths:
             if not available[path]:
                 row.pop("audio")
+                row.update(request_state="copy_missing", message="No playable copy in the library")
     return rows
 
 
@@ -188,8 +193,15 @@ def download_activity():
                               ("id", "title", "artist", "track_index", "audio")})
     return {"downloads": list(recent.values())[:8], "outcomes": [
         {"key": f"{row['id']}/{row['status']}/{row['format_revision']}/{row['resolved_at'] or row['updated_at']}",
-         "title": row["title"], "status": row["status"]}
+         "title": row["title"], "status": row["status"], "request_state": row["request_state"]}
         for item in outcomes if (row := rows[item["id"]]).get("audio") or row["status"] in {"not_found", "rejected", "error"}]}
+
+
+def playable_request_picks(store, picks):
+    rows = store.for_picks(picks, include_audio_path=True)
+    for row in recent_requests(list(rows.values()), check_audio=True):
+        row.pop("audio_path", None)
+    return rows
 
 
 def catalog_store():
@@ -2351,7 +2363,7 @@ class Handler(BaseHTTPRequestHandler):
             if profile is None:
                 requests = requests_store()
                 linked = requests.by_track()
-                picks = requests.for_picks([("", "", track["musicbrainz_id"]) for track in result["tracks"]
+                picks = playable_request_picks(requests, [("", "", track["musicbrainz_id"]) for track in result["tracks"]
                                             if track["musicbrainz_id"] and not track.get("track_id")])
                 for track in result["tracks"]:
                     if track_id := track.get("track_id"):
@@ -2473,16 +2485,19 @@ class Handler(BaseHTTPRequestHandler):
                 downloaded = discovery_trail.LibraryRecordings(store.downloaded_audio(custom_only=True))
                 for track, key in zip(tracks, by_recording):
                     row = rows.get(key) or rows.get(key[:2])
-                    request = {field: row[field] for field in ("id", "status")} if row else None
+                    request = {field: row[field] for field in (
+                        "id", "status", "request_state", "format_revision", "requested_format",
+                        "title", "artist", "musicbrainz_id", "version")} if row else None
                     if row:
                         request.update({field: row[field] for field in ("phase", "retry_at") if row[field]})
-                    if row and row["status"] in EDITABLE_FORMAT:
-                        request.update(requested_format=row["requested_format"], format_revision=row["format_revision"])
+                        if row.get("download_percent") is not None:
+                            request["download_percent"] = row["download_percent"]
                         if row.get("copy_review"):
                             request["copy_review"] = True
                     if row and row["status"] == "downloaded":
                         if not stored_audio_available(row["audio_path"], library, media):
                             request["status"] = "missing"
+                            request["request_state"] = "copy_missing"
                         else:
                             request["audio"] = f"/api/audio/custom/{row['id']}"
                     result.append({**track, "request": request, "in_library": (
@@ -2941,7 +2956,7 @@ class Handler(BaseHTTPRequestHandler):
                 known = metadata.discovery_index(catalog)
                 tracks = [item for item in shelf["tracks"] if not known.contains(item)]
                 keys = [(item["artist"], item["title"], item["musicbrainz_id"]) for item in tracks]
-                picks = requests_store().for_picks(keys)
+                picks = playable_request_picks(requests_store(), keys)
                 return self.json_response({**shelf, "weekly_edition": weekly.week(), "tracks": [
                     {**item, "request": picks.get(key)} for item, key in zip(tracks, keys)]})
             except (OSError, urllib.error.HTTPError, ValueError, TimeoutError):
@@ -2959,7 +2974,7 @@ class Handler(BaseHTTPRequestHandler):
                                                 metadata.discovery_index(catalog))
                 if kind == "recording":
                     key = ("", "", identity)
-                    result["request"] = requests_store().for_picks([key]).get(key)
+                    result["request"] = playable_request_picks(requests_store(), [key]).get(key)
                 return self.json_response(result)
             except (ConnectionsBusy, OSError, ValueError, sqlite3.Error):
                 return self.error_json("This branch could not load. Try again.", HTTPStatus.SERVICE_UNAVAILABLE)
@@ -3090,15 +3105,21 @@ class Handler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query, keep_blank_values=True)
             if "activity" in params:
                 return self.json_response(download_activity())
+            if "id" in params:
+                request_id = params["id"][0]
+                if not re.fullmatch(r"[0-9]{1,19}", request_id) or not 0 < int(request_id) < 2**63:
+                    return self.error_json("Invalid request ID")
+                row = requests_store().get(int(request_id))
+                return self.json_response({"requests": recent_requests([row], check_audio=True) if row else []})
             if "title" in params:
                 pick = (params.get("artist", [""])[0], params["title"][0])
                 if not pick[1] or any(len(value) > 200 for value in pick):
                     return self.json_response({"requests": []})
                 if "musicbrainz_id" in params:
                     pick += (params["musicbrainz_id"][0],)
-                row = requests_store().for_picks([pick]).get(pick)
+                row = playable_request_picks(requests_store(), [pick]).get(pick)
                 return self.json_response({"requests": [row] if row else []})
-            return self.json_response({"requests": recent_requests(), **download_activity()})
+            return self.json_response({"requests": recent_requests(check_audio=True), **download_activity()})
         if path.startswith("/api/replica/audio/"):
             return self.serve_audio(path.replace("/api/replica/", "/api/", 1), replica=True)
         if path.startswith("/api/audio/"):
@@ -3478,10 +3499,9 @@ class Handler(BaseHTTPRequestHandler):
                         if not selection:
                             raise ValueError("Choose search and download sources in Extensions to browse copies.")
                         recording = request_recording(row, record, choice)
-                    if row.get("copy_review"):
-                        saved = store.review_matches(request_id, choice, revision, recording, selection)
-                        if saved is not None:
-                            return self.json_response({"matches": saved})
+                    saved = store.review_matches(request_id, choice, revision, recording, selection)
+                    if saved:
+                        return self.json_response({"matches": saved})
                     candidates = search_recording(selection, recording)
                     matches = store.save_copy_matches(request_id, choice, revision, recording, selection, candidates)
                     return self.json_response({"matches": matches})
@@ -3499,17 +3519,21 @@ class Handler(BaseHTTPRequestHandler):
                 request_id = body.get("request_id")
                 if type(request_id) is not int or not 0 < request_id < 2**63:
                     raise ValueError("Choose a song request")
+                revision = body.get("format_revision")
+                if revision is not None and (type(revision) is not int or not 0 <= revision < 2**63 - 1):
+                    raise ValueError("Invalid request revision")
                 search_title = body.get("search_title")
                 if search_title is not None:
                     if not isinstance(search_title, str) or not search_title.strip():
                         raise ValueError("Enter another search phrase")
                     search_title = search_title.strip()[:200]
                 store = requests_store()
-                if not store.retry(request_id, search_title):
+                if not store.retry(request_id, search_title, revision=revision):
                     raise ValueError("Only queued or failed searches can be retried")
                 with ROOT_LOCK:
                     start_worker("requests", force=True)
-                return self.json_response({"status": "Search moved to the front of the queue"})
+                return self.json_response({"status": "Request moved to the front of the queue",
+                                           "request": store.get(request_id)})
             except (ValueError, TypeError) as error:
                 return self.error_json(str(error))
         if self.path == "/api/requests/batch":
@@ -3968,10 +3992,25 @@ class Handler(BaseHTTPRequestHandler):
             search_title = " ".join(part for part in (title, version, performance) if part)[:200]
         if len(search_title) > 200:
             return self.error_json("Search title is too long")
+        if "request_id" in body or "format_revision" in body:
+            request_id, revision = body.get("request_id"), body.get("format_revision")
+            if (not recording_id or type(request_id) is not int or not 0 < request_id < 2**63
+                    or type(revision) is not int or not 0 <= revision < 2**63 - 1):
+                return self.error_json("Choose another recording for the current request.")
+            try:
+                row, released = requests_store().replace_recording(
+                    request_id, revision, artist, title, album, length, search_title,
+                    musicbrainz_id=recording_id, version=version, performance=performance)
+            except ValueError as error:
+                return self.error_json(str(error), HTTPStatus.CONFLICT)
+            if released:
+                with ROOT_LOCK:
+                    start_worker("requests", force=True)
+            return self.json_response(row)
         row, created = requests_store().create_or_find(
             index, artist, title, album, length, search_title, individual=True, musicbrainz_id=recording_id, version=version, performance=performance)
-        if recording_id and row["status"] == "downloaded" and row["audio_path"]:
-            row["audio"] = f"/api/audio/custom/{row['id']}"
+        if row["status"] == "downloaded":
+            recent_requests([row], check_audio=True)
         return self.json_response(row, HTTPStatus.CREATED if created else HTTPStatus.OK)
 
     def playlist_add_song(self, body):
