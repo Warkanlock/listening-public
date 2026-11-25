@@ -16,6 +16,7 @@ export class JobsSlice {
   jobs: JobsResult | null = null;
   jobsError: string | null = null;
   jobActionError: { kind: JobKind; message: string } | null = null;
+  private jobsRevision = 0;
 
   constructor(private readonly host: SliceHost) {}
 
@@ -30,14 +31,23 @@ export class JobsSlice {
   }
 
   async refreshJobs() {
-    if (this.host.view !== "jobs") return;
+    if (this.host.view !== "jobs") return false;
+    const revision = ++this.jobsRevision;
     try {
-      this.jobs = await api<JobsResult>("/api/jobs");
-      this.jobsError = null;
+      const result = await api<JobsResult>("/api/jobs");
+      if (revision === this.jobsRevision) {
+        this.jobs = result;
+        this.jobsError = null;
+        this.host.bump();
+      }
+      return true;
     } catch (error) {
-      this.jobsError = errorMessage(error, "Jobs could not load");
+      if (revision === this.jobsRevision) {
+        this.jobsError = errorMessage(error, "Jobs could not load");
+        this.host.bump();
+      }
+      return false;
     }
-    this.host.bump();
   }
 
   async runJob(
@@ -50,6 +60,7 @@ export class JobsSlice {
         "/api/jobs",
         { kind, action, scope },
       );
+      this.jobsRevision++;
       this.jobs = result;
       this.jobsError = null;
       this.jobActionError = null;

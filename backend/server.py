@@ -80,7 +80,7 @@ from library import catalog_imports, playlist_edits, playlist_links, playlist_sh
 from library.local_sources import (discover_folders, is_music_list, list_files, source_mirror_kinds,
                                    sync_files, sync_folders)
 from adapters import opensubsonic, public_discovery, youtube_search
-from adapters.spotify_sync import SpotifyError, SpotifySync
+from adapters.spotify_sync import EXPORTED_PLAYLIST_NAME, SpotifyError, SpotifySync
 from system.formats import BULK_DOWNLOAD_FORMATS, REQUEST_SUFFIXES, bulk_download_format
 from system.config import host_database
 from system.config import AppConfig, default_root, legacy_config_path, resolve_config_path
@@ -573,7 +573,7 @@ def start_worker(action, root=None, force=False, scope=None, download_format=Non
     The imperative starter: the watchdog's standing duties and the
     request kicks call here. Console starts go through the job
     queue instead (ADR 0002); the dispatcher's starter is
-    start_job_worker below. The 90-second throttle keeps a worker
+    start_job_worker below. The restart throttle keeps a worker
     that exits immediately from being restarted on every watchdog
     pass; forced starts (a person asked, an update restarting what
     was running) bypass it.
@@ -587,7 +587,8 @@ def start_worker(action, root=None, force=False, scope=None, download_format=Non
             return False
         if any_library_worker_running():
             return False
-        if not force and time.monotonic() - LAST_WORKER_START < 90:
+        restart_delay = 15 if action == "requests" else 90
+        if not force and time.monotonic() - LAST_WORKER_START < restart_delay:
             return False
         kind = "downloads" if action == "run" else "requests"
         argv, env = runner_invocation(action, root or ROOT, scope=scope, download_format=download_format)
@@ -614,15 +615,27 @@ def start_reclaim_worker():
 
 
 def playlist_display_name(key):
-    """A playlist's display name, in the overview's precedence:
-    the catalog's list names, then Spotify's names, then the
-    owner's playlist_names setting, then the key itself with
-    underscores as spaces. (The playlist-listing loops walk the
-    same precedence with the maps hoisted out of the loop.)"""
-    return catalog.list_names.get(
-        key, spotify.playlist_names().get(
-            key, (SETTINGS.get("playlist_names") or {}).get(
-                key, key.replace("_", " "))))
+    return playlist_name_resolver(spotify.playlist_names())(key)
+
+
+def playlist_name_resolver(spotify_names):
+    """Keep declared titles, replacing only generated Spotify export labels."""
+    titles = catalog.list_names
+    owner_names = SETTINGS.get("playlist_names") or {}
+
+    def resolve(key):
+        declared = titles.get(key)
+        generated = EXPORTED_PLAYLIST_NAME.fullmatch(declared or "")
+        imported_key = EXPORTED_PLAYLIST_NAME.fullmatch(key)
+        if declared and not generated and not (imported_key and declared == imported_key[1]):
+            return declared
+        generated = generated or imported_key
+        if generated:
+            return (owner_names.get(key) or spotify_names.get(key)
+                    or spotify_names.get("spotify_" + generated[1]) or "Spotify playlist")
+        return spotify_names.get(key) or owner_names.get(key) or key.replace("_", " ")
+
+    return resolve
 
 
 def start_export_worker(scope=None, folder_name=None, profile="original"):
@@ -1026,10 +1039,6 @@ def stored_audio_available(path, library, media):
     return audio_resolution.resolve_stored(path, library) is not None
 
 
-def weekly_audio_format(row):
-    return row["requested_format"] in {"any_lossy", "mp3"}
-
-
 # The descriptive probe fields the player's quality readout and the
 # Normalize setting consume (plan 042 stage 6): the file's codec,
 # sample rate, and bit depth, and its ReplayGain values. Descriptive
@@ -1151,7 +1160,7 @@ def selected_playback_tracks(body, *, custom=True):
             raise ValueError("Choose verified requests from the weekly playlist.")
         store, media = requests_store(), MEDIA.store()
         return [f"custom-{item}" for item in dict.fromkeys(ids)
-                if (row := store.downloaded_custom(item)) and weekly_audio_format(row)
+                if (row := store.downloaded_custom(item))
                 and stored_audio_available(row["audio_path"], LIBRARY, media)]
     if body.get("op") != "play_album":
         return None
@@ -1318,6 +1327,8 @@ def playlist_access(source, destinations, names, allowed):
         link = {"mode": dest["mode"], "name": names.get(key, key)}
         if allowed:
             link.update(account_id=dest["account_id"], playlist_id=dest["playlist_id"])
+            if dest.get("needs_write_permission"):
+                link["needs_write_permission"] = True
         links.append(link)
     return {"can_add": allowed and any(item["mode"] == "two_way" for item in links),
             "spotify_link": links[0] if len(links) == 1 else {"mode": "multiple", "targets": links}}
@@ -1326,12 +1337,8 @@ def playlist_access(source, destinations, names, allowed):
 def playlist_options():
     """The downloads job's scope choices: every playlist with the
     display name /api/overview gives it, computed the same way."""
-    spotify_names = spotify.playlist_names()
-    owner_names = SETTINGS.get("playlist_names") or {}
-    return [{"id": key,
-             "name": catalog.list_names.get(key, spotify_names.get(
-                 key, owner_names.get(key, key.replace("_", " "))))}
-            for key in catalog.playlists]
+    display_name = playlist_name_resolver(spotify.playlist_names())
+    return [{"id": key, "name": display_name(key)} for key in catalog.playlists]
 
 
 playback = None  # Built by init().
@@ -2467,15 +2474,22 @@ class Handler(BaseHTTPRequestHandler):
                 for track, key in zip(tracks, by_recording):
                     row = rows.get(key) or rows.get(key[:2])
                     request = {field: row[field] for field in ("id", "status")} if row else None
+                    if row:
+                        request.update({field: row[field] for field in ("phase", "retry_at") if row[field]})
+                    if row and row["status"] in EDITABLE_FORMAT:
+                        request.update(requested_format=row["requested_format"], format_revision=row["format_revision"])
+                        if row.get("copy_review"):
+                            request["copy_review"] = True
                     if row and row["status"] == "downloaded":
                         if not stored_audio_available(row["audio_path"], library, media):
                             request["status"] = "missing"
-                        elif weekly_audio_format(row):
+                        else:
                             request["audio"] = f"/api/audio/custom/{row['id']}"
                     result.append({**track, "request": request, "in_library": (
                         known.contains_song(track) or downloaded.contains_song(track)
                     )})
             return self.json_response({**snapshot, "tracks": result,
+                                       "download_progress": weekly_discovery.download_progress(result),
                                        "can_request": bool(tracks) and download_ready()})
         except ValueError as error:
             return self.error_json(str(error))
@@ -2588,8 +2602,7 @@ class Handler(BaseHTTPRequestHandler):
             with ROOT_LOCK, REFRESH_LOCK:
                 if key not in catalog.playlists:
                     return self.error_json("Playlist not found", HTTPStatus.NOT_FOUND)
-                name = (catalog.list_names.get(key) or spotify.playlist_names().get(key)
-                        or (SETTINGS.get("playlist_names") or {}).get(key))
+                name = playlist_display_name(key)
                 preview = playlist_sharing.playlist_preview(catalog, key, name=name)
             if query.get("download") != ["1"]:
                 return self.json_response(preview)
@@ -3019,12 +3032,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/overview":
             playlists = []
             spotify_names = spotify.playlist_names() if profile is None else {}
-            owner_names = SETTINGS.get("playlist_names") or {}
+            display_name = playlist_name_resolver(spotify_names)
             mirror_kinds = source_mirror_kinds(SETTINGS, source_dir()) if profile is None else {}
             spotify_owned = spotify.playlist_keys() if profile is None else ()
             paused_spotify = spotify.paused_keys() if profile is None else ()
             destinations = spotify_destinations() if profile is None else {}
             allowed = self._can_add_room_song()
+            can_merge = self._is_owner()
             # The summary is computed on read over every record
             # (plan 036), so it is read once per request, never once
             # per playlist (plan 025: at 10k records the in-loop read
@@ -3038,7 +3052,7 @@ class Handler(BaseHTTPRequestHandler):
                               if catalog.record_at(index) is not None), None)
                 stats = playlist_stats.get(key, {})
                 source = "spotify-paused" if key in paused_spotify else playlist_source(key, mirror_kinds, spotify_owned)
-                playlists.append({"id": key, "name": catalog.list_names.get(key, spotify_names.get(key, owner_names.get(key, key.replace("_", " ")))),
+                playlists.append({"id": key, "name": display_name(key), "can_merge": can_merge,
                                   "entries": len(entries), "playable": stats.get("playable", 0),
                                   "revision": catalog.playlist_revisions.get(key, ""),
                                   "cover": catalog.covers.get(first["uri"], "") if first else "",
@@ -3464,6 +3478,10 @@ class Handler(BaseHTTPRequestHandler):
                         if not selection:
                             raise ValueError("Choose search and download sources in Extensions to browse copies.")
                         recording = request_recording(row, record, choice)
+                    if row.get("copy_review"):
+                        saved = store.review_matches(request_id, choice, revision, recording, selection)
+                        if saved is not None:
+                            return self.json_response({"matches": saved})
                     candidates = search_recording(selection, recording)
                     matches = store.save_copy_matches(request_id, choice, revision, recording, selection, candidates)
                     return self.json_response({"matches": matches})
@@ -3478,16 +3496,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error_json(str(error))
         if self.path == "/api/requests/retry":
             try:
-                request_id = int(body.get("request_id"))
-                search_title = str(body.get("search_title", "")).strip()[:200]
-                if not search_title:
-                    raise ValueError("Enter another search phrase")
+                request_id = body.get("request_id")
+                if type(request_id) is not int or not 0 < request_id < 2**63:
+                    raise ValueError("Choose a song request")
+                search_title = body.get("search_title")
+                if search_title is not None:
+                    if not isinstance(search_title, str) or not search_title.strip():
+                        raise ValueError("Enter another search phrase")
+                    search_title = search_title.strip()[:200]
                 store = requests_store()
                 if not store.retry(request_id, search_title):
-                    raise ValueError("Only failed searches can be retried")
+                    raise ValueError("Only queued or failed searches can be retried")
                 with ROOT_LOCK:
                     start_worker("requests", force=True)
-                return self.json_response({"status": "Queued with a broader search"})
+                return self.json_response({"status": "Search moved to the front of the queue"})
             except (ValueError, TypeError) as error:
                 return self.error_json(str(error))
         if self.path == "/api/requests/batch":

@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 import zlib
 
-from downloads.requests_store import RequestsStore, mp3_retry
+from downloads.requests_store import COPY_REVIEW_MESSAGE, RequestsStore, mp3_retry
 
 
 # The runner's former private DDL: a requests table and nothing else.
@@ -103,6 +103,23 @@ class LifecycleTests(StoreTestCase):
         self.assertEqual(row["status"], "queued")
         self.assertEqual(row["search_title"], "a broader search")
         self.assertEqual(row["message"], "")
+
+    def test_worker_keeps_uncertain_matches_for_explicit_review(self):
+        request_id = self.enqueue_custom()
+        self.assertTrue(self.store.claim(request_id))
+        recording, sources = {"title": "Custom Title"}, {"search": "one", "fetch": "one"}
+        candidate = {"source": "music", "id": "private", "label": "peer folder/Song.mp3", "recommended": False}
+        matches = self.store.save_copy_matches(request_id, "mp3", 0, recording, sources, [candidate], for_review=True)
+        self.store.finish(request_id, "rejected", COPY_REVIEW_MESSAGE, "")
+        self.assertTrue(self.store.get(request_id)["copy_review"])
+        self.assertEqual(matches[0]["label"], "Song.mp3")
+        self.assertNotIn("id", matches[0])
+        self.assertEqual(self.store.review_matches(request_id, "mp3", 0, recording, sources), matches)
+        self.assertIsNone(self.store.review_matches(request_id, "flac", 0, recording, sources))
+        row, released = self.store.confirm_format(request_id, "mp3", 0, matches[0]["key"])
+        self.assertTrue(released)
+        self.assertNotIn("copy_review", row)
+        self.assertEqual(self.store.selected_copy(request_id, 1)["candidate"], {"source": "music", "id": "private"})
 
     def test_queued_is_oldest_first_and_limited(self):
         ids = [self.enqueue_custom(title=f"T{i}") for i in range(3)]

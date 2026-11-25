@@ -8,6 +8,7 @@ import { errorText } from "./shared";
 interface Playlist {
   id: string; key: string; name: string; linked: boolean; owned: boolean; available: boolean;
   mode: NonNullable<import("../../api").PlaylistSummary["spotify_link"]>["mode"];
+  needs_write_permission?: boolean;
 }
 interface Account {
   account_id: string; connected: boolean; running: boolean; can_create: boolean;
@@ -54,7 +55,9 @@ function PlaylistEditor({ list, account, busy, revision, act }: EditProps) {
         onClick={() => void act(list.linked ? "unlink" : "link")}>{list.linked ? "Unlink playlist" : "Link playlist"}</RoomAction>
       <SourceBadge playlist={{ spotify_link: { mode: list.mode } }} />
     </div>
-    {list.mode === "read_only" && <p>You can follow this playlist in Listening. This account has read-only access.</p>}
+    {list.mode === "read_only" && <p>{list.needs_write_permission
+      ? "Reconnect your Spotify account above to grant editing access for this playlist."
+      : "You can follow this playlist in Listening. This account has read-only access."}</p>}
     {list.mode === "disconnected" && <p>Reconnect the Spotify account to resume syncing.</p>}
     {!list.available && <p>This playlist is no longer available on the connected account.</p>}
     {editable && <>

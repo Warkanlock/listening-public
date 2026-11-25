@@ -156,7 +156,7 @@ class Jobs:
                 and not row["progress"].get("engine_complete")):
             self._queue.record_progress(row["id"], {**row["progress"],
                 "engine_retry": row["progress"].get("engine_retry", "Download interrupted. Waiting to resume."),
-                "retry_after": time.time() + 90})
+                "retry_after": row["progress"].get("retry_after", time.time() + 90)})
             self._queue.requeue(row["id"])
         elif kind == "genres" and row["progress"] and not row["progress"].get("complete"):
             self._queue.mark_failed(row["id"], "The genre scan was interrupted. Start it again to check the remaining songs.")

@@ -73,6 +73,11 @@ internal class RoomUi(private val context: Context) {
         if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
     }
 
+    fun statusChip(value: String) = label(value, 13f, accentInk).apply {
+        background = surface(fog)
+        setPadding(dp(8), dp(4), dp(8), dp(4))
+    }
+
     fun surface(fill: Int, stroke: Int? = rule) = GradientDrawable().apply {
         setColor(fill)
         cornerRadius = dp(if (eInk) 4 else 8).toFloat()

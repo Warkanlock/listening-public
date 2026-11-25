@@ -55,7 +55,8 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
   const format = !!row && ["waiting_format", "not_found", "error", "rejected"].includes(row.status);
   const canRequest = !!track.track_id || !!track.musicbrainz_id && track.duration > 0;
   const retry = row ? row.mp3_retry : track.mp3_retry;
-  const label = ready ? "Play" : busy && row ? statusLabel(row.status) : format ? "Choose format" : "Find a copy";
+  const label = ready ? "Play" : busy && row ? statusLabel(row.status) : row?.copy_review ? "Review copies"
+    : format ? "Choose format" : "Find a copy";
 
   async function act() {
     if (pending) return;
@@ -82,7 +83,7 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
   return <li className="music-profile-track" data-ranked={rank !== undefined || undefined}>
     <span className="music-profile-track-number">{rank ?? track.number ?? (track.library_only ? "Library" : "")}</span>
     {rank !== undefined && <span className="artist-cover artist-song-cover" aria-hidden="true"><CoverArt cover={track.cover} /></span>}
-    <span><strong>{track.title}</strong><small>{[rank !== undefined ? track.album : track.artist,
+    <span className="music-profile-track-copy"><strong>{track.title}</strong><small>{[rank !== undefined ? track.album : track.artist,
       track.duration > 0 && time(track.duration),
       track.listens && `${numberFormat.format(track.listens)} listens`,
       track.plays && `${numberFormat.format(track.plays)} ${track.plays === 1 ? "play" : "plays"}`,
@@ -96,6 +97,42 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
     </RoomAction>}
     {!ready && !store.member && !canRequest && !row && <small>Duration unavailable</small>}
   </li>;
+}
+
+function ProfileTrackPlaceholders({ ranked = false }: { ranked?: boolean }) {
+  return <ol className="music-profile-tracks" aria-hidden="true">
+    {Array.from({ length: 4 }, (_, index) => <li key={index} className="music-profile-track"
+      data-ranked={ranked || undefined} data-loading>
+      <span className="music-profile-track-number"><span className="ui-skeleton-line" /></span>
+      {ranked && <span className="artist-cover artist-song-cover ui-skeleton-line" />}
+      <span className="music-profile-track-copy"><SkeletonLines count={2} /></span>
+      <span className="music-profile-placeholder-action ui-skeleton-line" />
+    </li>)}
+  </ol>;
+}
+
+function ArtistProfileLoading({ title }: { title?: string }) {
+  return <div className="artist-overview">
+    <header className="artist-overview-hero">
+      <div className="artist-identity">
+        <h2>{title || "Artist"}</h2>
+        <LoadingStatus>Loading artist…</LoadingStatus>
+        <div className="artist-hero-actions" aria-hidden="true">
+          <span className="music-profile-placeholder-action ui-skeleton-line" />
+          <span className="music-profile-placeholder-action ui-skeleton-line" />
+        </div>
+      </div>
+      <div className="artist-library-stats artist-loading-stats" aria-hidden="true">
+        {Array.from({ length: 3 }, (_, index) => <div key={index}><SkeletonLines count={2} /></div>)}
+      </div>
+    </header>
+    <div className="artist-overview-columns" aria-hidden="true">
+      <div className="artist-overview-section">
+        <div className="music-profile-tracklist-head"><span className="ui-skeleton-line" /></div>
+        <ProfileTrackPlaceholders ranked />
+      </div>
+    </div>
+  </div>;
 }
 
 type ReleaseTile = {
@@ -233,7 +270,7 @@ function ArtistOverview({ profile, open }: { profile: Profile; open: (target: Ta
           {(showSongs ? visibleTracks : visibleTracks.slice(0, 5)).map((track, index) => <ProfileTrack
             key={`${track.musicbrainz_id || track.track_id}:${index}`} track={track} albumQueue={[]} rank={index + 1} />)}
         </ol> : profile.identity && highlights === null
-          ? <LoadingStatus>Loading popular songs…</LoadingStatus>
+          ? <><LoadingStatus>Loading popular songs…</LoadingStatus><ProfileTrackPlaceholders ranked /></>
           : <p className="artist-profile-note">No songs are listed for this artist yet.</p>}
         {visibleTracks.length > 5 && <div>
           <RoomAction aria-expanded={showSongs} aria-controls={`${id}-song-list`} onClick={() => setShowSongs(!showSongs)}>
@@ -311,8 +348,6 @@ export function MusicProfile({ root, cache, resetScroll }: {
   const path = `/api/music-profile/${current.kind}/${current.id}`;
   const profile = cache.get(path) ?? (result?.path === path ? result.profile : null);
   const message = failure?.path === path ? failure.message : "";
-  const artistPage = current.kind === "artist";
-  const placeholderLayout = artistPage ? "music-profile-releases" : "music-profile-tracks";
   const albumQueue = profile?.kind === "album"
     ? profile.tracks.flatMap(track => {
         const reference = playableRef(track, requestFor(track, store.requestRows));
@@ -360,23 +395,23 @@ export function MusicProfile({ root, cache, resetScroll }: {
     </div>}
     {message ? <div className="connections-panel"><p role="alert">{message}</p>
       <RoomAction onClick={reload}>Try again</RoomAction></div>
-      : !profile ? <>
-        <header className="music-profile-head">
-          <div>
-            {current.title && <h2>{current.title}</h2>}
-            <LoadingStatus>{artistPage ? "Loading artist…" : "Loading album…"}</LoadingStatus>
+      : !profile ? current.kind === "artist" ? <ArtistProfileLoading title={current.title} /> : <>
+        <header className="music-profile-head music-profile-album-head">
+          <div className="music-profile-album-details">
+            <h2>{current.title || "Album information"}</h2>
+            <LoadingStatus>Loading album…</LoadingStatus>
           </div>
+          <span className="music-profile-placeholder-action ui-skeleton-line" aria-hidden="true" />
         </header>
-        <div className={placeholderLayout} aria-hidden="true">
-          {Array.from({ length: 4 }, (_, index) => <div className="song-detail-placeholder" key={index}>
-            <SkeletonLines count={2} />
-          </div>)}
-        </div>
+        <section className="music-profile-section">
+          <div className="music-profile-tracklist-head"><h3>Track list</h3></div>
+          <ProfileTrackPlaceholders />
+        </section>
       </>
       : profile.kind === "artist" ? <ArtistOverview key={path} profile={profile} open={open} />
       : <>
-        <header className="music-profile-head">
-          <div>
+        <header className="music-profile-head music-profile-album-head">
+          <div className="music-profile-album-details">
             <h2>{profile.title || "Album information"}</h2>
             {profile.artist_id && <button type="button" className="music-profile-byline"
               onClick={() => open({ kind: "artist", id: profile.artist_id!, title: profile.artist })}>{profile.artist}</button>}
@@ -386,7 +421,7 @@ export function MusicProfile({ root, cache, resetScroll }: {
             href={`https://musicbrainz.org/${profile.edition ? "release" : "release-group"}/${profile.edition || profile.identity}`}>MusicBrainz</a>}
         </header>
         {!!profile.tracks.length && <section className="music-profile-section">
-          <div className="music-profile-head">
+          <div className="music-profile-tracklist-head">
             <h3>Track list</h3>
             {albumQueue.length > 1 && <RoomAction primary icon={playingAlbum ? undefined : "play"}
               aria-busy={playingAlbum} aria-disabled={playingAlbum || undefined} onClick={async () => {

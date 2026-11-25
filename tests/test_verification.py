@@ -55,6 +55,22 @@ class BulkDownloadVerificationTests(unittest.TestCase):
 
 
 class DiscoveryCopyTests(unittest.TestCase):
+    def test_feature_credit_in_title_and_plus_spelling_identify_the_same_recording(self):
+        facts = {"title": "Più Famoso di Gesù (feat. Guest Artist)", "artist": "Main Artist", "duration": 224,
+                 "bitrate": 320000, "stream_bitrate": 320000, "codec": "mp3", "container": "mp3"}
+        def accepted(expected_title="+ Famoso di Gesù", **tags):
+            return judge_download(expected_title, 224, {**facts, **tags}, ".mp3", "any_lossy",
+                                  recording_id="duet", expected_artist="Main Artist feat. Guest Artist").ok
+        self.assertTrue(accepted())
+        self.assertTrue(accepted(title="+ Famoso di Gesù", artist="Main Artist featuring Guest Artist"))
+        self.assertTrue(accepted(expected_title=facts["title"], artist="Main Artist feat. Guest Artist"))
+        self.assertTrue(accepted(expected_title=facts["title"], title="+ Famoso di Gesù",
+                                 artist="Main Artist feat. Guest Artist"))
+        self.assertFalse(accepted(title="+ Famoso di Gesù"))
+        self.assertFalse(accepted(title="+ Famoso di Gesù (feat. Other Artist)"))
+        self.assertFalse(accepted(duration=199))
+        self.assertFalse(accepted(musicbrainz_trackid="solo"))
+
     def test_title_words_alone_are_not_version_evidence(self):
         media = {"bitrate": 800000, "duration": 242, "title": "Live Forever", "artist": "Singer",
                  "album": "Live Forever", "codec": "flac", "container": "flac"}

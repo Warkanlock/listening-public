@@ -1143,6 +1143,22 @@ class OverviewNamingTests(ServerFixture, unittest.TestCase):
         server.SETTINGS["playlist_names"] = {"owner_named": "Owner Name"}
         self.assertEqual(self.overview_names()["owner_named"], "Owner Name")
 
+    def test_spotify_generated_title_uses_cached_name_for_projected_and_legacy_playlists(self):
+        provider_id = "a" * 22
+        key = "spotify_" + provider_id
+        tracks = [{"title": "Song", "artist": "Fixture Artist"}]
+        self.import_list("projected-import.xspf", write_xspf("spotify " + provider_id, tracks))
+        self.import_list(key + ".xspf", write_xspf(key, tracks))
+        bare_id = "b" * 22
+        self.import_list("spotify_" + bare_id + ".xspf", write_xspf(bare_id, tracks))
+        self.stub_spotify_names({key: "Spotify · Evening records", "spotify_" + bare_id: "Spotify · Daytime records"})
+        names = self.overview_names()
+        self.assertEqual(names["projected-import"], "Spotify · Evening records")
+        self.assertEqual(names[key], "Spotify · Evening records")
+        self.assertEqual(names["spotify_" + bare_id], "Spotify · Daytime records")
+        self.stub_spotify_names({})
+        self.assertEqual(self.overview_names()[key], "Spotify playlist")
+
     def test_humanized_key_is_the_last_resort(self):
         self.import_list("plain_mix.csv", "Title,Artist\nSome Song,Some Artist\n")
         self.stub_spotify_names({})

@@ -28,6 +28,8 @@ CSV_FIELDS = ("Track URI", "Track Name", "Artist Name(s)", "Album Name",
               "Track Duration (ms)", "ISRC", "Album Image URL", "Added At")
 SYNC_INTERVAL = 15 * 60
 FULL_SAVED_INTERVAL = 24 * 60 * 60
+EXPORTED_PLAYLIST_NAME = re.compile(
+    r"spotify[ _]([A-Za-z0-9]{22})(?:\.spotify(?:-\d+)?)?(?:\.csv(?:\.\d+)?)?")
 
 
 def read_json(path):
@@ -151,9 +153,12 @@ class SpotifySync:
     def playlist_names(self):
         with self.lock:
             liked = self.state.get("liked_source", {}).get("key", "spotify_liked")
-            return {liked: "Spotify · Liked songs",
-                    **{key: "Spotify · " + entry.get("name", playlist_id)
-                       for key, (playlist_id, entry) in playlist_sources(self.state).items()}}
+            names = {liked: "Spotify · Liked songs"}
+            for key, (playlist_id, entry) in playlist_sources(self.state).items():
+                title = (entry.get("name") or "").strip()
+                if title and not EXPORTED_PLAYLIST_NAME.fullmatch(title) and title != playlist_id:
+                    names[key] = names["spotify_" + playlist_id] = "Spotify · " + title
+            return names
 
     def playlist_keys(self):
         """The catalog keys this adapter currently owns (plan 046).
@@ -192,6 +197,9 @@ class SpotifySync:
                              "owned": True, "available": True, "public": False, "collaborative": False})
         for playlist in lists:
             playlist["mode"] = playlists_api.link_mode(playlist, connected, scopes)
+            if (playlist["mode"] == "read_only" and (playlist["owned"] or playlist["collaborative"])
+                    and not playlists_api.write_scopes(playlist["id"], playlist["public"]).issubset(scopes)):
+                playlist["needs_write_permission"] = True
         return {"account_id": account, "connected": connected, "running": running, "playlists": lists,
                 "can_create": connected and "playlist-modify-private" in scopes,
                 "write_playlists": playlists_api.WRITE_PLAYLIST.issubset(scopes),
@@ -200,7 +208,8 @@ class SpotifySync:
     def playlist_links(self):
         """Bind the catalog's proven mirror keys to the account and its current editing grant."""
         account = self.management()
-        return {row["key"]: {"playlist_id": row["id"], "account_id": account["account_id"], "mode": row["mode"]}
+        return {row["key"]: {"playlist_id": row["id"], "account_id": account["account_id"], "mode": row["mode"],
+                             **({"needs_write_permission": True} if row.get("needs_write_permission") else {})}
                 for row in account["playlists"]}
 
     def add_metadata(self, local_key, expected_account, body):

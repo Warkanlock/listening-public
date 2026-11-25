@@ -261,16 +261,41 @@ def recording_words(value):
     return " ".join(re.findall(r"[^\W_]+", value.casefold()))
 
 
+_FEATURE_CREDIT = re.compile(r"\b(?:feat(?:uring)?|ft)\.?\s+", re.IGNORECASE)
+_FEATURE_SUFFIX = re.compile(r"\s*[\[(]((?:feat(?:uring)?|ft)\.?\s+[^\])]+)[\])]\s*$", re.IGNORECASE)
+
+
+def _recording_title_words(value):
+    leading = re.sub(r"^\s*(?:\+\s*|pi[uù]\s+)", "più ", value, flags=re.IGNORECASE)
+    return recording_words(leading)
+
+
+def _title_without_feature(value, guest):
+    featured = _FEATURE_SUFFIX.search(value)
+    if featured and recording_words(_FEATURE_CREDIT.sub("", featured[1], count=1)) == recording_words(guest):
+        return value[:featured.start()]
+    return value
+
+
 def recording_mismatch(media, title, artist, length, recording_id, version, performance):
     tagged = (media.get("musicbrainz_trackid") or "").lower()
     if tagged and recording_id != tagged:
         return "Audio identifies another recording"
-    actual_title = recording_words(media["title"])
-    expected = recording_words(title)
+    title_tag = media["title"]
+    artist_tag = media.get("artist") or ""
+    primary, *guests = _FEATURE_CREDIT.split(artist, maxsplit=1)
+    if guests:
+        without_feature = _title_without_feature(title_tag, guests[0])
+        if without_feature != title_tag and recording_words(artist_tag) == recording_words(primary):
+            artist_tag += " feat " + guests[0]
+        title_tag = without_feature
+        title = _title_without_feature(title, guests[0])
+    actual_title = _recording_title_words(title_tag)
+    expected = _recording_title_words(title)
     if not actual_title or re.fullmatch(_GENERIC_TAG, actual_title) or not length:
         return "Missing recording title or expected duration"
-    actual_artist = recording_words(media.get("artist") or "")
-    if (actual_artist or not tagged) and actual_artist != recording_words(artist):
+    actual_artist = recording_words(_FEATURE_CREDIT.sub("feat ", artist_tag))
+    if (actual_artist or not tagged) and actual_artist != recording_words(_FEATURE_CREDIT.sub("feat ", artist)):
         return "The artist tag does not identify this performer"
     qualifier = recording_words(version)
     if actual_title not in {expected, (expected + " " + qualifier).strip()}:

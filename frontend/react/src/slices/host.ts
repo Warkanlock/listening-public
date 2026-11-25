@@ -19,11 +19,11 @@ export interface SliceHost {
     successMessage?: string,
   ): Promise<boolean>;
   createSongRequest(song: RequestSong): Promise<RequestRow | null>;
-  loadRequests(): Promise<void>;
+  loadRequests(): Promise<boolean>;
   loadDiscover(): Promise<void>;
   loadSettings(): Promise<void>;
   loadTracks(reset?: boolean): Promise<void>;
-  refreshJobs(): Promise<void>;
+  refreshJobs(): Promise<boolean>;
   refreshOverview(): Promise<void>;
   refreshActivity(): Promise<void>;
   loadStations(): Promise<void>;

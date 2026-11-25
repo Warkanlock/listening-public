@@ -10,21 +10,36 @@ import android.widget.ScrollView
 import org.json.JSONObject
 
 internal val CHANGEABLE_FORMAT = setOf("waiting_format", "not_found", "error", "rejected")
+internal val RETRYABLE_COPY = setOf("queued", "not_found", "error", "rejected")
+
+internal fun JSONObject.copyStatusLabel(): String = when (optString("status")) {
+    "queued" -> if (optDouble("retry_at", 0.0) > 0) "Retry scheduled" else "Queued"
+    "searching" -> when (optString("phase")) {
+        "downloading" -> "Downloading"
+        "verifying" -> "Verifying"
+        else -> "Searching"
+    }
+    "waiting_space" -> "Waiting for space"
+    "waiting_format" -> "Choose format"
+    "not_found" -> "No copy found"
+    "error" -> "Search failed"
+    "rejected" -> if (optBoolean("copy_review")) "Choose a copy" else "Needs review"
+    "downloaded" -> "Ready"
+    "missing" -> "Copy unavailable"
+    else -> ""
+}
 
 internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: JSONObject?,
                                         onPlay: ((Int) -> Unit)?, onRequest: () -> Unit, onTryMp3: (() -> Unit)?,
                                         openView: ((SongDetailsView) -> Unit)?,
+                                        onRetry: (() -> Unit)?, onVersions: () -> Unit,
                                         onAddToPlaylist: () -> Unit) {
     val status = request?.optString("status")
-    val details = listOf(item.optString("version"), item.optString("album"), item.optString("reason"),
-        when (status) {
-            "queued" -> "Queued for download"
-            "searching" -> "Searching for a copy"
-            "waiting_space" -> "Waiting for storage space"
-            "not_found" -> "No copy found"
-            "error", "rejected" -> request.optString("message")
-            else -> ""
-        }).filter { it.isNotBlank() }.joinToString("\n\n")
+    val failure = request?.optString("message").orEmpty().takeIf {
+        it != request?.copyStatusLabel() && request?.optBoolean("copy_review") != true
+    }.orEmpty()
+    val details = listOf(item.optString("version"), item.optString("album"), item.optString("reason"), failure)
+        .filter { it.isNotBlank() }.joinToString("\n\n")
     val ui = RoomUi(this)
     val style = SongDetailsStyle(ui)
     val info = style.column()
@@ -38,6 +53,9 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
             })
         }
         if (details.isNotBlank()) info.section(label(details))
+        request?.copyStatusLabel()?.takeIf(String::isNotBlank)?.let { status ->
+            info.section(row().apply { addView(statusChip(status)) })
+        }
         val missingDuration = item.has("musicbrainz_id") && item.optDouble("duration", 0.0) <= 0
         val actions = buildList<ImageButton> {
             fun action(name: String, mark: Mark, click: () -> Unit) = add(iconButton(name, mark) {
@@ -47,12 +65,15 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
             when {
                 onPlay != null && status == "downloaded" && (request.optString("audio").isNotBlank() || request.optString("audio_path").isNotBlank()) ->
                     action("Play", Mark.PLAY) { onPlay(request.getInt("id")) }
+                request?.optBoolean("copy_review") == true -> action("Review copies", Mark.BROWSE, onRequest)
                 status in CHANGEABLE_FORMAT -> action("Choose format", Mark.SETTINGS, onRequest)
                 missingDuration -> info.section(label("A duration is needed to verify a room copy."))
                 status !in listOf("queued", "searching", "waiting_space", "downloaded") ->
                     action("Find a copy", Mark.DOWNLOAD, onRequest)
             }
             if (onTryMp3 != null) action("Try MP3", Mark.REFRESH, onTryMp3)
+            if (onRetry != null) action("Retry now", Mark.REFRESH, onRetry)
+            action("Choose a recording", Mark.ALBUM, onVersions)
             action("Add to playlist", Mark.PLAYLIST_ADD, onAddToPlaylist)
             if (status != "downloaded") {
                 action("Find on YouTube", Mark.YOUTUBE) { openYouTube(this@showDiscoveryPick, item.optString("artist"), item.getString("title")) }
@@ -64,7 +85,9 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
     window.show()
 }
 
-internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm: (String, String?) -> Unit) {
+internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room,
+                                            browseFirst: Boolean = row.optBoolean("copy_review"),
+                                            confirm: (String, String?) -> Unit) {
     val options = listOf(
         "any_format" to "Any supported format (FLAC, ALAC, MP3 or AAC)",
         "any_lossless" to "Any lossless (prefer FLAC)", "flac" to "FLAC only",
@@ -94,11 +117,11 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         visibility = View.GONE
         accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
     }
+    val browse = ui.iconButton("Browse copies", Mark.BROWSE) {}
     with(ui) {
         content.section(choices)
         content.section(line(), gap = 8)
         content.section(feedback, gap = 8)
-        val browse = iconButton("Browse copies", Mark.BROWSE) {}
         browse.setOnClickListener {
             val format = selectedFormat()
             browse.isEnabled = false
@@ -147,4 +170,5 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         ), alignEnd = true))
     }
     dialog.show()
+    if (browseFirst) browse.performClick()
 }

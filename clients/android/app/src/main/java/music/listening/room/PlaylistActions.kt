@@ -14,7 +14,15 @@ internal class RoomPlaylist(val row: JSONObject, private val link: JSONObject? =
     val name = row.getString("name")
     val playable = row.optInt("playable")
     val canAdd = row.optBoolean("can_add")
-    val spotify = link != null || row.optString("source") in setOf("spotify", "spotify-paused")
+    val source = row.optString("source")
+    val needsWritePermission = link?.let { destination ->
+        val targets = destination.optJSONArray("targets")
+        destination.optBoolean("needs_write_permission") ||
+            (targets != null && (0 until targets.length()).any {
+                targets.getJSONObject(it).optBoolean("needs_write_permission")
+            })
+    } == true
+    val spotify = link != null || source in setOf("spotify", "spotify-paused")
     val grouped get() = link?.optString("mode") == "multiple"
     val targetName get() = link?.optString("name").orEmpty()
     val providerPlaylistId get() = link?.optString("playlist_id").orEmpty()

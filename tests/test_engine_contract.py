@@ -146,7 +146,7 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertFalse(engine_contract.engines_ready({"download_engines": self.selection}))
         self.assertFalse(runner.run_batch(0, 1))
         self.assertEqual(runner.cursor_offset(), 0)
-        self.assert_download(record, status="queued")
+        self.retryable_download_error(record)
         self.assertTrue(all(request["action"] == "status" for request in self.requests))
 
     def test_undeclared_candidate_source_never_reaches_the_fetcher(self):
@@ -154,13 +154,13 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.write_manifest([record])
         self.media["first-light.flac"] = self.root / "ignored.flac"
         self.mode = "undeclared"
-        self.assert_download(record, status="queued")
+        self.retryable_download_error(record)
         self.assertEqual([request["action"] for request in self.requests], ["status", "search"])
 
     def test_source_login_failure_keeps_request_and_shows_room_owned_recovery(self):
         record = self.record(1, "First Light")
         self.mode = "login"
-        _, reason, _ = self.assert_download(record, status="queued")
+        reason = self.retryable_download_error(record)
         self.assertIn("sign in", reason)
         self.assertIn("Extensions", reason)
         self.assertNotIn("sensitive provider text", reason)
@@ -179,7 +179,7 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.mode = "interrupted"
         self.assertFalse(runner.run_batch(0, 1))
         self.assertEqual(runner.cursor_offset(), 0)
-        _, error, _ = self.assert_download(record, status="queued")
+        error = self.retryable_download_error(record)
         self.assertNotIn("sensitive provider text", error)
 
     def test_scoped_retry_preserves_the_job_and_attempted_recording_keys(self):
@@ -222,10 +222,11 @@ class EngineRunnerTests(WorkspaceTestCase):
         queue = runner.JobQueue(runner.host_database(runner.REQUESTS_DB, runner.STATE))
         job = queue.enqueue("requests", {})
         queue.mark_running(job["id"])
-        self.mode = "interrupted"
+        self.mode = "login"
         with mock.patch.dict(os.environ, {"LISTENING_DOWNLOAD_JOB_ID": str(job["id"])}):
             runner.run_requests()
         self.assertEqual(store.get(request)["status"], "queued")
+        self.assertEqual(store.get(request)["retry_count"], 0)
         self.assertTrue(queue.get(job["id"])["progress"]["engine_retry"])
 
     def test_refuses_provider_path_escape_and_symlinks(self):
@@ -237,7 +238,7 @@ class EngineRunnerTests(WorkspaceTestCase):
         for mode in ("traversal", "symlink"):
             with self.subTest(mode=mode):
                 self.mode = mode
-                self.assert_download(record, status="queued")
+                self.retryable_download_error(record)
                 self.assertEqual(list(self.staging.iterdir()), [])
                 self.assertEqual(external.read_bytes(), b"not for the runner")
 
@@ -335,6 +336,27 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual(runner.probe(self.library / result["audio_path"])["codec"], "aac")
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_uncertain_copy_waits_for_review_then_uses_the_selected_candidate(self):
+        record = self.record(1, "First Light", length=2)
+        self.write_manifest([record])
+        self.make_audio("good.mp3", "First Light", duration=2)
+        store = runner.requests_store()
+        row, _ = store.create_or_find(1, record["artist"], record["title"], record["album"], 2, "", individual=True)
+        request_id = row["id"]
+        row, _ = store.confirm_format(request_id, "mp3", 0)
+        candidate = {"source": "fixture", "id": "good.mp3", "label": "First Light.mp3", "recommended": False}
+        with mock.patch.object(engine_contract, "search_recording", return_value=[candidate]):
+            runner.run_requests()
+        review = store.get(request_id)
+        self.assertTrue(review["copy_review"])
+        self.assertFalse(any(call["action"] == "fetch" for call in self.requests))
+        recording = engine_contract.request_recording(review, record, "mp3")
+        matches = store.review_matches(request_id, "mp3", 1, recording, self.selection)
+        store.confirm_format(request_id, "mp3", 1, matches[0]["key"])
+        runner.run_requests()
+        self.assertEqual(store.get(request_id)["status"], "downloaded")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_selected_copy_transfers_exact_candidate_and_still_checks_the_title(self):
         record = self.record(1, "First Light", length=2)
         self.write_manifest([record])
@@ -385,16 +407,15 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertGreater(search.kwargs["timeout"], engine_contract.WORKER_TIMEOUT_SECONDS["search"])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
-    def test_full_decode_timeout_keeps_the_request_queued_and_reports_the_stage(self):
+    def test_full_decode_timeout_is_retryable_and_reports_the_stage(self):
         record = self.record(1, "First Light", length=1)
         self.write_manifest([record])
         self.make_audio("first-light.flac", "First Light")
         output = io.StringIO()
         with (contextlib.redirect_stdout(output),
               mock.patch.object(runner, "decode_audio", side_effect=subprocess.TimeoutExpired("ffmpeg", 45))):
-            _, message, reference = self.assert_download(record, status="queued")
+            message = self.retryable_download_error(record)
         self.assertIn("decoding the audio", message)
-        self.assertEqual(reference, "")
         self.assertEqual(list(self.staging.iterdir()), [])
         self.assertIn("search completed in", output.getvalue())
         self.assertIn("transfer 1 completed in", output.getvalue())
@@ -443,7 +464,7 @@ class EngineRunnerTests(WorkspaceTestCase):
               mock.patch.object(runner, "probe", wraps=runner.probe) as probe,
               mock.patch.object(runner, "decode_audio", side_effect=exhaust_deadline)):
             timings.monotonic.side_effect = lambda: clock
-            _, reason, _ = self.assert_download(record, status="queued")
+            reason = self.retryable_download_error(record)
 
         self.assertIn("time limit for this recording", reason)
         self.assertEqual(probe.call_args.kwargs["timeout"], 10)
@@ -474,3 +495,10 @@ class EngineRunnerTests(WorkspaceTestCase):
         result = runner.run_request(row, record)
         self.assertEqual(result[0], status)
         return result
+
+    def retryable_download_error(self, record):
+        row = {"id": 7, "search_title": "", "requested_format": "flac", "format_confirmed": True}
+        with self.assertRaises(engine_contract.EngineError) as caught:
+            runner.run_request(row, record)
+        self.assertTrue(caught.exception.retryable)
+        return str(caught.exception)
