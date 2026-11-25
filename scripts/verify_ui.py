@@ -563,13 +563,14 @@ def verify_request_restart(page, root, screenshot):
         with urllib.request.urlopen(server.base + fallback["audio"], timeout=10) as response:
             assert response.status == 200 and response.headers["Content-Type"] == "audio/mp4"
 
-        def downloaded_tempo():
+        def downloaded_analysis():
             # Read the persisted result directly so no Activities request can start the scanner.
             with closing(sqlite3.connect(app / "requests.sqlite3")) as db:
-                return db.execute("SELECT bpm FROM activity_tempos WHERE identity = ?",
+                return db.execute("SELECT bpm, energy_db FROM activity_tempos JOIN activity_energy USING (identity) "
+                                  "WHERE identity = ? AND energy_db IS NOT NULL",
                                   (direct["audio_path"],)).fetchone()
 
-        assert wait_for("tempo of the newly downloaded MP3", downloaded_tempo, timeout=75) == (112.0,)
+        assert wait_for("analysis of the newly downloaded MP3", downloaded_analysis, timeout=75)[0] == 112.0
     finally:
         page.unroute(sources_url)
         page.goto("about:blank")
@@ -1999,6 +2000,29 @@ def verify_household_browser(browser, root, output):
         first.screenshot(path=str(output))
 
         owner = visit("room-owner")
+        remote_output = {"Origin": server.base, "X-Listening-Output": "fixture-other-device"}
+        tuning = "a" * 32
+        radio_bookmark = {"source": {"kind": "noise", "name": "Brown noise", "profile": "brown"},
+                          "title": "Brown noise", "channel": ""}
+        assert owner.request.post(server.base + "/api/my/radio", headers=remote_output,
+                                  data={"op": "tune", "tuning": tuning, "history": radio_bookmark}).ok
+        started = owner.request.post(server.base + "/api/session", headers=remote_output,
+                                     data={"op": "play_available", "playlist": "all"})
+        assert started.ok and started.json()["session_playing"]
+        with owner.expect_response(lambda reply: "/api/my/radio" in reply.url and reply.request.method == "GET"):
+            owner.reload()
+        owner_player = owner.get_by_role("contentinfo", name="Audio player")
+        owner_player.get_by_role("button", name="Listen here", exact=True).wait_for()
+        assert owner_player.get_by_text("First light", exact=True).is_visible()
+        assert owner.evaluate("[...document.querySelectorAll('.player audio')].every(audio => audio.paused)")
+        assert owner.request.get(server.base + "/api/my/radio").json()["history"]["title"] == "Brown noise"
+        owner.get_by_role("button", name="Radio", exact=True).click()
+        owner.get_by_role("button", name="Play radio", exact=True).wait_for()
+        assert owner_player.get_by_text("First light", exact=True).is_visible()
+        owner.get_by_role("button", name="Library", exact=True).click()
+        assert owner.request.post(server.base + "/api/my/radio", headers=remote_output,
+                                  data={"op": "clear", "tuning": tuning}).ok
+        assert owner.request.post(server.base + "/api/session", headers=remote_output, data={"op": "pause"}).ok
         make_playlist(owner, "Owner private fixture")
         owner.wait_for_function("Array.from(document.querySelectorAll('.player audio')).some(audio => !audio.paused)")
         owner.route("**/api/session", lambda route: route.fulfill(status=503, json={"error": "Fixture queue offline"}))
@@ -2551,9 +2575,9 @@ def run_browser(server, output):
                                               response.request.post_data_json.get("op") == "play_activity") as start:
                         activities.get_by_role("button", name=f"Play {label} mix").click(timeout=60000)
                     expect(item, start.value.ok and start.value.json()["current_ref"] in matches,
-                           f"{label} did not play a song within its tempo range")
+                           f"{label} did not play a song within its pace and energy range")
                 item.ok = True
-                item.detail = "All three activities played matching local tracks from the saved tempo index"
+                item.detail = "All three activities played matching local tracks from the saved audio analysis"
                 shot(item, "01e-activities.png")
                 page.get_by_role("button", name="Library", exact=True).click()
             except Exception as error:

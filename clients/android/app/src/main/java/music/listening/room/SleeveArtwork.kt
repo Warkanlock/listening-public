@@ -2,6 +2,8 @@ package music.listening.room
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -10,31 +12,54 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
 /** Decodes cover art off the UI and playback threads. Nothing is written to storage. */
-internal class SleeveArtwork(private val display: (Bitmap?) -> Unit) {
+internal class SleeveArtwork(screenSide: Int, private val display: (Bitmap?) -> Unit) {
     companion object {
         const val MAX_BYTES = 4 * 1024 * 1024
-        private const val SIDE = 352
+        private const val MAX_SIDE = 704
         private val work = Executors.newSingleThreadExecutor()
         private val main = Handler(Looper.getMainLooper())
         // Imported artwork is public HTTPS. This client has no room credentials.
         private val images = OkHttpClient.Builder().followSslRedirects(false)
             .callTimeout(10, TimeUnit.SECONDS).build()
 
-        private fun prepare(bytes: ByteArray): Bitmap? {
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-            if (options.outWidth <= 0 || options.outHeight <= 0) return null
-            options.inJustDecodeBounds = false
-            options.inSampleSize = 1
-            while (maxOf(options.outWidth, options.outHeight) / options.inSampleSize > SIDE * 2)
-                options.inSampleSize *= 2
-            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        private fun sampleSize(side: Int, limit: Int): Int {
+            var sample = 1
+            while (side / sample > limit) sample *= 2
+            return sample
         }
+    }
+
+    // The same bitmap also fills the full-screen cover viewer.
+    private val maxSide = screenSide.coerceIn(1, MAX_SIDE)
+
+    private fun prepare(bytes: ByteArray): Bitmap? {
+        if (Build.VERSION.SDK_INT >= 28) {
+            return try {
+                ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val width = info.size.width
+                    val height = info.size.height
+                    val side = maxOf(width, height)
+                    val target = minOf(maxSide, side / sampleSize(side, MAX_SIDE))
+                    if (side > target) {
+                        decoder.setTargetSize((width.toLong() * target / side).toInt().coerceAtLeast(1),
+                            (height.toLong() * target / side).toInt().coerceAtLeast(1))
+                    }
+                }
+            } catch (_: IOException) { null }
+        }
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0) return null
+        options.inJustDecodeBounds = false
+        options.inSampleSize = sampleSize(maxOf(options.outWidth, options.outHeight), maxSide)
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
     }
 
     private var ref = ""

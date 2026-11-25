@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -61,9 +62,11 @@ class RoomActivity : Activity() {
     private var autoJoinAttempt: Pair<String, Long>? = null
     private var authorizedExternalRadio: Pair<String, RadioHistory>? = null
     private fun phone() = room?.let { PhoneLibrary.get(this, it.replicaId) }
+    private var syncRoom: String? = null
     private var syncAfter = 0L
     private fun sync(target: Room, library: PhoneLibrary) {
-        syncAfter = android.os.SystemClock.elapsedRealtime() + 5 * 60_000
+        syncRoom = target.id
+        syncAfter = SystemClock.elapsedRealtime() + 5 * 60_000
         ReplicaSync.start(target, library) {
             runOnUiThread {
                 if (active && !isDestroyed && room?.id == target.id && screen == Screen.LIBRARY && library.local) show()
@@ -76,7 +79,8 @@ class RoomActivity : Activity() {
             if (!active) return
             // The playback service keeps its own heartbeat with the screen off.
             val library = phone()!!
-            if (library.enabled && !ReplicaSync.busy && android.os.SystemClock.elapsedRealtime() >= syncAfter)
+            if (library.enabled && !ReplicaSync.busy &&
+                (syncRoom != target.id || SystemClock.elapsedRealtime() >= syncAfter))
                 sync(target, library)
             if (!library.local && !RoomPlayback.following) load({ target.heartbeat() }, fromPresence = true) {}
             if (!library.local) {
@@ -119,7 +123,6 @@ class RoomActivity : Activity() {
             registerReceiver(errors, IntentFilter(RoomPlayback.UPDATE))
         }
         if (pairOnly) return
-        syncAfter = 0L
         handler.post(presence)
         if (room != null && retry.visibility == View.VISIBLE) show()
         else if (room != null && screen in setOf(Screen.DISCOVER, Screen.WEEKLY, Screen.ACTIVITIES, Screen.RADIO)) show()
@@ -496,7 +499,8 @@ class RoomActivity : Activity() {
                     }
                     notice?.let { Toast.makeText(this, it, Toast.LENGTH_LONG).show() }
                 }
-                preferences.edit().putStringSet(target.id, (current + previous.orEmpty()).take(96).toSet()).apply()
+                val remembered = (current + previous.orEmpty()).take(96).toSet()
+                if (remembered != previous) preferences.edit().putStringSet(target.id, remembered).apply()
                 val downloads = result.optJSONArray("downloads")?.toString() ?: "[]"
                 if (downloadRoom != target.id || recentDownloads != downloads) {
                     downloadRoom = target.id
@@ -974,15 +978,17 @@ class RoomActivity : Activity() {
                         label to button
                     }
                     val songs = if (count == 1) "song" else "songs"
-                    val description = "${item.getInt("min_bpm")}–${item.getInt("max_bpm")} BPM · $count $songs"
+                    val description = listOf(item.optString("energy_label"),
+                        "${item.getInt("min_bpm")}–${item.getInt("max_bpm")} BPM", "$count $songs")
+                        .filter(String::isNotBlank).joinToString(" · ")
                     if (detail.text != description) detail.text = description
                     play.isEnabled = count > 0
                 }
                 val progress = when {
-                    preparing -> "Loading saved tempos…"
+                    preparing -> "Getting mixes ready…"
                     total == 0 -> "Add music to your library to start a mix."
-                    !canAnalyze -> "Tempo analysis is unavailable on this server."
-                    indexed < total -> "Checking tempos · $indexed of $total songs"
+                    !canAnalyze -> "Audio analysis is unavailable on this server."
+                    indexed < total -> "Checking songs · $indexed of $total"
                     else -> ""
                 }
                 if (pending.text != progress) pending.text = progress
@@ -1388,32 +1394,41 @@ class RoomActivity : Activity() {
             schedulePoll()
             return
         }
+        // The service already checks the room while this phone is following.
+        RoomPlayback.recentRoomSnapshot(target)?.let {
+            showRoomSnapshot(target, it)
+            return
+        }
         load({ target.session() }, reportErrors = screen == Screen.PLAYER,
             failed = { error -> if (error !is PairingRequired) {
                 RoomPlayback.bufferedSnapshot(target.id)?.let(::renderPlayer)
                 schedulePoll()
             } }) { snap ->
-            if (screen == Screen.PLAYER) {
-                retry.visibility = View.GONE
-                presenceError = false
-                message()
-            }
             radioSnapshot(target.id)?.let {
                 renderPlayer(it)
                 schedulePoll()
                 return@load
             }
-            if (active && !RoomPlayback.yieldedToOtherPlayer && snap.optBoolean("playing") &&
-                snap.optBoolean("output_selected")) {
-                val attempt = target.id to snap.optLong("occurrence")
-                if (attempt != autoJoinAttempt && !RoomPlayback.following) send("snapshot")
-                autoJoinAttempt = attempt
-            } else {
-                autoJoinAttempt = null
-            }
-            renderPlayer(snap)
-            schedulePoll()
+            showRoomSnapshot(target, snap)
         }
+    }
+
+    private fun showRoomSnapshot(target: Room, snapshot: JSONObject) {
+        if (screen == Screen.PLAYER) {
+            retry.visibility = View.GONE
+            presenceError = false
+            message()
+        }
+        if (active && !RoomPlayback.yieldedToOtherPlayer && snapshot.optBoolean("playing") &&
+            snapshot.optBoolean("output_selected")) {
+            val attempt = target.id to snapshot.optLong("occurrence")
+            if (attempt != autoJoinAttempt && !RoomPlayback.following) send("snapshot")
+            autoJoinAttempt = attempt
+        } else {
+            autoJoinAttempt = null
+        }
+        renderPlayer(snapshot)
+        schedulePoll()
     }
 
     private fun renderPlayer(snapshot: JSONObject) {

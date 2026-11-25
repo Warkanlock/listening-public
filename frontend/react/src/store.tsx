@@ -213,7 +213,11 @@ export class Store implements SliceHost {
   get radioFailedStation(): string { return this.radioSlice.failedStation; }
   get radioStarted(): boolean { return this.radioSlice.started; }
   get radioVolume(): number { return this.radioSlice.volume; }
-  get radioSounding(): boolean { return this.radioSlice.sounding; }
+  get radioSounding(): boolean {
+    const session = this.session;
+    const roomPlaying = session?.current && (session.session_playing ?? session.playing);
+    return this.radioSlice.sounding && (this.radioSlice.status !== "paused" || !roomPlaying);
+  }
   get radioControls(): RadioControls | null { return this.radioSlice.controls; }
   set radioControls(value: RadioControls | null) { this.radioSlice.controls = value; }
 
