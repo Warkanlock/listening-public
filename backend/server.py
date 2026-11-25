@@ -1185,7 +1185,7 @@ def mood_queue(body):
 
 ACTIVITY_SCAN = threading.Event()
 ACTIVITY_INDEX = None
-EMPTY_ACTIVITY_INDEX = activity_mixes.MixIndex((), {})
+EMPTY_ACTIVITY_INDEX = activity_mixes.MixIndex((), {}, {})
 
 
 def current_activity_index():
@@ -1198,9 +1198,9 @@ def current_activity_index():
     return None
 
 
-def publish_activity_index(records, coverage, access, items, tempos):
+def publish_activity_index(records, coverage, access, items, tempos, energy):
     global ACTIVITY_INDEX
-    index = activity_mixes.MixIndex(items, tempos)
+    index = activity_mixes.MixIndex(items, tempos, energy)
     with ROOT_LOCK:
         if records is catalog.records and coverage is catalog.coverage and access is MEDIA:
             ACTIVITY_INDEX = (records, coverage, access, index)
@@ -1211,7 +1211,7 @@ def activity_tools_ready():
 
 
 def activity_watchdog():
-    """Resume background tempo analysis from the saved index on server startup."""
+    """Resume background audio analysis from the saved index on server startup."""
     retry = {}
     while True:
         ACTIVITY_SCAN.clear()
@@ -1224,30 +1224,33 @@ def activity_watchdog():
                 media = access.store()
                 items = activity_mixes.unique_recordings(
                     activity_mixes.recordings(records, coverage, library, has_media=media is not None))
-                tempos = activity_mixes.read_tempos(database)
-                publish_activity_index(records, coverage, access, items, tempos)
+                tempos, energy = activity_mixes.read_analysis(database)
+                publish_activity_index(records, coverage, access, items, tempos, energy)
                 now = time.monotonic()
                 retry = {key: until for key, until in retry.items() if until > now}
                 pending = (item for item in items
-                           if item.identity not in tempos and item.identity not in retry)
+                           if (item.identity not in tempos or item.identity not in energy)
+                           and item.identity not in retry)
                 if activity_tools_ready():
                     for item in islice(pending, 24):
                         if update_draining():
                             break
                         processed += 1
                         try:
-                            bpm = activity_mixes.recording_tempo(item, media)
+                            saved_bpm = tempos.get(item.identity, activity_mixes.NEEDS_TEMPO)
+                            analysis = activity_mixes.recording_analysis(item, media, saved_bpm)
                         except (ValueError, EOFError, subprocess.CalledProcessError):
-                            bpm = None
+                            analysis = activity_mixes.Analysis(None, None)
                         except (OSError, sqlite3.Error, subprocess.TimeoutExpired):
                             retry[item.identity] = time.monotonic() + 300
                             continue
-                        activity_mixes.save_tempo(database, item.identity, bpm)
-                        tempos[item.identity] = bpm
+                        activity_mixes.save_analysis(database, item.identity, analysis)
+                        tempos.setdefault(item.identity, analysis.bpm)
+                        energy[item.identity] = analysis.energy_db
                 if processed:
-                    publish_activity_index(records, coverage, access, items, tempos)
+                    publish_activity_index(records, coverage, access, items, tempos, energy)
         except (OSError, sqlite3.Error):
-            WATCHDOG_LOGGER.warning("Activity tempo analysis could not read the library. Will retry.")
+            WATCHDOG_LOGGER.warning("Activity audio analysis could not read the library. Will retry.")
         ACTIVITY_SCAN.wait(5 if processed == 24 else 45)
 
 

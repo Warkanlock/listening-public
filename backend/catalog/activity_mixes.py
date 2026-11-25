@@ -1,4 +1,4 @@
-"""Local tempo analysis and queues for listening by activity."""
+"""Local tempo and intensity analysis for activity mixes."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from array import array
 from contextlib import closing
 from dataclasses import dataclass
 from io import BytesIO
-from math import isfinite, log1p, sqrt
+from math import isfinite, log10, log1p, sqrt
 from pathlib import Path
 import json
 import os
@@ -19,20 +19,35 @@ from catalog.audio_resolution import resolve_stored
 from catalog.audio_store import blob_key, is_blob_ref, source_stamp
 from system import state_database
 
-# Overlap lets steady songs suit both a slower and a more active mix.
+@dataclass(frozen=True)
+class Preset:
+    name: str
+    bpm: tuple[int, int]
+    energy_db: tuple[float, float]
+    energy_label: str
+
+
 PRESETS = {
-    "walking": ("Walking", 95, 130),
-    "studying": ("Studying", 65, 95),
-    "meditation": ("Meditation", 45, 70),
+    "walking": Preset("Walking", (95, 130), (-32, 0), "Steady to high energy"),
+    "studying": Preset("Studying", (65, 95), (-90, -12), "Low to moderate energy"),
+    "meditation": Preset("Meditation", (45, 70), (-90, -19), "Low energy"),
 }
 MIX_LIMIT = 40
-# Bump the version when tag rules or the estimator change.
-VERSION = 1
+# Independent versions let us backfill energy without discarding saved BPMs.
+TEMPO_VERSION = 1
+ENERGY_VERSION = 1
+NEEDS_TEMPO = object()
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS activity_tempos (
     identity TEXT NOT NULL,
     version INTEGER NOT NULL,
     bpm REAL,
+    PRIMARY KEY (identity, version)
+);
+CREATE TABLE IF NOT EXISTS activity_energy (
+    identity TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    energy_db REAL,
     PRIMARY KEY (identity, version)
 );
 """
@@ -52,6 +67,12 @@ class Recording:
     blob: str | None
     duration: float
     stamp: list[int] | None = None
+
+
+@dataclass(frozen=True)
+class Analysis:
+    bpm: float | None
+    energy_db: float | None
 
 
 def recordings(records, coverage, library, *, has_media):
@@ -77,14 +98,18 @@ def recordings(records, coverage, library, *, has_media):
             yield Recording(index, "file:" + ":".join(map(str, stamp)), path, None, duration, stamp)
 
 
-def read_tempos(database):
+def read_analysis(database):
     with closing(state_database.connect(database, SCHEMA)) as db:
-        return dict(db.execute("SELECT identity, bpm FROM activity_tempos WHERE version=?", (VERSION,)))
+        db.execute("BEGIN")
+        tempos = dict(db.execute("SELECT identity, bpm FROM activity_tempos WHERE version=?", (TEMPO_VERSION,)))
+        energy = dict(db.execute("SELECT identity, energy_db FROM activity_energy WHERE version=?", (ENERGY_VERSION,)))
+        return tempos, energy
 
 
-def save_tempo(database, identity, bpm):
+def save_analysis(database, identity, analysis):
     with closing(state_database.connect(database, SCHEMA)) as db, db:
-        db.execute("INSERT OR REPLACE INTO activity_tempos VALUES (?, ?, ?)", (identity, VERSION, bpm))
+        db.execute("INSERT OR IGNORE INTO activity_tempos VALUES (?, ?, ?)", (identity, TEMPO_VERSION, analysis.bpm))
+        db.execute("INSERT OR REPLACE INTO activity_energy VALUES (?, ?, ?)", (identity, ENERGY_VERSION, analysis.energy_db))
 
 
 def unique_recordings(items):
@@ -95,25 +120,31 @@ def unique_recordings(items):
 
 
 class MixIndex:
-    """A prepared view of the stored tempos, published as one snapshot."""
+    """A prepared view of the stored audio analysis, published as one snapshot."""
 
-    def __init__(self, items, tempos):
+    def __init__(self, items, tempos, energy):
         self.total = len(items)
-        self.indexed = sum(item.identity in tempos for item in items)
-        classified = [(item.index, bpm) for item in items if (bpm := tempos.get(item.identity)) is not None]
-        self.matches = {key: tuple(index for index, bpm in classified if low <= bpm <= high)
-                        for key, (_, low, high) in PRESETS.items()}
+        self.indexed = sum(item.identity in tempos and item.identity in energy for item in items)
+        classified = [(item.index, bpm, level) for item in items
+                      if (bpm := tempos.get(item.identity)) is not None
+                      and (level := energy.get(item.identity)) is not None]
+        self.matches = {
+            key: tuple(index for index, bpm, level in classified
+                       if preset.bpm[0] <= bpm <= preset.bpm[1] and preset.energy_db[0] <= level <= preset.energy_db[1])
+            for key, preset in PRESETS.items()
+        }
 
     def choices(self):
-        return [{"id": key, "name": name, "min_bpm": low, "max_bpm": high, "count": len(self.matches[key])}
-                for key, (name, low, high) in PRESETS.items()]
+        return [{"id": key, "name": preset.name, "min_bpm": preset.bpm[0], "max_bpm": preset.bpm[1],
+                 "energy_label": preset.energy_label, "count": len(self.matches[key])}
+                for key, preset in PRESETS.items()]
 
     def queue(self, activity):
         if not isinstance(activity, str) or activity not in PRESETS:
             raise ValueError("Choose a listening activity.")
         matches = self.matches[activity]
         if not matches:
-            raise ValueError(f"No songs in the {PRESETS[activity][0].lower()} tempo range yet.")
+            raise ValueError(f"No songs match {PRESETS[activity].name} yet.")
         return random.sample(matches, min(len(matches), MIX_LIMIT))
 
 
@@ -131,16 +162,33 @@ def _tagged_bpm(metadata):
     return None
 
 
-def estimate_bpm(pcm):
-    """Find a periodic rise in short-window energy, or leave the track unclassified."""
+def _frame_power(pcm):
     samples = array("h")
     samples.frombytes(pcm)
     if sys.byteorder != "little":
         samples.byteswap()
-    if len(samples) < 10 * SAMPLE_RATE:
+    return [sum(value * value for value in samples[start:start + FRAME_SIZE]) / FRAME_SIZE
+            for start in range(0, len(samples) - FRAME_SIZE + 1, FRAME_SIZE)]
+
+
+def _estimate_energy(frame_power):
+    """Use sustained levels and recurring short bursts so a slow beat can still be intense."""
+    if len(frame_power) < FRAMES_PER_SECOND:
         return None
-    frame_rms = [log1p(sqrt(sum(value * value for value in samples[start:start + FRAME_SIZE]) / FRAME_SIZE))
-                 for start in range(0, len(samples) - FRAME_SIZE + 1, FRAME_SIZE)]
+    block = FRAMES_PER_SECOND // 10
+    windows = sorted(sum(frame_power[start:start + block]) / block
+                     for start in range(0, len(frame_power) - block + 1, block))
+    sustained = windows[int(0.90 * (len(windows) - 1))]
+    attacks = sorted(frame_power)[int(0.98 * (len(frame_power) - 1))]
+    power = max(sustained, attacks / 3)
+    return round(10 * log10(power / 32768 ** 2), 1) if power else None
+
+
+def _estimate_bpm(frame_power):
+    """Find a periodic rise in short-window energy, or leave the track unclassified."""
+    if len(frame_power) < 10 * FRAMES_PER_SECOND:
+        return None
+    frame_rms = [log1p(sqrt(power)) for power in frame_power]
     # Three-frame smoothing tolerates minor performance timing variation.
     rises = [max(0.0, right - left) for left, right in zip(frame_rms, frame_rms[1:])]
     strength = [sum(rises[i:i + 3]) for i in range(len(rises) - 2)]
@@ -175,16 +223,18 @@ def estimate_bpm(pcm):
     return round(60 * FRAMES_PER_SECOND / (lag + correction), 1)
 
 
-def analyze(handle, duration):
+def analyze(handle, duration, saved_bpm=NEEDS_TEMPO):
     descriptor = handle.fileno()
     source = ["-protocol_whitelist", "file", "-format_whitelist", CONTAINERS, "-i", f"/dev/fd/{descriptor}"]
-    tags = "bpm,tbpm,tempo"
-    probe = subprocess.run(["ffprobe", "-v", "error", *source, "-show_entries",
-                            f"format_tags={tags}:stream_tags={tags}", "-of", "json"],
-                           capture_output=True, check=True, timeout=8, pass_fds=(descriptor,))
-    bpm = _tagged_bpm(json.loads(probe.stdout))
-    if bpm is not None:
-        return bpm
+    bpm = saved_bpm
+    if bpm is NEEDS_TEMPO:
+        tags = "bpm,tbpm,tempo"
+        probe = subprocess.run(["ffprobe", "-v", "error", *source, "-show_entries",
+                                f"format_tags={tags}:stream_tags={tags}", "-of", "json"],
+                               capture_output=True, check=True, timeout=8, pass_fds=(descriptor,))
+        bpm = _tagged_bpm(json.loads(probe.stdout))
+        if bpm is None:
+            bpm = NEEDS_TEMPO
     handle.seek(0)
     start = ["-ss", "12"] if duration >= READ_SECONDS + 12 else []
     decoded = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-threads", "1", "-filter_threads", "1",
@@ -192,17 +242,18 @@ def analyze(handle, duration):
                               "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le", "-f", "wav", "pipe:1"],
                              capture_output=True, check=True, timeout=12, pass_fds=(descriptor,))
     with wave.open(BytesIO(decoded.stdout), "rb") as samples:
-        return estimate_bpm(samples.readframes(SAMPLE_RATE * READ_SECONDS))
+        power = _frame_power(samples.readframes(SAMPLE_RATE * READ_SECONDS))
+    return Analysis(_estimate_bpm(power) if bpm is NEEDS_TEMPO else bpm, _estimate_energy(power))
 
 
-def recording_tempo(item, media):
+def recording_analysis(item, media, saved_bpm):
     if item.blob is not None:
         with media.open_original(item.blob) as (handle, _):
-            return analyze(handle, item.duration)
+            return analyze(handle, item.duration, saved_bpm)
     with item.path.open("rb") as handle:
         if source_stamp(os.fstat(handle.fileno())) != item.stamp:
-            raise OSError("Recording changed before tempo analysis.")
-        bpm = analyze(handle, item.duration)
+            raise OSError("Recording changed before activity analysis.")
+        analysis = analyze(handle, item.duration, saved_bpm)
         if source_stamp(os.fstat(handle.fileno())) != item.stamp:
-            raise OSError("Recording changed during tempo analysis.")
-        return bpm
+            raise OSError("Recording changed during activity analysis.")
+        return analysis

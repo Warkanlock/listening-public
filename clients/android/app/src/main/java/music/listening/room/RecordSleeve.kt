@@ -77,7 +77,9 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAct
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
     }
-    private val artwork = SleeveArtwork(::display)
+    private val artwork = resources.displayMetrics.let { metrics ->
+        SleeveArtwork(minOf(metrics.widthPixels, metrics.heightPixels), ::display)
+    }
     private val preferredSize = resources.configuration.let {
         ui.dp(minOf(216, it.screenHeightDp * 36 / 100, it.screenWidthDp - 72).coerceAtLeast(100))
     }
