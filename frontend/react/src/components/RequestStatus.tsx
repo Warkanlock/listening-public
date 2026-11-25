@@ -1,19 +1,15 @@
 import { useState } from "react";
-import { statusLabel, type RequestRow } from "../api";
+import type { RequestRow } from "../api";
+import { canRetryRequest, requestStage, requestStageLabel } from "../requestState";
 import { useStore } from "../store";
 import { RoomIconButton } from "./RoomIcon";
 
-type RequestState = Pick<RequestRow, "status" | "phase" | "retry_at" | "copy_review">;
-export const FAILED_REQUESTS = ["not_found", "error", "rejected"];
-
+type RequestState = Pick<RequestRow, "status" | "phase" | "retry_at" | "copy_review" | "download_percent" | "request_state">
+  & Partial<Pick<RequestRow, "message" | "format_revision">>;
 export function RequestStatus({ request }: { request: RequestState }) {
-  const { status, phase, retry_at, copy_review } = request;
-  const label = copy_review ? "Choose a copy"
-    : status === "queued" && retry_at ? "Retry scheduled"
-    : status === "searching" && phase === "downloading" ? "Downloading"
-    : status === "searching" && phase === "verifying" ? "Verifying"
-    : statusLabel(status);
-  return <span className={`status-pill request-status ${status}`}>{label}</span>;
+  return <span className={`status-pill request-status ${request.status}`} data-request-state={requestStage(request)}>
+    {requestStageLabel(request)}
+  </span>;
 }
 
 export function RetryRequestButton({ request, title, onRetry }: {
@@ -23,13 +19,13 @@ export function RetryRequestButton({ request, title, onRetry }: {
 }) {
   const store = useStore();
   const [pending, setPending] = useState(false);
-  if (store.member || request.copy_review || !(request.status === "queued" || FAILED_REQUESTS.includes(request.status))) {
+  if (store.member || !canRetryRequest(requestStage(request))) {
     return null;
   }
   async function retry() {
     setPending(true);
     try {
-      if (await store.retryRequest(request.id)) onRetry?.();
+      if (await store.retryRequest(request.id, undefined, request.format_revision)) onRetry?.();
     } finally {
       setPending(false);
     }

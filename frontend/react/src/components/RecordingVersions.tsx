@@ -8,13 +8,13 @@ type Song = Pick<DiscoverTrack, "title" | "artist"> & Partial<Pick<DiscoverTrack
 type Results = { kind: "loading" | "error" } | { kind: "loaded"; versions: DiscoverTrack[] };
 
 export function RecordingVersions({ song, onChoose }: { song: Song; onChoose: (song: RequestSong) => void }) {
-  const [open, setOpen] = useState(false);
+  const [picker, setPicker] = useState<{ song: Song; onChoose: (song: RequestSong) => void } | null>(null);
   return <>
-    <RoomIconButton icon="album" label={`Choose a version: ${song.title}`} onClick={() => setOpen(true)} />
-    {open && <VersionsDialog song={song} close={() => setOpen(false)} choose={version => {
-      setOpen(false);
+    <RoomIconButton icon="album" label={`Choose a version: ${song.title}`} onClick={() => setPicker({ song, onChoose })} />
+    {picker && <VersionsDialog song={picker.song} close={() => setPicker(null)} choose={version => {
+      setPicker(null);
       const { artist, title, album, musicbrainz_id, duration, performance, version: edition } = version;
-      onChoose({ artist, title, album, musicbrainz_id, duration, performance, version: edition });
+      picker.onChoose({ artist, title, album, musicbrainz_id, duration, performance, version: edition });
     }} />}
   </>;
 }

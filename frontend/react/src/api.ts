@@ -1,3 +1,5 @@
+import type { RequestState } from "./requestState";
+
 export interface PlaylistSummary {
   id: string;
   name: string;
@@ -225,10 +227,13 @@ export type Mp3Retry = { id: number; format_revision: number };
 export type RequestSong = { track_id: number } | { artist: string; title: string; musicbrainz_id?: string; version?: string; performance?: string; album?: string; duration?: number };
 
 export interface RequestRow {
+  request_state?: RequestState;
   musicbrainz_id?: string;
+  original_recording_id?: string;
   version?: string;
   phase?: string;
   retry_at?: number;
+  download_percent?: number;
   requested_format: RequestFormat | null;
   format_revision: number;
   mp3_retry?: Mp3Retry;
@@ -244,7 +249,7 @@ export interface RequestRow {
 }
 
 export type RecentDownload = Pick<RequestRow, "id" | "track_index" | "artist" | "title"> & { audio: string };
-export type DownloadOutcome = Pick<RequestRow, "title"> & {
+export type DownloadOutcome = Pick<RequestRow, "title" | "request_state"> & {
   key: string;
   status: "downloaded" | "not_found" | "rejected" | "error";
 };

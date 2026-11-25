@@ -432,6 +432,10 @@ button:disabled, .primary-action:disabled, .quiet-button:disabled { opacity: .52
 .request-status:is(.searching, .queued, .waiting_space, .waiting_format) { background: color-mix(in srgb, var(--status-pending) 10%, var(--card)); }
 .request-status:is(.rejected, .error) { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
 .request-status.downloaded { background: color-mix(in srgb, var(--status-ready) 12%, var(--card)); }
+.request-status[data-request-state="choose_copy"] { color: var(--status-pending); background: color-mix(in srgb, var(--status-pending) 10%, var(--card)); }
+.request-status:is([data-request-state="copy_unavailable"], [data-request-state="copy_missing"]) { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
+.request-status[data-request-state="choose_copy"]::before { background: var(--status-pending); }
+.request-status:is([data-request-state="copy_unavailable"], [data-request-state="copy_missing"])::before { background: var(--danger); }
 .time-cell { color: var(--quiet); font-size: var(--font-md); font-variant-numeric: tabular-nums; }
 .row-action { display: flex; align-items: center; justify-content: end; justify-self: end; gap: var(--space-3); }
 .row-action button { min-width: 76px; min-height: 38px; padding: var(--space-3) var(--space-5); border: 1px solid var(--line-strong); border-radius: var(--radius-full); background: transparent; color: var(--accent-ink); font-size: var(--font-md); font-weight: var(--weight-bold); }
