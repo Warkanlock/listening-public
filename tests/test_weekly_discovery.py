@@ -233,6 +233,75 @@ class WeeklyTests(unittest.TestCase):
 
 
 class WeeklyHttpTests(ServerFixture, unittest.TestCase):
+    def test_replacing_a_recording_invalidates_an_old_removal_choice(self):
+        original = pick(114, "Original Discovery")
+        replacement = pick(115, "Alternate Discovery")
+        store = server.requests_store()
+        week = server.weekly.week()
+        store.cache_put(server.weekly._key(str(server.ROOT), week), json.dumps([original, replacement]), time.time())
+        store.queue_weekly([original])
+        headers = {"Cookie": self.lan_device_cookie("weekly-stale-removal"), "Origin": self.lan_origin()}
+
+        def playlist():
+            return json.loads(self.request(self.lan_port, "GET", weekly.PATH, headers=headers)[2])["tracks"]
+
+        first, second = playlist()
+        request = first["request"]
+        store.replace_recording(request["id"], request["format_revision"], replacement["artist"],
+                                replacement["title"], "", 120, replacement["title"], musicbrainz_id=replacement["id"],
+                                version="", performance="")
+        status, _, _ = self.request(self.lan_port, "POST", weekly.PATH,
+                                    body={"remove_id": first["id"], "week": week, "remove_key": first["remove_key"]},
+                                    headers=headers)
+        self.assertEqual(status, 409)
+        (updated,) = playlist()
+        self.assertEqual(updated["request"]["musicbrainz_id"], second["id"])
+
+    def test_removing_a_song_hides_credit_variants_and_keeps_its_copy(self):
+        solo = pick(110, "A Discovery", "Fixture Artist")
+        featured = pick(111, "A Discovery", "Fixture Artist feat. Guest")
+        other = pick(112, "Another Discovery")
+        store = server.requests_store()
+        room, week = str(server.ROOT), server.weekly.week()
+        store.cache_put(server.weekly._key(room, week), json.dumps([featured, solo, other]), time.time())
+        request, _ = store.create_or_find(None, solo["artist"], solo["title"], "", 120, "",
+                                          individual=True, musicbrainz_id=solo["id"])
+        audio = server.LIBRARY / "weekly-removal-fixture.mp3"
+        audio.parent.mkdir(parents=True, exist_ok=True)
+        audio.touch()
+        store.finish(request["id"], "downloaded", "", audio.name)
+        headers = {"Cookie": self.lan_device_cookie("weekly-removal"), "Origin": self.lan_origin()}
+
+        def call(method, body=None):
+            status, _, data = self.request(self.lan_port, method, weekly.PATH, body=body, headers=headers)
+            return status, json.loads(data)
+
+        before = call("GET")[1]
+        self.assertEqual(before["download_progress"]["downloaded"], 1)
+        song = before["tracks"][0]
+        removal = {"remove_id": song["id"], "week": week, "remove_key": song["remove_key"]}
+        self.assertEqual(call("POST", {**removal, "week": "2020-01-06"})[0], 409)
+        self.assertEqual(call("POST", {**removal, "remove_id": identity(113)})[0], 409)
+        self.assertEqual(call("POST", {**removal, "remove_key": "stale"})[0], 409)
+        with patch.object(server, "download_ready", return_value=False):
+            status, updated = call("POST", removal)
+            self.assertEqual(status, 200)
+            self.assertEqual([track["id"] for track in updated["tracks"]], [other["id"]])
+            self.assertEqual(call("POST", removal), (status, updated))
+        fresh = weekly.WeeklyDiscovery(None, None, today=lambda: date.fromisoformat(week))
+        with patch.object(server, "weekly", fresh), patch.object(server, "download_ready", return_value=True):
+            after = call("GET")[1]
+            self.assertEqual([track["id"] for track in after["tracks"]], [other["id"]])
+            self.assertEqual(after["download_progress"]["total"], 0)
+            self.assertEqual(call("POST", {"ids": [featured["id"], solo["id"], other["id"]]})[0], 409)
+            self.assertEqual(call("POST", {"remove_id": other["id"], "week": week,
+                                           "remove_key": after["tracks"][0]["remove_key"]})[0], 200)
+            empty = call("GET")[1]
+            self.assertEqual((empty["state"], empty["tracks"], empty["can_request"]), ("ready", [], False))
+        self.assertEqual(server.selected_playback_tracks({"op": "play_requests", "request_ids": [request["id"]]}),
+                         [f"custom-{request['id']}"])
+        self.assertTrue(audio.is_file())
+
     def test_cached_credit_variants_show_one_playable_song_and_do_not_queue_again(self):
         solo = pick(101, "+ famoso di Gesù", "Gianluca Grignani")
         featured = pick(102, "+ Famoso di Gesù", "Gianluca Grignani feat. Fabrizio Moro")
