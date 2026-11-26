@@ -55,7 +55,7 @@ class SchemaTests(StoreTestCase):
         tables = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         conn.close()
-        self.assertEqual(tables, {"requests", "external_cache", "request_copies"})
+        self.assertEqual(tables, {"requests", "external_cache", "request_copies", "request_copy_failures"})
 
     def test_reopening_an_existing_database_keeps_its_rows(self):
         request_id = self.enqueue_track()
@@ -324,6 +324,35 @@ class FormatSelectionTests(StoreTestCase):
         self.assertEqual(self.store.get(request_id)["request_state"], "queued_copy")
         picked = self.store.selected_copy(request_id, queued["format_revision"])
         self.assertEqual(picked["candidate"]["id"], "first")
+
+    def test_failed_copy_remains_marked_after_reopen_and_refresh(self):
+        row, _ = self.create()
+        request_id = row["id"]
+        first = {"source": "fixture", "id": "private-first", "label": "First"}
+        other = {"source": "fixture", "id": "private-second", "label": "Second"}
+        matches = self.store.save_copy_matches(request_id, "mp3", 0, {}, {}, [first, other])
+        self.store.confirm_format(request_id, "mp3", 0, matches[0]["key"])
+        self.store.claim(request_id)
+        self.assertEqual(self.store.get(request_id)["request_state"], "starting_copy")
+        self.store.set_phase(request_id, "downloading", 12)
+        self.store.set_phase(request_id, "verifying")
+        self.assertNotIn("download_percent", self.store.get(request_id))
+        self.store.finish(request_id, "rejected", "The file did not decode completely.", "", copy_failure="decode")
+        self.assertEqual(self.store.get(request_id)["request_state"], "copy_unavailable")
+
+        reopened = self.store.review_matches(request_id, "mp3", 1, {}, {})
+        self.assertEqual([item["label"] for item in reopened], ["Second", "First"])
+        self.assertEqual(reopened[1]["failure"], "The file did not decode completely.")
+        refreshed = self.store.save_copy_matches(request_id, "mp3", 1, {}, {}, [first, other], fresh=True)
+        self.assertEqual([item["label"] for item in refreshed], ["Second", "First"])
+        self.assertEqual(refreshed[1]["failure"], reopened[1]["failure"])
+        self.assertNotIn("private-first", str(refreshed))
+        self.assertNotEqual(refreshed[0]["key"], reopened[0]["key"])
+        next_row, started = self.store.confirm_format(request_id, "mp3", 1, refreshed[0]["key"])
+        self.assertTrue(started)
+        self.assertEqual((next_row["id"], next_row["request_state"]), (request_id, "queued_copy"))
+        self.store.finish(request_id, "downloaded", "Ready to play", "second.mp3")
+        self.assertEqual(self.store.get(request_id)["request_state"], "ready")
 
     def test_recording_change_keeps_the_catalog_request_and_waits_for_unconfirmed_format(self):
         row, _ = self.create(individual=False)

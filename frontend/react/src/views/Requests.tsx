@@ -87,6 +87,7 @@ function RequestItem({ row }: { row: RequestRow }) {
         )}
         <RetryRequestButton request={row} title={row.title} onRetry={() => setEditingSearch(false)} />
         {!store.member && (row.audio || canChangeRecording(stage)) && <RecordingVersions song={row}
+          onBrowseCopies={review ? () => store.requestsSlice.chooseFormat(row) : undefined}
           onChoose={song => void (row.audio ? store.createSongRequest(song) : store.requestsSlice.chooseRecording(row, song))} />}
         {editSearch && <RoomIconButton icon="search" label={`Edit search: ${row.title}`}
           aria-expanded={editingSearch} onClick={() => setEditingSearch(value => !value)} />}

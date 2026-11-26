@@ -5,6 +5,7 @@ import android.app.Dialog
 import android.content.res.ColorStateList
 import android.view.View
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
@@ -13,8 +14,11 @@ import org.json.JSONObject
 internal val CHANGEABLE_FORMAT = setOf("waiting_format", "not_found", "error", "rejected")
 internal val RETRYABLE_COPY = setOf("queued", "not_found", "error", "rejected")
 
-internal fun JSONObject.needsCopyReview(): Boolean = optBoolean("copy_review") ||
-    optString("request_state") in setOf("choose_copy", "copy_unavailable")
+internal fun JSONObject.needsCopyReview(): Boolean = when (optString("request_state")) {
+    "choose_copy", "copy_unavailable" -> true
+    "" -> optBoolean("copy_review")
+    else -> false
+}
 
 internal fun JSONObject.canReplaceRecording(): Boolean =
     has("request_state") && has("format_revision") &&
@@ -24,24 +28,39 @@ internal fun JSONObject.copyPending(): Boolean = optString("status") in setOf("q
 
 internal fun JSONObject.copyStatusLabel(): String {
     val specific = when (optString("request_state")) {
+        "queued_search" -> "Queued"
         "queued_copy" -> "Copy queued"
+        "retry_search" -> "Retry scheduled"
         "retry_copy" -> "Copy retry scheduled"
+        "searching" -> "Searching"
+        "starting_copy" -> "Starting download"
+        "trying_copy" -> transferLabel("Trying a copy")
+        "downloading" -> transferLabel("Downloading")
+        "verifying" -> "Verifying"
         "choose_copy" -> "Choose a copy"
         "copy_unavailable", "copy_missing" -> "Copy unavailable"
         "preparing" -> "Preparing playback"
+        "choose_format" -> "Waiting for format"
+        "waiting_space" -> "Waiting for space"
+        "ready" -> "Ready"
+        "no_matches" -> "No copy found"
+        "search_failed" -> "Search failed"
+        "verification_failed" -> "Needs review"
         else -> null
     }
     return specific ?: legacyCopyStatusLabel()
 }
 
+private fun JSONObject.transferLabel(label: String): String {
+    val percent = optInt("download_percent", -1)
+    return if (percent in 0..100) "$label · $percent%" else label
+}
+
 private fun JSONObject.legacyCopyStatusLabel(): String = when (optString("status")) {
     "queued" -> if (optDouble("retry_at", 0.0) > 0) "Retry scheduled" else "Queued"
     "searching" -> when (optString("phase")) {
-        "testing", "downloading" -> {
-            val label = if (optString("phase") == "testing") "Trying a copy" else "Downloading"
-            val percent = optInt("download_percent", -1)
-            if (percent in 0..100) "$label · $percent%" else label
-        }
+        "testing" -> transferLabel("Trying a copy")
+        "downloading" -> transferLabel("Downloading")
         "verifying" -> "Verifying"
         else -> "Searching"
     }
@@ -122,7 +141,7 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
                 if (row != null && status in RETRYABLE_COPY && !row.needsCopyReview())
                     action("Retry now", Mark.REFRESH) { onRetry(row) }
                 if (row == null || row.canReplaceRecording() || canPlay)
-                    action("Choose a recording", Mark.ALBUM) { onVersions(row) }
+                    action("Other recordings", Mark.ALBUM) { onVersions(row) }
                 action("Add to playlist", Mark.PLAYLIST_ADD, onAddToPlaylist)
                 if (status != "downloaded") {
                     action("Find on YouTube", Mark.YOUTUBE) { openYouTube(this@showDiscoveryPick, item.optString("artist"), item.getString("title")) }
@@ -137,9 +156,7 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
     }
 }
 
-internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room,
-                                            browseFirst: Boolean = row.needsCopyReview(),
-                                            confirm: (String, String?) -> Unit) {
+internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirmed: (JSONObject) -> Unit) {
     val options = listOf(
         "any_format" to "Any supported format (FLAC, ALAC, MP3 or AAC)",
         "any_lossless" to "Any lossless (prefer FLAC)", "flac" to "FLAC only",
@@ -149,9 +166,17 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room,
     val ui = RoomUi(this)
     val style = SongDetailsStyle(ui)
     val content = style.column()
-    val dialog = style.dialog(this, "Choose format", ScrollView(this).apply { addView(content) },
-        artist = listOf(row.optString("title"), row.optString("artist")).filter { it.isNotBlank() }.joinToString(" · "),
-        closeLabel = "Later")
+    val formatPanel = ui.column()
+    val copyPanel = ui.column()
+    val feedback = ui.label("", 14f, ui.secondary).apply {
+        visibility = View.GONE
+        accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+    }
+    val openingTitle = if (row.needsCopyReview()) "Choose a copy" else "Choose format"
+    val dialogHeading = ui.heading(openingTitle, 23f)
+    val dialog = style.dialog(this, openingTitle, ScrollView(this).apply { addView(content) },
+        artist = listOf(row.optString("title"), row.optString("artist")).filter(String::isNotBlank).joinToString(" · "),
+        titleView = dialogHeading)
     val choices = RadioGroup(this)
     val ids = options.map { View.generateViewId() }
     for ((index, option) in options.withIndex()) choices.addView(RadioButton(this).apply {
@@ -164,33 +189,67 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room,
     }, RadioGroup.LayoutParams(-1, -2))
     val current = row.optString("requested_format").takeIf { value -> options.any { it.first == value } } ?: "any_lossless"
     choices.check(ids[options.indexOfFirst { it.first == current }])
+    var listing = 0
+    var saving = false
+
     fun selectedFormat() = options[ids.indexOf(choices.checkedRadioButtonId)].first
-    val feedback = ui.label("", 14f, ui.secondary).apply {
-        visibility = View.GONE
-        accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+    fun message(text: String) {
+        feedback.text = text
+        feedback.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
     }
-    val browse = ui.iconButton("Browse copies", Mark.BROWSE) {}
-    with(ui) {
-        content.section(choices)
-        content.section(line(), gap = 8)
-        content.section(feedback, gap = 8)
-        browse.setOnClickListener {
-            val format = selectedFormat()
-            browse.isEnabled = false
-            feedback.visibility = View.VISIBLE
-            feedback.text = "Searching for copies…"
+    fun showPanel(title: String, panel: View) {
+        dialogHeading.text = title
+        dialog.window?.setTitle(title)
+        content.removeAllViews()
+        with(ui) {
+            content.section(feedback)
+            content.section(panel, gap = 0)
+        }
+    }
+    fun submit(format: String, copy: String? = null) {
+        if (saving) return
+        saving = true
+        message(if (copy == null) "Starting search…" else "Queueing copy…")
+        Thread {
+            val result = runCatching { room.confirmFormat(row, format, copy) }
+            runOnUiThread {
+                if (isDestroyed || !dialog.isShowing) return@runOnUiThread
+                saving = false
+                result.onSuccess {
+                    dialog.dismiss()
+                    confirmed(it)
+                }.onFailure { message(it.message ?: "Could not queue this request.") }
+            }
+        }.start()
+    }
+    fun showCopies(fresh: Boolean = false) {
+        if (saving) return
+        val ticket = ++listing
+        val format = selectedFormat()
+        copyPanel.removeAllViews()
+        showPanel("Choose a copy", copyPanel)
+        message("Searching for copies…")
+        with(ui) {
+            val search = iconButton("Search again", Mark.REFRESH) { showCopies(fresh = true) }
+            search.isEnabled = false
+            copyPanel.section(actionStrip(listOf(iconButton("Change format", Mark.SETTINGS) {
+                if (!saving) {
+                    listing++
+                    message("")
+                    showPanel("Choose format", formatPanel)
+                }
+            }, search), alignEnd = true))
             Thread {
-                val result = runCatching { room.browseCopies(row, format).getJSONArray("matches") }
+                val result = runCatching { room.browseCopies(row, format, fresh).getJSONArray("matches") }
                 runOnUiThread {
-                    if (isDestroyed || !dialog.isShowing) return@runOnUiThread
-                    browse.isEnabled = true
+                    if (isDestroyed || !dialog.isShowing || ticket != listing) return@runOnUiThread
+                    search.isEnabled = true
                     result.onSuccess { matches ->
-                        if (matches.length() == 0) {
-                            feedback.text = "No copies found in this format."
-                            return@onSuccess
-                        }
-                        val entries = (0 until matches.length()).map { index ->
+                        message(if (matches.length() == 0) "No copies found in this format." else "")
+                        for (index in 0 until matches.length()) {
                             val match = matches.getJSONObject(index)
+                            val name = match.getString("label")
+                            val failure = match.optString("failure")
                             val detail = listOf(
                                 match.optString("format").uppercase(),
                                 match.optInt("duration").takeIf { it > 0 }?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" }.orEmpty(),
@@ -201,26 +260,32 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room,
                                     else -> ""
                                 },
                             ).filter(String::isNotBlank).joinToString(" · ")
-                            Entry(match.getString("label"), detail, mark = Mark.DOWNLOAD) {
-                                dialog.dismiss()
-                                confirm(format, match.getString("key"))
-                            }
+                            copyPanel.section(ui.row().apply {
+                                addView(column().apply {
+                                    addView(heading(name, 15f))
+                                    if (detail.isNotEmpty()) addView(label(detail, 13f, secondary))
+                                    if (failure.isNotEmpty()) addView(label(failure, 13f, ink))
+                                }, LinearLayout.LayoutParams(0, -2, 1f))
+                                val action = if (failure.isEmpty()) "Download" else "Retry"
+                                addView(iconButton("$action $name", if (failure.isEmpty()) Mark.DOWNLOAD else Mark.REFRESH) {
+                                    submit(format, match.getString("key"))
+                                })
+                            }, gap = 8)
+                            copyPanel.section(line(), gap = 4)
                         }
-                        feedback.visibility = View.GONE
-                        ui.choices(this@chooseDiscoveryFormat, "Choose a copy", entries)
-                    }.onFailure { feedback.text = it.message ?: "Couldn’t search for copies." }
+                    }.onFailure { message(it.message ?: "Could not search for copies.") }
                 }
             }.start()
         }
-        content.section(actionStrip(listOf(
+    }
+    with(ui) {
+        formatPanel.section(choices)
+        formatPanel.section(actionStrip(listOf(
             iconButton("View extensions", Mark.EXTENSIONS) { showRoomExtensions(room, backLabel = "Back to format") },
-            browse,
-            iconButton("Confirm and search", Mark.SEARCH) {
-                dialog.dismiss()
-                confirm(selectedFormat(), null)
-            },
+            iconButton("Browse copies", Mark.BROWSE) { showCopies() },
+            iconButton("Confirm and search", Mark.SEARCH) { submit(selectedFormat()) },
         ), alignEnd = true))
     }
     dialog.show()
-    if (browseFirst) browse.performClick()
+    if (row.needsCopyReview()) showCopies() else showPanel("Choose format", formatPanel)
 }
