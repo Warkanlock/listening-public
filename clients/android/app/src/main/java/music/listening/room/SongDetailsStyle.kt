@@ -67,7 +67,8 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
         }
 
     fun dialog(activity: Activity, title: String, body: View, artist: String = "", closeLabel: String = "Close",
-               backLabel: String? = null, titleView: TextView = ui.heading(title, 23f)): AlertDialog {
+               backLabel: String? = null, titleView: TextView = ui.heading(title, 23f),
+               canDismiss: () -> Boolean = { true }): AlertDialog {
         val header = ui.row().apply {
             val padding = ui.dp(16)
             setPadding(padding, padding, padding, ui.dp(12))
@@ -85,7 +86,7 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
         }
         val dialog = AlertDialog.Builder(activity).setView(content).create()
         val dismissal = ui.iconButton(backLabel ?: closeLabel, if (backLabel == null) Mark.CLOSE else Mark.BACK) {
-            dialog.dismiss()
+            if (canDismiss()) dialog.dismiss()
         }
         val size = ui.dp(48)
         if (backLabel == null) header.addView(dismissal, LinearLayout.LayoutParams(size, size))

@@ -127,7 +127,7 @@ export class RequestsSlice {
     }
   }
 
-  async chooseRecording(current: RequestRow, song: RequestSong) {
+  async chooseRecording(current: RequestRow, song: RequestSong, onError: (message: string) => void = notify) {
     try {
       const row = await postJson<RequestRow>("/api/requests", {
         ...song, request_id: current.id, format_revision: current.format_revision,
@@ -138,7 +138,7 @@ export class RequestsSlice {
       void this.loadRequests();
       return row;
     } catch (error) {
-      notify(errorMessage(error, "Couldn’t change the recording"));
+      onError(errorMessage(error, "Couldn’t change the recording"));
       void this.loadRequests();
       return null;
     }
