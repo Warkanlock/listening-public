@@ -4,8 +4,9 @@ A favorite is a durable mark on a recording, stored against the
 record's own key (the identity genres, lyrics, and play events
 already use), never its positional catalog index: indexes can move
 when a rebuild lands the same recordings in a different order, and
-a favorite must survive that. The store lives in the state
-database (plan 036: the ``favorites`` table of the application
+a favorite must survive that. Downloaded requests outside the catalog use their
+persistent playback reference (custom-<id>) as the key.
+Both are stored in the state database (plan 036: the ``favorites`` table of the application
 folder's ``requests.sqlite3``, plan 043), NOT inside the catalog
 build that prepare rebuilds, so a rebuild can never erase a like.
 No legacy import: the feature is new, there is nothing to import.

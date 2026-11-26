@@ -1,7 +1,7 @@
 import { RoomIcon } from "./RoomIcon";
 import { useRef, type ReactNode } from "react";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
-import { BUSY_STATUSES, isHost, statusLabel, time, type Track } from "../api";
+import { BUSY_STATUSES, isHost, statusLabel, time, type DownloadFavorite, type Track } from "../api";
 import { isDestinationFilter, useStore } from "../store";
 import {
   DESTINATION_DESCRIPTORS,
@@ -136,6 +136,30 @@ function TrackRow({ track }: { track: Track }) {
   );
 }
 
+function FavoriteDownloadRow({ track }: { track: DownloadFavorite }) {
+  const store = useStore();
+  const playing = store.current?.id === track.id;
+  return <div className={`track-row${playing ? " is-playing" : ""}`}>
+    <div className="song-cell">
+      <span className="track-art"><CoverArt cover={track.cover} /></span>
+      <span className="song-info">
+        <strong className="track-title">{track.title}</strong>
+        <span className="song-byline">{track.artist}</span>
+      </span>
+    </div>
+    <span className="album-cell">{track.album || "—"}</span>
+    <span className="track-meta">
+      <span className="status-pill verified">{statusLabel("verified")}</span>
+      <span className="time-cell">{time(track.duration)}</span>
+    </span>
+    <span className="row-action play">
+      <FavoriteButton track={track} />
+      <button type="button" aria-label={`Play ${track.title}`}
+        onClick={() => void store.sendSession("play_request", { request_id: track.request_id })}>Play</button>
+    </span>
+  </div>;
+}
+
 function emptyCard(
   store: ReturnType<typeof useStore>,
 ): ReactNode {
@@ -232,6 +256,7 @@ function emptyCard(
 // panel renders it; inactive panels stay empty, as in the vanilla UI.
 export function TrackListBody() {
   const store = useStore();
+  const { downloadFavorites, loadedTrackCount } = store.browsingSlice;
   return (
     <>
       <div className="table-head">
@@ -261,8 +286,11 @@ export function TrackListBody() {
               </button>
             }
           />
-        ) : store.tracks.length ? (
-          store.tracks.map((track) => <TrackRow key={track.id} track={track} />)
+        ) : loadedTrackCount ? (
+          <>
+            {store.tracks.map(track => <TrackRow key={track.id} track={track} />)}
+            {downloadFavorites.map(track => <FavoriteDownloadRow key={track.id} track={track} />)}
+          </>
         ) : (
           emptyCard(store)
         )}
@@ -286,7 +314,7 @@ export function TrackListBody() {
           />
         ) : null}
       </div>
-      {!store.tracksResetting && store.tracks.length < store.tracksTotal ? (
+      {!store.tracksResetting && loadedTrackCount < store.tracksTotal ? (
         <button
           className="load-more"
           type="button"
@@ -304,6 +332,6 @@ export function TrackListBody() {
 // table; the stylesheet hides the table head in that case.
 export function panelHasState(store: ReturnType<typeof useStore>): boolean {
   return (
-    store.tracksResetting || !!store.tracksError || store.tracks.length === 0
+    store.tracksResetting || !!store.tracksError || store.browsingSlice.loadedTrackCount === 0
   );
 }

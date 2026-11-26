@@ -182,16 +182,7 @@ export function Player() {
             <RoomIcon name="info" />
           </button>
         ) : null}
-        {track && typeof track.id === "number" ? (
-          <FavoriteButton
-            className="player-info"
-            track={{
-              id: track.id,
-              title: track.title,
-              favorite: !!track.favorite,
-            }}
-          />
-        ) : null}
+        {track && <FavoriteButton className="player-info" track={track} />}
         {track && store.settings?.desktop_player_available ? (
           <button
             className="player-info"

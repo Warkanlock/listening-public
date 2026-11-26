@@ -793,6 +793,24 @@ class RequestsStore:
             return decode_request_row(row) if row else None
         return self._run(work)
 
+    def downloaded_customs(self, ids):
+        """Playback metadata for only the requested custom downloads."""
+        if not ids:
+            return []
+
+        def work(conn):
+            rows = []
+            for start in range(0, len(ids), 800):
+                batch = ids[start:start + 800]
+                placeholders = ",".join("?" for _ in batch)
+                rows.extend(dict(row) for row in conn.execute(
+                    "SELECT id,title,artist,album,length,audio_path,musicbrainz_id,version FROM requests "
+                    "WHERE status='downloaded' AND track_index IS NULL AND audio_path!='' "
+                    f"AND id IN ({placeholders}) ORDER BY id", batch))
+            return rows
+
+        return self._run(work)
+
     def custom_audio(self, request_id):
         """A custom request's status and audio path, as a dict, or None."""
         def work(conn):
