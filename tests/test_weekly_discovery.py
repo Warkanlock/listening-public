@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from fixture_environment import isolate_room_environment as setUpModule
 from test_http_server import ServerFixture, server
-from downloads.requests_store import RequestsStore
+from downloads.requests_store import COPY_REVIEW_MESSAGE, RequestsStore
 from metadata import weekly_discovery as weekly
 from metadata.discovery_trail import LibraryRecordings
 from playback.playback import PlaybackSession
@@ -52,9 +52,12 @@ class WeeklyTests(unittest.TestCase):
             self.assertEqual(entity, "recording")
             artist = options["artist"]
             number = int(artist[-2:])
+            alternate = song(300 + number, f"Discovery {number}", artist)
+            alternate["artist-credit"][0]["joinphrase"] = " feat. "
+            alternate["artist-credit"].append({"artist": {"id": identity(99), "name": "Guest"}})
             return {"recordings": [song(100 + number, f"Owned {number}", artist),
                                     song(200 + number, f"Discovery {number}", artist),
-                                    song(300 + number, f"Discovery {number}", artist),
+                                    alternate,
                                     song(400 + number, "Unknown duration", artist, seconds=0)]}
         meta.musicbrainz.side_effect = browse
         known = LibraryRecordings([{"artist": "Artist 1", "title": "Owned 1", "musicbrainz_id": identity(999)},
@@ -64,7 +67,7 @@ class WeeklyTests(unittest.TestCase):
         self.assertEqual({row["depth"] for row in result}, {0, 1, 2, 3})
         self.assertEqual(connections.lookup.call_count, 3)
         self.assertEqual(meta.musicbrainz.call_count, 4)
-        self.assertEqual(len({(row["title"], row["artist"]) for row in result}), len(result))
+        self.assertEqual(len({row["title"] for row in result}), len(result))
         self.assertNotIn("Owned 1", [row["title"] for row in result])
         self.assertNotIn("Owned 2", [row["title"] for row in result])
         self.assertNotIn("Unknown duration", [row["title"] for row in result])
@@ -125,6 +128,100 @@ class WeeklyTests(unittest.TestCase):
             self.assertEqual(store.queue_weekly([first]), 1)
             self.assertEqual(store.get(request["id"])["requested_format"], "any_lossy")
 
+    def test_weekly_queue_reserves_songs_with_featured_credit_across_requests(self):
+        with TemporaryDirectory() as tmp:
+            store = RequestsStore(Path(tmp) / "room.db")
+            solo = pick(101, "+ famoso di Gesù", "Gianluca Grignani")
+            featured = pick(102, "+ Famoso di Gesù", "Gianluca Grignani feat. Fabrizio Moro")
+            cover = pick(103, "+ Famoso di Gesù", "Other Artist")
+            self.assertEqual(store.queue_weekly([solo, featured, cover]), 2)
+            self.assertEqual(store.queue_weekly([featured]), 0)
+            self.assertEqual([row["musicbrainz_id"] for row in store.queued(5)], [solo["id"], cover["id"]])
+
+    def test_existing_library_credit_matches_for_discovery_only(self):
+        featured = pick(102, "+ Famoso di Gesù", "Gianluca Grignani feat. Fabrizio Moro")
+        known = LibraryRecordings([pick(101, "+ famoso di Gesù", "Gianluca Grignani")])
+        self.assertTrue(known.contains_song(featured))
+        self.assertFalse(known.contains(featured))
+
+    def test_missing_downloaded_alias_does_not_reserve_other_recording(self):
+        with TemporaryDirectory() as tmp:
+            store = RequestsStore(Path(tmp) / "room.db")
+            solo = pick(101)
+            featured = pick(102, artist="Fixture artist feat. Guest")
+            existing, _ = store.create_or_find(None, featured["artist"], featured["title"], "", 120, "",
+                                                individual=True, musicbrainz_id=featured["id"])
+            store.finish(existing["id"], "downloaded", "", "missing.mp3")
+            unavailable = lambda _path: False
+            (choice,) = weekly.with_requests([solo], store, LibraryRecordings([]), unavailable)
+            self.assertIsNone(choice["request"])
+            self.assertFalse(choice["in_library"])
+            self.assertEqual(store.queue_weekly([solo], audio_available=unavailable), 1)
+            self.assertEqual(store.queued(1)[0]["musicbrainz_id"], solo["id"])
+
+    def test_legacy_replacement_is_visible_from_featured_original_credit(self):
+        with TemporaryDirectory() as tmp:
+            store = RequestsStore(Path(tmp) / "room.db")
+            original, _ = store.create_or_find(None, "Fixture artist", "New song", "", 120, "", individual=True)
+            chosen = pick(109, "Chosen performance")
+            store.replace_recording(original["id"], original["format_revision"], chosen["artist"], chosen["title"],
+                                    "", 150, chosen["title"], musicbrainz_id=chosen["id"], version="Live", performance="")
+            featured = pick(102, artist="Fixture artist feat. Guest")
+            result = weekly.with_requests([chosen, featured], store, LibraryRecordings([chosen]), lambda _path: True)
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["request"]["id"], original["id"])
+            self.assertEqual(result[0]["request"]["title"], chosen["title"])
+            self.assertFalse(result[0]["in_library"])
+            self.assertEqual(store.queue_weekly([featured]), 0)
+            store.finish(original["id"], "downloaded", "", "missing.mp3")
+            (item,) = weekly.with_requests([featured], store, LibraryRecordings([]), lambda _path: False)
+            self.assertIsNone(item["request"])
+
+    def test_replacement_reserves_original_and_current_songs(self):
+        with TemporaryDirectory() as tmp:
+            store = RequestsStore(Path(tmp) / "room.db")
+            original = pick(101, "Original")
+            featured_original = pick(102, "Original", "Fixture artist feat. Guest")
+            featured_replacement = pick(103, "Live jam", "Other artist feat. Guest")
+            edition = [original, featured_original, featured_replacement]
+            self.assertEqual(store.queue_weekly([original]), 1)
+            row = store.queued(1)[0]
+            store.replace_recording(row["id"], row["format_revision"], "Other artist", "Live jam",
+                                    "", 120, "Live jam", musicbrainz_id=identity(109), version="", performance="")
+            store.finish(row["id"], "not_found", "", "")
+            self.assertEqual(store.queue_weekly(edition), 1)
+            self.assertEqual([request["id"] for request in store.queued(4)], [row["id"]])
+            store.finish(row["id"], "downloaded", "", "replacement.mp3")
+            self.assertEqual(store.queue_weekly(edition, selected_ids={featured_original["id"]},
+                                                audio_available=lambda _path: True), 0)
+
+    def test_cached_song_resolves_to_explicit_replacement_or_alias_needing_review(self):
+        with TemporaryDirectory() as tmp:
+            store = RequestsStore(Path(tmp) / "room.db")
+            solo = pick(101)
+            featured = pick(102, artist="Fixture artist feat. Guest")
+            store.queue_weekly([solo])
+            direct = store.queued(1)[0]
+            store.finish(direct["id"], "not_found", "", "")
+            alternate, _ = store.create_or_find(None, featured["artist"], featured["title"], "", 120, "",
+                                                 individual=True, musicbrainz_id=featured["id"])
+            store.finish(alternate["id"], "rejected", COPY_REVIEW_MESSAGE, "")
+            available = lambda _path: True
+            resolved = weekly.with_requests([solo, featured], store, LibraryRecordings([]), available)
+            self.assertEqual(len(resolved), 1)
+            self.assertEqual((resolved[0]["request"]["id"], resolved[0]["request"]["request_state"]),
+                             (alternate["id"], "choose_copy"))
+
+            store.replace_recording(direct["id"], direct["format_revision"], solo["artist"], "Selected live edition",
+                                    "", 150, "Selected live edition", musicbrainz_id=identity(109),
+                                    version="Live", performance="")
+            store.finish(alternate["id"], "downloaded", "", "featured.mp3")
+            resolved = weekly.with_requests([solo, featured], store, LibraryRecordings([]), available)
+            self.assertEqual(len(resolved), 1)
+            self.assertEqual(resolved[0]["request"]["id"], direct["id"])
+            self.assertEqual(resolved[0]["request"]["title"], "Selected live edition")
+            self.assertFalse(resolved[0]["in_library"])
+
     def test_weekly_playback_keeps_the_downloaded_tracks_in_playlist_order(self):
         refs = ["custom-2", "custom-1"]
         tracks = {ref: {"id": ref, "length": 120} for ref in refs}
@@ -136,6 +233,40 @@ class WeeklyTests(unittest.TestCase):
 
 
 class WeeklyHttpTests(ServerFixture, unittest.TestCase):
+    def test_cached_credit_variants_show_one_playable_song_and_do_not_queue_again(self):
+        solo = pick(101, "+ famoso di Gesù", "Gianluca Grignani")
+        featured = pick(102, "+ Famoso di Gesù", "Gianluca Grignani feat. Fabrizio Moro")
+        store = server.requests_store()
+        week = server.weekly.week()
+        store.cache_put(server.weekly._key(str(server.ROOT), week), json.dumps([featured, solo]), time.time())
+        store.queue_weekly([featured])
+        duplicate = store.queued(1)[0]
+        ready, _ = store.create_or_find(None, solo["artist"], solo["title"], "", 120, "",
+                                        individual=True, musicbrainz_id=solo["id"])
+        audio = server.LIBRARY / "weekly-credits-fixture.mp3"
+        audio.parent.mkdir(parents=True, exist_ok=True)
+        audio.touch()
+        store.finish(ready["id"], "downloaded", "", audio.name)
+        cookie = self.lan_device_cookie("weekly-credits")
+        headers = {"Cookie": cookie, "Origin": self.lan_origin()}
+
+        with patch.object(server, "download_ready", return_value=True), patch.object(server, "start_worker") as start:
+            status, _, data = self.request(self.lan_port, "GET", weekly.PATH, headers=headers)
+            self.assertEqual(status, 200)
+            result = json.loads(data)
+            self.assertEqual(len(result["tracks"]), 1)
+            (song,) = result["tracks"]
+            self.assertTrue(song["in_library"])
+            self.assertEqual(song["request"]["id"], ready["id"])
+            self.assertEqual(song["request"]["audio"], f"/api/audio/custom/{ready['id']}")
+            self.assertEqual(result["download_progress"]["downloaded"], 1)
+
+            status, _, data = self.request(self.lan_port, "POST", weekly.PATH,
+                                           body={"ids": [featured["id"], solo["id"]]}, headers=headers)
+            self.assertEqual((status, json.loads(data)), (200, {"queued": 0, "existing": 2}))
+            start.assert_not_called()
+            self.assertEqual([row["id"] for row in store.queued(5)], [duplicate["id"]])
+
     def test_paired_client_only_queues_issued_picks_and_sees_lifecycle(self):
         new = pick(104)
         store = server.requests_store()

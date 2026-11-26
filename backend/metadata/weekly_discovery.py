@@ -9,8 +9,10 @@ import sqlite3
 import threading
 import time
 
+from downloads.requests_store import ACTIVE_STATUSES, weekly_request_origin, weekly_request_songs
 from metadata.artist_connections import ConnectionsBusy, artist_ids, clean, credit_key, items, valid_id
 from metadata.discovery_trail import LibraryRecordings, recording
+from system.normalize import song_key
 
 
 PATH = "/api/discover/weekly"
@@ -35,8 +37,65 @@ def download_progress(tracks):
             "percent": downloaded * 100 // total if total else 0}
 
 
-def _song_key(track):
-    return credit_key(track.get("artist")), credit_key(track.get("title"))
+def with_requests(tracks, store, known, audio_available):
+    """Resolve cached picks against today's request and library state, once per song."""
+    picks = [(track["artist"], track["title"], track["id"]) for track in tracks]
+    songs_by_recording = {identity: song_key(artist, title) for artist, title, identity in picks}
+    exact = store.for_picks([*picks, *(key[:2] for key in picks)], include_audio_path=True)
+    aliases = defaultdict(list)
+    for row in store.weekly_requests():
+        for song in weekly_request_songs(row, songs_by_recording):
+            aliases[song].append(row)
+    checked = {}
+    songs = {}
+
+    def playable(row):
+        if row["status"] != "downloaded" or not row["audio_path"]:
+            return False
+        if row["id"] not in checked:
+            checked[row["id"]] = audio_available(row["audio_path"])
+        return checked[row["id"]]
+
+    for track, key in zip(tracks, picks):
+        direct = exact.get(key) or exact.get(key[:2])
+        song = songs_by_recording[track["id"]]
+        matches = [row for row in aliases[song] if row["status"] != "downloaded" or playable(row)]
+        candidates = [row for row in (direct, *matches) if row]
+        chosen = next((row for row in candidates if weekly_request_origin(row, songs_by_recording) == song), None)
+        if chosen:
+            row = chosen
+        else:
+            row = next((row for row in candidates if playable(row)), None)
+            row = row or next((row for row in candidates if row["status"] in ACTIVE_STATUSES
+                               or row["request_state"] in ("choose_copy", "copy_unavailable")), None)
+            row = row or next(iter(candidates), None)
+        ready = bool(row and playable(row))
+        missing = bool(row and row["status"] == "downloaded" and not ready)
+        request = None
+        if row:
+            request = {field: row[field] for field in (
+                "id", "status", "request_state", "format_revision", "requested_format",
+                "title", "artist", "musicbrainz_id", "version")}
+            request.update({field: row[field] for field in ("phase", "retry_at") if row[field]})
+            if row.get("download_percent") is not None:
+                request["download_percent"] = row["download_percent"]
+            if row.get("copy_review"):
+                request["copy_review"] = True
+            if ready:
+                request["audio"] = f"/api/audio/custom/{row['id']}"
+            elif missing:
+                request.update(status="missing", request_state="copy_missing")
+        in_library = ready or (not chosen and known.contains_song(track))
+        rank = not missing, bool(chosen), ready, in_library, bool(direct and row is direct), bool(request)
+        if song not in songs or rank > songs[song][0]:
+            songs[song] = rank, {**track, "request": request, "in_library": in_library}
+    result = {}
+    for rank, track in songs.values():
+        request = track["request"]
+        key = ("request", request["id"]) if request else ("pick", track["id"])
+        if key not in result or rank > result[key][0]:
+            result[key] = rank, track
+    return [track for _, track in result.values()]
 
 
 def known_songs(catalog, downloaded):
@@ -188,7 +247,8 @@ class WeeklyDiscovery:
                 tracks.sort(key=lambda item: hashlib.sha256((week + item["musicbrainz_id"]).encode()).digest())
                 count = 0
                 for track in tracks:
-                    track_id, title = track["musicbrainz_id"], _song_key(track)
+                    track_id = track["musicbrainz_id"]
+                    title = song_key(track["artist"], track["title"])
                     if track_id in seen_tracks or title in seen_titles or known.contains_song(track):
                         continue
                     seen_tracks.add(track_id)
