@@ -28,6 +28,8 @@ class DownloadActivityTests(ServerFixture, unittest.TestCase):
         self.assertEqual(activity["downloads"], [{"id": ready, "track_index": None,
                          "title": "Playable song", "artist": "Fixture", "audio": f"/api/audio/custom/{ready}"}])
         self.assertEqual([row["status"] for row in activity["outcomes"]], ["not_found", "downloaded", "downloaded"])
+        self.assertEqual([(row["id"], row["artist"]) for row in activity["outcomes"]],
+                         [(no_match, "Fixture"), (existing, "Fixture"), (ready, "Fixture")])
         ready_key = activity["outcomes"][2]["key"]
         self.assertTrue(ready_key.startswith(f"{ready}/downloaded/"))
         self.assertNotIn("audio_path", raw.decode())

@@ -193,7 +193,7 @@ def download_activity():
                               ("id", "title", "artist", "track_index", "audio")})
     return {"downloads": list(recent.values())[:8], "outcomes": [
         {"key": f"{row['id']}/{row['status']}/{row['format_revision']}/{row['resolved_at'] or row['updated_at']}",
-         "title": row["title"], "status": row["status"], "request_state": row["request_state"]}
+         **{name: row[name] for name in ("id", "title", "artist", "status", "request_state")}}
         for item in outcomes if (row := rows[item["id"]]).get("audio") or row["status"] in {"not_found", "rejected", "error"}]}
 
 

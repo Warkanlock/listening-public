@@ -58,6 +58,12 @@ class RoomActivity : Activity() {
     private var downloadsShelf: LinearLayout? = null
     private var downloadRoom: String? = null
     private var recentDownloads = "[]"
+    private data class DownloadNotice(val roomId: String, val summary: String, val songs: List<JSONObject>)
+    private enum class DownloadGroup(val label: String) {
+        REVIEW("Needs review"), READY("Ready to play"), MISSING("No copy found")
+    }
+    private var downloadNotice: DownloadNotice? = null
+    private var downloadNoticeSlot: LinearLayout? = null
     private var downloadActivityLoading = false
     private var autoJoinAttempt: Pair<String, Long>? = null
     private var authorizedExternalRadio: Pair<String, RadioHistory>? = null
@@ -355,6 +361,7 @@ class RoomActivity : Activity() {
         insightsPanel = null
         playerShortcut = null
         downloadsShelf = null
+        downloadNoticeSlot = null
         val outer = ui.screen().apply { isFocusableInTouchMode = true }
         setContentView(outer)
         val target = room
@@ -397,6 +404,10 @@ class RoomActivity : Activity() {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         outer.addView(status)
+        if (target != null && phone()?.local != true) {
+            downloadNoticeSlot = ui.column().also(outer::addView)
+            renderDownloadNotice(target)
+        }
         presenceError = false
         retry = ui.button("Retry") { show() }.apply { visibility = View.GONE }
         if (weekly) outer.addView(retry, LinearLayout.LayoutParams(-2, -2))
@@ -507,24 +518,27 @@ class RoomActivity : Activity() {
                 val preferences = getSharedPreferences("download_activity", MODE_PRIVATE)
                 val previous = preferences.getStringSet(target.id, null)
                 val current = rows.map { it.getString("key") }
-                if (previous != null) {
-                    val fresh = rows.filter { it.getString("key") !in previous }
-                    val latest = fresh.firstOrNull()
+                if (previous != null && current.any { it !in previous }) {
+                    val unread = downloadNotice?.takeIf { it.roomId == target.id }
+                        ?.songs.orEmpty().map { it.getString("key") }.toSet()
+                    val pending = rows.filter {
+                        val key = it.getString("key")
+                        key in unread || key !in previous
+                    }
+                    val latest = pending.first()
                     val notice = when {
-                        fresh.size > 1 -> {
-                            val ready = fresh.count { it.optString("status") == "downloaded" }
-                            val missing = fresh.count { it.optString("status") == "not_found" }
-                            val review = fresh.size - ready - missing
+                        pending.size > 1 -> {
+                            val ready = pending.count { downloadGroup(it) == DownloadGroup.READY }
+                            val missing = pending.count { downloadGroup(it) == DownloadGroup.MISSING }
+                            val review = pending.size - ready - missing
                             listOfNotNull("$ready ready to play".takeIf { ready > 0 },
                                 "$missing no copy found".takeIf { missing > 0 },
-                                "$review need review".takeIf { review > 0 }).joinToString(" · ")
+                                "$review ${if (review == 1) "needs" else "need"} review".takeIf { review > 0 }).joinToString(" · ")
                         }
-                        latest == null -> null
-                        latest.optString("status") == "downloaded" -> "${latest.optString("title")} · Ready to play"
-                        latest.optString("status") == "not_found" -> "${latest.optString("title")} · No copy found"
-                        else -> "${latest.optString("title")} · Download needs review"
+                        else -> "${latest.optString("title")} · ${downloadGroup(latest).label}"
                     }
-                    notice?.let { Toast.makeText(this, it, Toast.LENGTH_LONG).show() }
+                    downloadNotice = DownloadNotice(target.id, notice, pending)
+                    renderDownloadNotice(target)
                 }
                 val remembered = (current + previous.orEmpty()).take(96).toSet()
                 if (remembered != previous) preferences.edit().putStringSet(target.id, remembered).apply()
@@ -536,6 +550,113 @@ class RoomActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun downloadGroup(row: JSONObject) = when (row.optString("request_state")) {
+        "ready" -> DownloadGroup.READY
+        "no_matches" -> DownloadGroup.MISSING
+        "" -> when (row.optString("status")) {
+            "downloaded" -> DownloadGroup.READY
+            "not_found" -> DownloadGroup.MISSING
+            else -> DownloadGroup.REVIEW
+        }
+        else -> DownloadGroup.REVIEW
+    }
+
+    private fun renderDownloadNotice(target: Room) {
+        val slot = downloadNoticeSlot ?: return
+        slot.removeAllViews()
+        val notice = downloadNotice?.takeIf { it.roomId == target.id } ?: return
+        slot.addView(ui.button(notice.summary) {
+            downloadNotice = null
+            renderDownloadNotice(target)
+            showDownloadUpdates(target, notice.songs)
+        }.apply {
+            contentDescription = "${notice.summary} · Open download updates"
+            setCompoundDrawablesRelative(null, null, ui.mark(Mark.FORWARD, 17, ui.accentInk), null)
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(8) })
+        slot.announceForAccessibility(notice.summary)
+    }
+
+    private fun showDownloadUpdates(target: Room, songs: List<JSONObject>) {
+        val style = SongDetailsStyle(ui)
+        val list = style.column()
+        val dialog = style.dialog(this, "Download updates", ScrollView(this).apply { addView(list) },
+            closeLabel = "Close download updates")
+        val feedback = ui.label("", 14f, ui.secondary).apply {
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            visibility = View.GONE
+        }
+        list.addView(feedback)
+        fun updateFeedback(text: String) {
+            feedback.text = text
+            feedback.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+        }
+        var loading = false
+        val groups = songs.groupBy(::downloadGroup)
+        for (group in DownloadGroup.entries) {
+            val rows = groups[group] ?: continue
+            val section = ui.column()
+            val heading = ui.heading(group.label, 17f).apply { setPadding(0, ui.dp(8), 0, ui.dp(4)) }
+            section.addView(heading)
+            list.addView(section)
+            for (notice in rows) {
+                val title = notice.getString("title")
+                val id = notice.optLong("id").takeIf { it > 0 }
+                    ?: notice.optString("key").substringBefore('/').toLongOrNull() ?: continue
+                val play = group == DownloadGroup.READY
+                val review = notice.needsCopyReview()
+                val statusChip = ui.statusChip(notice.copyStatusLabel())
+                val divider = ui.line()
+                section.addView(divider)
+                section.addView(ui.row(6).apply {
+                    part(ui.column().apply {
+                        addView(ui.heading(title, 15f))
+                        notice.optString("artist").takeIf(String::isNotBlank)?.let { addView(ui.label(it, 13f, ui.secondary)) }
+                        addView(ui.row().apply { addView(statusChip) })
+                    })
+                    val action = when { play -> "Play"; review -> "Review copies for"; else -> "Change format for" }
+                    val icon = when { play -> Mark.PLAY; review -> Mark.BROWSE; else -> Mark.SETTINGS }
+                    val rowView = this
+                    fun resolve(status: String) {
+                        section.removeView(divider)
+                        section.removeView(rowView)
+                        if (section.childCount == 1) list.removeView(section)
+                        updateFeedback("$title · $status")
+                    }
+                    addView(ui.iconButton("$action $title", icon) {
+                        if (loading) return@iconButton
+                        loading = true
+                        updateFeedback("Loading $title…")
+                        io.execute {
+                            val result = runCatching { target.requestById(id) }
+                            runOnUiThread {
+                                loading = false
+                                if (!dialog.isShowing || isDestroyed || room?.id != target.id) return@runOnUiThread
+                                result.onFailure { updateFeedback(it.message ?: "Couldn’t load the request. Try again.") }
+                                result.onSuccess { row ->
+                                    updateFeedback("")
+                                    when {
+                                        play && row != null && row.optString("audio").isNotBlank() -> {
+                                            val trackId = row.optInt("track_index")
+                                            if (trackId > 0) send("play", JSONObject().put("track_id", trackId).put("playlist", "all"))
+                                            else send("play_request", JSONObject().put("request_id", id))
+                                            dialog.dismiss()
+                                            screen = Screen.PLAYER
+                                            show()
+                                        }
+                                        !play && row != null && row.optString("status") in CHANGEABLE_FORMAT ->
+                                            chooseDiscoveryFormat(row, target) { updated -> resolve(updated.copyStatusLabel()) }
+                                        else -> resolve(row?.copyStatusLabel()?.ifBlank { null } ?: "Request unavailable")
+                                    }
+                                }
+                            }
+                        }
+                    })
+                })
+            }
+        }
+        dialog.show()
     }
 
     private fun renderRecentDownloads(target: Room) {
@@ -1314,7 +1435,8 @@ class RoomActivity : Activity() {
                         val attention = progress.optInt("needs_attention")
                         if (total > 0) {
                             val note = if (attention == 0) "" else " · $attention ${if (attention == 1) "needs" else "need"} attention"
-                            content.addView(ui.label("$downloaded of $total downloaded · $percent%$note", 14f, ui.secondary))
+                            content.addView(ui.label("$downloaded of $total downloaded · $percent%$note", 14f, ui.secondary),
+                                LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(16) })
                             content.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
                                 max = 100
                                 this.progress = percent

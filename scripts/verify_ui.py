@@ -3389,6 +3389,7 @@ def run_browser(server, output):
                 progress_row = {"id": 10000, "title": "Transfer fixture", "artist": "Fixture Artist",
                                 "status": "searching", "phase": "testing", "download_percent": 42,
                                 "requested_format": "mp3", "format_revision": 3}
+                notify_downloads = False
                 recording_id = "2cd685e9-24bc-4aad-8394-4cc05bf713b4"
                 recording_attempts = []
 
@@ -3408,6 +3409,14 @@ def run_browser(server, output):
                     upstream = route.fetch()
                     data = upstream.json()
                     data["requests"].append(progress_row)
+                    if notify_downloads:
+                        ready_row = {"id": 10001, "title": "Saved fixture", "artist": "Fixture Artist",
+                                     "status": "downloaded", "request_state": "ready"}
+                        data.setdefault("outcomes", []).extend([
+                            {**ready_row, "key": "10001/downloaded/1/fixture"},
+                            {key: progress_row[key] for key in ("title", "status", "request_state")}
+                            | {"key": "10000/rejected/3/fixture"},
+                        ])
                     route.fulfill(response=upstream, json=data)
 
                 page.route("**/api/requests", requests_with_progress)
@@ -3458,6 +3467,24 @@ def run_browser(server, output):
                     page.route("**/api/requests/format", select_copy)
                     page.route("**/api/discover/matches?*", recording_versions)
                     try:
+                        status_route = "**/api/requests?id=10000"
+                        page.route(status_route, lambda route: route.fulfill(json={"requests": [progress_row]}))
+                        notify_downloads = True
+                        refresh_requests.click()
+                        toast = page.get_by_role("button", name="1 ready to play · 1 needs review")
+                        toast.focus()
+                        toast.press("Enter")
+                        tray = page.get_by_role("dialog", name="Download updates")
+                        tray.get_by_role("region", name="Ready to play").get_by_role("button", name="Play Saved fixture").wait_for()
+                        tray.get_by_role("button", name="Review copies Transfer fixture").click()
+                        notified_copies = page.get_by_role("dialog", name="Choose a copy")
+                        notified_copies.get_by_text("The source could not deliver this file.", exact=True).wait_for()
+                        page.keyboard.press("Escape")
+                        notified_copies.wait_for(state="hidden")
+                        tray.get_by_role("button", name="Close download updates").click()
+                        page.unroute(status_route)
+                        notify_downloads = False
+                        copy_calls.clear()
                         page.set_viewport_size({"width": 390, "height": 844})
                         progress.get_by_role("button", name="Review copies", exact=True).click()
                         copies = page.get_by_role("dialog", name="Choose a copy")
@@ -3563,9 +3590,21 @@ def run_browser(server, output):
                 with page.expect_response(lambda response: response.url.endswith("/api/requests")):
                     page.get_by_role("button", name="Refresh requests").click()
                 page.get_by_title("Refreshed requests", exact=True).wait_for()
-                request_data["outcomes"] = [{"key": "fixture/902", "title": download["title"], "status": "downloaded"}]
+                request_data["outcomes"] = [{"key": "902/downloaded/1/fixture", "id": download["id"],
+                                             "title": download["title"], "artist": download["artist"],
+                                             "status": "downloaded", "request_state": "ready"}]
                 page.get_by_role("button", name="Refresh requests").click()
-                page.get_by_text("Verified fixture copy · Ready to play", exact=True).wait_for()
+                page.get_by_role("button", name="Verified fixture copy · Ready to play", exact=True).click()
+                updates = page.get_by_role("dialog", name="Download updates")
+                downloaded_request = {**download, "status": "downloaded", "request_state": "ready", "format_revision": 1}
+                page.route("**/api/requests?id=902", lambda route: route.fulfill(json={"requests": [downloaded_request]}))
+                with page.expect_request(lambda request: request.url.endswith("/api/session") and request.method == "POST"
+                                         and request.post_data_json.get("op") == "play") as played_from_tray:
+                    updates.get_by_role("button", name="Play Verified fixture copy").click()
+                assert played_from_tray.value.post_data_json["track_id"] == 1
+                page.unroute("**/api/requests?id=902")
+                updates.get_by_role("button", name="Close download updates").click()
+                page.get_by_role("button", name="Pause", exact=True).first.click()
                 page.get_by_role("button", name="Library", exact=True).click()
                 recent = page.get_by_role("region", name="Recent downloads")
                 play = recent.get_by_role("button", name="Play Verified fixture copy")
