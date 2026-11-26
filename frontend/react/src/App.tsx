@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createInputController } from "@ui-sdk/react/input";
 import { Toast, ToastRegion, ToastTitle } from "@ui-sdk/react/toast";
 import { announceAccountChange, postJson, scrollBehavior } from "./api";
+import { AppearanceProvider } from "./appearance";
 import {
   isDestinationFilter,
   StoreProvider,
@@ -136,7 +137,7 @@ function Sidebar({ named }: { named: boolean }) {
         <div className="nav-overflow">
           {NAV.slice(3).filter((item) => {
             if (item.view === "private-playlists" || item.view === "my-devices") return named;
-            return !store.member || item.view === "extensions" || item.view === "browse" || item.view === "moods" || item.view === "activities" || item.view === "hiking" || item.view === "insights";
+            return !store.member || item.view === "extensions" || item.view === "browse" || item.view === "moods" || item.view === "activities" || item.view === "hiking" || item.view === "insights" || item.view === "settings";
           }).map(navLink)}
           {(Object.keys(destinations) as (keyof typeof destinations)[]).map((key) => {
             const active = store.view === "all" && store.filter === key;
@@ -409,10 +410,12 @@ function Shell({ role }: { role: RoomRole }) {
   );
 }
 
-export function App({ role = "paired" }: { role?: RoomRole }) {
+export function App({ role = "paired", appearanceAccount = null }: { role?: RoomRole; appearanceAccount?: string | null }) {
   return (
-    <StoreProvider member={role === "member"}>
-      <Shell role={role} />
-    </StoreProvider>
+    <AppearanceProvider key={appearanceAccount ?? "paired"} account={appearanceAccount}>
+      <StoreProvider member={role === "member"}>
+        <Shell role={role} />
+      </StoreProvider>
+    </AppearanceProvider>
   );
 }

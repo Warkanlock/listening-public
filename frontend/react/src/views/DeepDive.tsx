@@ -11,6 +11,7 @@ import { TryMp3Button } from "../components/TryMp3Button";
 import { RequestStatus, RetryRequestButton } from "../components/RequestStatus";
 import { canChangeRecording, canChooseFormat, needsCopyChoice, requestStage, requestStageLabel } from "../requestState";
 import { RecordingVersions } from "../components/RecordingVersions";
+import { ReleaseRadar } from "./ReleaseRadar";
 import { WeeklyDiscovery } from "./WeeklyDiscovery";
 
 export type TrailStop = { kind: "artist" | "recording" | "search" | "song"; id: string; name: string; label: string; note?: string; track?: DiscoverTrack };
@@ -234,6 +235,7 @@ export function DeepDive() {
           setWeekly(true);
         }} />
       </aside>
+      <ReleaseRadar active={!start} />
       <DiscoveryBoard onOpen={(stop, button) => { origin.current = button; setStart(stop); }} />
     </div>
     {start && <Explorer start={start} tracks={store.discoverState === "ready" ? store.discover?.tracks ?? [] : []} onBack={() => setStart(null)} />}

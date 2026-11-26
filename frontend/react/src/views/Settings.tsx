@@ -1,4 +1,5 @@
 import { ExtensionsContent } from "./Extensions";
+import { useAppearance } from "../appearance";
 import { useCallback, useEffect, useState } from "react";
 import "./settings/room-settings.css";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/react/tabs";
@@ -14,6 +15,7 @@ import { useStore } from "../store";
 import { notify } from "../toasts";
 import { EMPTY_FORM, errorText, type FormState } from "./settings/shared";
 import { ClientInstallers } from "./settings/ClientInstallers";
+import { AppearancePanel } from "./settings/AppearancePanel";
 import { ConnectionsPanel } from "./settings/ConnectionsPanel";
 import { DevicesPanel } from "./settings/DevicesPanel";
 import { DownloadsPanel } from "./settings/DownloadsPanel";
@@ -26,6 +28,18 @@ import { StoragePanel } from "./settings/StoragePanel";
 
 export function Settings() {
   const store = useStore();
+  if (store.member) {
+    return <div className="view" data-view="settings">
+      <header className="listening-view-head"><h1>Settings</h1></header>
+      <AppearancePanel />
+    </div>;
+  }
+  return <RoomSettings />;
+}
+
+function RoomSettings() {
+  const store = useStore();
+  const appearance = useAppearance();
   const settings = store.settings;
   const host = isHost(settings);
   const [form, setFormState] = useState<FormState>(EMPTY_FORM);
@@ -161,6 +175,7 @@ export function Settings() {
       { key: "sharing", name: "Sharing", panel: <SharingPanel form={form} setForm={setForm} onSave={onSave} /> },
       { key: "storage", name: "Storage", panel: <StoragePanel settings={settings} form={form} setForm={setForm} onSave={onSave} /> },
     ] : []),
+    ...(appearance ? [{ key: "appearance", name: "Appearance", panel: <AppearancePanel /> }] : []),
     { key: "extensions", name: "Extensions", panel: <ExtensionsContent /> },
     { key: "playback", name: "Playback", panel: <PlaybackPanel /> },
     { key: "radio", name: "Radio", panel: <RadioPanel /> },
