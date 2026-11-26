@@ -3,7 +3,11 @@ package music.listening.room
 import android.app.Activity
 import android.app.Dialog
 import android.content.res.ColorStateList
+import android.os.Build
+import android.view.KeyEvent
 import android.view.View
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -140,7 +144,7 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
                 if (retry != null) action("Try MP3", Mark.REFRESH) { onTryMp3(retry) }
                 if (row != null && status in RETRYABLE_COPY && !row.needsCopyReview())
                     action("Retry now", Mark.REFRESH) { onRetry(row) }
-                if (row == null || row.canReplaceRecording() || canPlay)
+                if (row?.needsCopyReview() != true && (row == null || row.canReplaceRecording() || canPlay))
                     action("Other recordings", Mark.ALBUM) { onVersions(row) }
                 action("Add to playlist", Mark.PLAYLIST_ADD, onAddToPlaylist)
                 if (status != "downloaded") {
@@ -156,6 +160,13 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
     }
 }
 
+internal fun RoomUi.recordingChoice(version: JSONObject, onChoose: () -> Unit): View {
+    val duration = version.getDouble("duration").toInt()
+    val detail = listOf("artist", "version", "performance", "album").map(version::optString)
+        .filter(String::isNotBlank) + "${duration / 60}:${(duration % 60).toString().padStart(2, '0')}"
+    return button(version.getString("title") + "\n" + detail.joinToString(" · "), action = onChoose)
+}
+
 internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirmed: (JSONObject) -> Unit) {
     val options = listOf(
         "any_format" to "Any supported format (FLAC, ALAC, MP3 or AAC)",
@@ -168,6 +179,8 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
     val content = style.column()
     val formatPanel = ui.column()
     val copyPanel = ui.column()
+    val recordingsPanel = ui.column(8)
+    var saving = false
     val feedback = ui.label("", 14f, ui.secondary).apply {
         visibility = View.GONE
         accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -176,7 +189,7 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
     val dialogHeading = ui.heading(openingTitle, 23f)
     val dialog = style.dialog(this, openingTitle, ScrollView(this).apply { addView(content) },
         artist = listOf(row.optString("title"), row.optString("artist")).filter(String::isNotBlank).joinToString(" · "),
-        titleView = dialogHeading)
+        titleView = dialogHeading, canDismiss = { !saving })
     val choices = RadioGroup(this)
     val ids = options.map { View.generateViewId() }
     for ((index, option) in options.withIndex()) choices.addView(RadioButton(this).apply {
@@ -189,8 +202,10 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
     }, RadioGroup.LayoutParams(-1, -2))
     val current = row.optString("requested_format").takeIf { value -> options.any { it.first == value } } ?: "any_lossless"
     choices.check(ids[options.indexOfFirst { it.first == current }])
-    var listing = 0
-    var saving = false
+    var copyListing = 0
+    var recordingListing = 0
+    var copyMessage = ""
+    var currentPanel: View? = null
 
     fun selectedFormat() = options[ids.indexOf(choices.checkedRadioButtonId)].first
     fun message(text: String) {
@@ -198,6 +213,7 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         feedback.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
     }
     fun showPanel(title: String, panel: View) {
+        currentPanel = panel
         dialogHeading.text = title
         dialog.window?.setTitle(title)
         content.removeAllViews()
@@ -206,15 +222,29 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
             content.section(panel, gap = 0)
         }
     }
-    fun submit(format: String, copy: String? = null) {
+    fun backToCopies() {
+        if (saving) return
+        recordingListing++
+        showPanel("Choose a copy", copyPanel)
+        message(copyMessage)
+    }
+    fun handleBack(): Boolean {
+        if (saving) return true
+        if (currentPanel !== recordingsPanel) return false
+        backToCopies()
+        return true
+    }
+    fun submit(text: String, perform: () -> JSONObject) {
         if (saving) return
         saving = true
-        message(if (copy == null) "Starting search…" else "Queueing copy…")
+        dialog.setCancelable(false)
+        message(text)
         Thread {
-            val result = runCatching { room.confirmFormat(row, format, copy) }
+            val result = runCatching(perform)
             runOnUiThread {
                 if (isDestroyed || !dialog.isShowing) return@runOnUiThread
                 saving = false
+                dialog.setCancelable(true)
                 result.onSuccess {
                     dialog.dismiss()
                     confirmed(it)
@@ -222,30 +252,62 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
             }
         }.start()
     }
+    fun showRecordings() {
+        if (saving) return
+        val ticket = ++recordingListing
+        recordingsPanel.removeAllViews()
+        recordingsPanel.addView(ui.iconButton("Back to copies", Mark.BACK) { backToCopies() })
+        showPanel("Other recordings", recordingsPanel)
+        message("Looking for versions…")
+        Thread {
+            val result = runCatching { room.recordingVersions(row) }
+            runOnUiThread {
+                if (isDestroyed || !dialog.isShowing || ticket != recordingListing) return@runOnUiThread
+                result.onSuccess { versions ->
+                    message(if (versions.isEmpty()) "No other recordings found." else "")
+                    for (version in versions) {
+                        recordingsPanel.addView(ui.recordingChoice(version) {
+                            submit("Changing recording…") { room.requestCopy(version, row) }
+                        })
+                    }
+                }.onFailure {
+                    message("Couldn’t load versions.")
+                    recordingsPanel.addView(ui.iconButton("Try again", Mark.REFRESH) { showRecordings() })
+                }
+            }
+        }.start()
+    }
     fun showCopies(fresh: Boolean = false) {
         if (saving) return
-        val ticket = ++listing
+        val ticket = ++copyListing
         val format = selectedFormat()
         copyPanel.removeAllViews()
         showPanel("Choose a copy", copyPanel)
-        message("Searching for copies…")
+        copyMessage = "Searching for copies…"
+        message(copyMessage)
         with(ui) {
             val search = iconButton("Search again", Mark.REFRESH) { showCopies(fresh = true) }
             search.isEnabled = false
-            copyPanel.section(actionStrip(listOf(iconButton("Change format", Mark.SETTINGS) {
-                if (!saving) {
-                    listing++
-                    message("")
-                    showPanel("Choose format", formatPanel)
+            copyPanel.section(actionStrip(buildList {
+                if (row.needsCopyReview() && row.canReplaceRecording()) {
+                    add(iconButton("Other recordings", Mark.ALBUM) { showRecordings() })
                 }
-            }, search), alignEnd = true))
+                add(iconButton("Change format", Mark.SETTINGS) {
+                    if (!saving) {
+                        copyListing++
+                        message("")
+                        showPanel("Choose format", formatPanel)
+                    }
+                })
+                add(search)
+            }, alignEnd = true))
             Thread {
                 val result = runCatching { room.browseCopies(row, format, fresh).getJSONArray("matches") }
                 runOnUiThread {
-                    if (isDestroyed || !dialog.isShowing || ticket != listing) return@runOnUiThread
+                    if (isDestroyed || !dialog.isShowing || ticket != copyListing) return@runOnUiThread
                     search.isEnabled = true
                     result.onSuccess { matches ->
-                        message(if (matches.length() == 0) "No copies found in this format." else "")
+                        copyMessage = if (matches.length() == 0) "No copies found in this format." else ""
                         for (index in 0 until matches.length()) {
                             val match = matches.getJSONObject(index)
                             val name = match.getString("label")
@@ -268,12 +330,13 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
                                 }, LinearLayout.LayoutParams(0, -2, 1f))
                                 val action = if (failure.isEmpty()) "Download" else "Retry"
                                 addView(iconButton("$action $name", if (failure.isEmpty()) Mark.DOWNLOAD else Mark.REFRESH) {
-                                    submit(format, match.getString("key"))
+                                    submit("Queueing copy…") { room.confirmFormat(row, format, match.getString("key")) }
                                 })
                             }, gap = 8)
                             copyPanel.section(line(), gap = 4)
                         }
-                    }.onFailure { message(it.message ?: "Could not search for copies.") }
+                    }.onFailure { copyMessage = it.message ?: "Could not search for copies." }
+                    if (currentPanel === copyPanel) message(copyMessage)
                 }
             }.start()
         }
@@ -283,9 +346,21 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         formatPanel.section(actionStrip(listOf(
             iconButton("View extensions", Mark.EXTENSIONS) { showRoomExtensions(room, backLabel = "Back to format") },
             iconButton("Browse copies", Mark.BROWSE) { showCopies() },
-            iconButton("Confirm and search", Mark.SEARCH) { submit(selectedFormat()) },
+            iconButton("Confirm and search", Mark.SEARCH) {
+                val format = selectedFormat()
+                submit("Starting search…") { room.confirmFormat(row, format) }
+            },
         ), alignEnd = true))
     }
+    dialog.setOnKeyListener { _, key, event ->
+        key == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP && handleBack()
+    }
     dialog.show()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val dispatcher = dialog.onBackInvokedDispatcher
+        val callback = OnBackInvokedCallback { if (!handleBack()) dialog.cancel() }
+        dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
+        dialog.setOnDismissListener { dispatcher.unregisterOnBackInvokedCallback(callback) }
+    }
     if (row.needsCopyReview()) showCopies() else showPanel("Choose format", formatPanel)
 }

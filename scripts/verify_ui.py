@@ -2400,6 +2400,7 @@ def verify_discovery_trail(page, screenshot):
         assert page.get_by_role("progressbar", name="Playlist downloads").get_attribute("value") == "50"
         assert page.get_by_text("1 of 2 downloaded · 50% · 1 needs attention").is_visible()
         assert page.get_by_role("button", name="Review copies for Recording to review").is_visible()
+        assert not page.get_by_role("button", name="Other recordings: Recording to review").count()
         page.get_by_role("button", name="Review copies", exact=True).click()
         copies = page.get_by_role("dialog", name="Choose a copy")
         copies.get_by_role("button", name=re.compile("Possible copy")).wait_for()
@@ -3364,8 +3365,22 @@ def run_browser(server, output):
                 progress_row = {"id": 10000, "title": "Transfer fixture", "artist": "Fixture Artist",
                                 "status": "searching", "phase": "testing", "download_percent": 42,
                                 "requested_format": "mp3", "format_revision": 3}
+                recording_id = "2cd685e9-24bc-4aad-8394-4cc05bf713b4"
+                recording_attempts = []
 
                 def requests_with_progress(route):
+                    if route.request.method == "POST":
+                        change = route.request.post_data_json
+                        assert (change["request_id"], change["format_revision"], change["musicbrainz_id"]) == (
+                            10000, 4, recording_id)
+                        recording_attempts.append(change)
+                        if len(recording_attempts) == 1:
+                            route.fulfill(status=409, json={"error": "The recording change conflicted. Try again."})
+                            return
+                        progress_row.update(status="queued", request_state="queued_search",
+                                            format_revision=5, version="Live edition", musicbrainz_id=recording_id)
+                        route.fulfill(json=progress_row)
+                        return
                     upstream = route.fetch()
                     data = upstream.json()
                     data["requests"].append(progress_row)
@@ -3382,6 +3397,7 @@ def run_browser(server, output):
                     refresh_requests.click()
                     progress.get_by_text("No copy was saved.", exact=True).wait_for()
                     progress.get_by_role("button", name="Review copies", exact=True).wait_for()
+                    assert not progress.get_by_role("button", name="Other recordings: Transfer fixture").count()
                     progress_row.update(status="searching", phase="downloading", copy_review=False, download_percent=13)
                     refresh_requests.click()
                     progress.get_by_text("Downloading · 13%", exact=True).wait_for()
@@ -3409,29 +3425,59 @@ def run_browser(server, output):
                         progress_row.update(status="queued", request_state="queued_copy", format_revision=4, phase="")
                         route.fulfill(json=progress_row)
 
+                    versions = []
+
+                    def recording_versions(route):
+                        route.fulfill(json={"leads": versions})
+
                     page.route("**/api/requests/copies", copy_options)
                     page.route("**/api/requests/format", select_copy)
+                    page.route("**/api/discover/matches?*", recording_versions)
                     try:
                         page.set_viewport_size({"width": 390, "height": 844})
-                        progress.get_by_role("button", name="Browse copies", exact=True).click()
+                        progress.get_by_role("button", name="Review copies", exact=True).click()
                         copies = page.get_by_role("dialog", name="Choose a copy")
                         copies.get_by_text("The source could not deliver this file.", exact=True).wait_for()
                         assert copy_calls[-1] == {"request_id": 10000, "format_revision": 3,
                                                   "requested_format": "mp3", "fresh": False}
                         assert not copies.get_by_role("radio").count()
+                        recordings_button = copies.get_by_role("button", name="Other recordings", exact=True)
+                        recordings_button.click()
+                        recordings = page.get_by_role("dialog", name="Other recordings")
+                        recordings.get_by_text("No other recordings found.", exact=True).wait_for()
+                        assert page.get_by_role("dialog").count() == 1
+                        recordings.get_by_role("button", name="Back to copies").click()
+                        copies.get_by_text("The source could not deliver this file.", exact=True).wait_for()
+                        assert len(copy_calls) == 1
+                        assert recordings_button.evaluate("el => el === document.activeElement")
                         copies.get_by_role("button", name="Search again").click()
                         copies.get_by_role("button", name=re.compile("Alternate copy")).click()
                         assert copy_calls[-1]["fresh"] is True
                         progress.get_by_text("Copy queued", exact=True).wait_for()
                         copies.wait_for(state="hidden")
+                        progress_row.update(status="rejected", request_state="copy_unavailable")
+                        refresh_requests.click()
+                        review = progress.get_by_role("button", name="Review copies", exact=True)
+                        review.wait_for()
+                        assert not progress.get_by_role("button", name=re.compile("Retry now|Change format")).count()
+                        review.click()
+                        versions.append({"kind": "recording", "track": {
+                            "musicbrainz_id": recording_id, "title": "Transfer fixture", "duration": 175,
+                            "artist": "Fixture Artist", "version": "Live edition",
+                        }})
+                        recordings_button.click()
+                        live_edition = recordings.get_by_role("button", name=re.compile("Live edition"))
+                        live_edition.click()
+                        recordings.get_by_role("alert").get_by_text("The recording change conflicted. Try again.").wait_for()
+                        live_edition.click()
+                        recordings.wait_for(state="hidden")
+                        progress.get_by_text("Fixture Artist · Live edition · MP3 only", exact=True).wait_for()
+                        assert len(recording_attempts) == 2
                     finally:
                         page.unroute("**/api/requests/copies", copy_options)
                         page.unroute("**/api/requests/format", select_copy)
+                        page.unroute("**/api/discover/matches?*", recording_versions)
                         page.set_viewport_size({"width": 1440, "height": 900})
-                    progress_row.update(status="rejected", request_state="copy_unavailable")
-                    refresh_requests.click()
-                    progress.get_by_role("button", name="Browse copies", exact=True).wait_for()
-                    assert not progress.get_by_role("button", name=re.compile("Retry now|Change format")).count()
                 finally:
                     page.unroute("**/api/requests", requests_with_progress)
                 queued = page.locator(".request-item", has_text="Feeling Good")

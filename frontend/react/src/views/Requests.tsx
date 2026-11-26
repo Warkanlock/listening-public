@@ -79,15 +79,14 @@ function RequestItem({ row }: { row: RequestRow }) {
         {!review && row.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={row.title} />}
         {review ? (
           <button type="button" className="quiet-button" onClick={() => store.requestsSlice.chooseFormat(row)}>
-            {stage === "copy_unavailable" ? "Browse copies" : "Review copies"}
+            Review copies
           </button>
         ) : canChooseFormat(stage) && (
           <RoomIconButton icon="settings" label={stage === "choose_format" ? "Choose format" : "Change format"}
             onClick={() => store.requestsSlice.chooseFormat(row)} />
         )}
         <RetryRequestButton request={row} title={row.title} onRetry={() => setEditingSearch(false)} />
-        {!store.member && (row.audio || canChangeRecording(stage)) && <RecordingVersions song={row}
-          onBrowseCopies={review ? () => store.requestsSlice.chooseFormat(row) : undefined}
+        {!store.member && !review && (row.audio || canChangeRecording(stage)) && <RecordingVersions song={row}
           onChoose={song => void (row.audio ? store.createSongRequest(song) : store.requestsSlice.chooseRecording(row, song))} />}
         {editSearch && <RoomIconButton icon="search" label={`Edit search: ${row.title}`}
           aria-expanded={editingSearch} onClick={() => setEditingSearch(value => !value)} />}

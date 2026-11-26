@@ -71,9 +71,8 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
         disabled={submitting || (!ready && !choosing && (busy || !track.duration))} />}
       {!store.member && row?.mp3_retry && <TryMp3Button retry={row.mp3_retry} title={track.title} />}
       {row && <RetryRequestButton request={row} title={track.title} />}
-      {!store.member && (!row || ready || stage && canChangeRecording(stage)) && <RecordingVersions
+      {!store.member && !review && (!row || ready || stage && canChangeRecording(stage)) && <RecordingVersions
         song={row?.musicbrainz_id ? row : track}
-        onBrowseCopies={row && review ? () => store.requestsSlice.chooseFormat(row) : undefined}
         onChoose={song => void (row && !ready ? store.requestsSlice.chooseRecording(row, song) : store.createSongRequest(song))} />}
       <RoomIconButton icon="info" label="Song details" onClick={() => store.openSongInfo(track)} />
       <AddToPlaylist song={track} iconOnly />

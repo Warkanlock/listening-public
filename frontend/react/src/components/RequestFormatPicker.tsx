@@ -2,12 +2,13 @@ import { RoomDialogContent } from "./WindowContent";
 import { ExtensionsContent, FindCopySources } from "../views/Extensions";
 import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogBackdrop, DialogDescription, DialogTitle } from "@ui-sdk/react/dialog";
-import { postJson, REQUEST_FORMATS, time, type CopyMatch, type RequestFormat, type RequestRow } from "../api";
+import { postJson, REQUEST_FORMATS, time, type CopyMatch, type RequestFormat, type RequestRow, type RequestSong } from "../api";
 import { useStore } from "../store";
 import { notify } from "../toasts";
 import { RoomIcon, RoomIconButton } from "./RoomIcon";
 import { RoomAction } from "./RoomControls";
 import { needsCopyChoice, requestStage } from "../requestState";
+import { RecordingChoices } from "./RecordingVersions";
 
 type BrowseState = { kind: "format" } |
   { kind: "searching"; format: RequestFormat; fresh: boolean } |
@@ -17,17 +18,26 @@ type BrowseState = { kind: "format" } |
 export function RequestFormatPicker({ row }: { row: RequestRow }) {
   const store = useStore();
   const [choice, setChoice] = useState<RequestFormat>(row.requested_format ?? "any_lossless");
-  const [showExtensions, setShowExtensions] = useState(false);
+  const [panel, setPanel] = useState<"picker" | "extensions" | "recordings">("picker");
   const sourceReturn = useRef<HTMLButtonElement>(null);
   const restoreSourceFocus = useRef(false);
+  const recordingsReturn = useRef<HTMLButtonElement>(null);
+  const restoreRecordingsFocus = useRef(false);
   const back = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (showExtensions) back.current?.focus();
-    else if (restoreSourceFocus.current) sourceReturn.current?.focus();
-  }, [showExtensions]);
+    if (panel !== "picker") back.current?.focus();
+    else if (restoreRecordingsFocus.current) {
+      recordingsReturn.current?.focus();
+      restoreRecordingsFocus.current = false;
+    } else if (restoreSourceFocus.current) {
+      sourceReturn.current?.focus();
+      restoreSourceFocus.current = false;
+    }
+  }, [panel]);
   const [saving, setSaving] = useState(false);
   const confirming = useRef(false);
   const [error, setError] = useState("");
+  const [recordingError, setRecordingError] = useState("");
   const review = needsCopyChoice(requestStage(row));
   const [browse, setBrowse] = useState<BrowseState>(() => review
     ? { kind: "searching", format: choice, fresh: false } : { kind: "format" });
@@ -91,20 +101,40 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
   };
   const dismiss = () => {
     if (saving) return;
-    if (showExtensions) setShowExtensions(false);
+    if (panel !== "picker") setPanel("picker");
     else close();
   };
-  const dialogClass = showExtensions ? "extensions-dialog" : "format-dialog";
+  const changeRecording = async (song: RequestSong) => {
+    if (confirming.current) return;
+    confirming.current = true;
+    setSaving(true);
+    setRecordingError("");
+    const updated = await store.requestsSlice.chooseRecording(row, song, setRecordingError);
+    if (updated && requestStage(updated) !== "choose_format") close();
+    confirming.current = false;
+    setSaving(false);
+  };
+  const dialogClass = panel === "extensions" ? "extensions-dialog" : "format-dialog";
   return (
     <Dialog open onOpenChange={open => { if (!open) dismiss(); }}>
       <DialogBackdrop />
       <RoomDialogContent className={dialogClass}>
-        {showExtensions ? <>
+        {panel === "extensions" ? <>
           <header className="format-dialog-header">
-            <RoomIconButton ref={back} icon="back" label="Back to format" onClick={() => setShowExtensions(false)} />
+            <RoomIconButton ref={back} icon="back" label="Back to format" onClick={() => setPanel("picker")} />
             <DialogTitle>Extensions</DialogTitle>
           </header>
           <ExtensionsContent />
+        </> : panel === "recordings" ? <>
+          <header className="format-dialog-header">
+            <RoomIconButton ref={back} icon="back" label="Back to copies" disabled={saving} onClick={dismiss} />
+            <DialogTitle>Other recordings</DialogTitle>
+            <RoomIconButton icon="close" label="Close recording choices" disabled={saving} onClick={close} />
+          </header>
+          <DialogDescription>{[row.title, row.artist].filter(Boolean).join(" · ")}</DialogDescription>
+          {saving && <p role="status">Changing recording…</p>}
+          {recordingError && <p role="alert">{recordingError}</p>}
+          <RecordingChoices song={row} disabled={saving} onChoose={song => void changeRecording(song)} />
         </> : browsing ? <>
           <header className="format-dialog-header">
             <DialogTitle>Choose a copy</DialogTitle>
@@ -130,6 +160,11 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
           </div> : <p role="status">No copies found in this format.</p>)}
           {error && <p role="alert">{error}</p>}
           <div className="format-dialog-footer">
+            {review && !store.member && <RoomAction ref={recordingsReturn} icon="album" disabled={saving} onClick={() => {
+              restoreRecordingsFocus.current = true;
+              setRecordingError("");
+              setPanel("recordings");
+            }}>Other recordings</RoomAction>}
             <RoomAction icon="settings" disabled={saving} onClick={leaveMatches}>Change format</RoomAction>
             <RoomAction icon="refresh" disabled={saving || browse.kind === "searching"}
               onClick={() => showMatches(browse.format, true)}>Search again</RoomAction>
@@ -153,7 +188,7 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
         <FindCopySources button={
           <RoomIconButton icon="extensions" label="View extensions" ref={sourceReturn} disabled={saving} onClick={() => {
             restoreSourceFocus.current = true;
-            setShowExtensions(true);
+            setPanel("extensions");
           }} />
         } />
         {error && <p role="alert">{error}</p>}
