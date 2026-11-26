@@ -7,6 +7,7 @@ const labels = {
   retry_search: "Retry scheduled",
   retry_copy: "Copy retry scheduled",
   searching: "Searching",
+  starting_copy: "Starting download",
   trying_copy: "Trying a copy",
   downloading: "Downloading",
   verifying: "Verifying",

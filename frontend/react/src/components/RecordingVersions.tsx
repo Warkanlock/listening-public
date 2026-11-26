@@ -2,24 +2,29 @@ import { useEffect, useState } from "react";
 import { Dialog, DialogBackdrop, DialogDescription, DialogTitle } from "@ui-sdk/react/dialog";
 import { api, time, type DiscoverTrack, type RequestSong } from "../api";
 import { RoomIcon, RoomIconButton } from "./RoomIcon";
+import { RoomAction } from "./RoomControls";
 import { RoomDialogContent } from "./WindowContent";
 
 type Song = Pick<DiscoverTrack, "title" | "artist"> & Partial<Pick<DiscoverTrack, "musicbrainz_id">>;
 type Results = { kind: "loading" | "error" } | { kind: "loaded"; versions: DiscoverTrack[] };
 
-export function RecordingVersions({ song, onChoose }: { song: Song; onChoose: (song: RequestSong) => void }) {
+export function RecordingVersions({ song, onChoose, onBrowseCopies }: {
+  song: Song; onChoose: (song: RequestSong) => void; onBrowseCopies?: () => void;
+}) {
   const [picker, setPicker] = useState<{ song: Song; onChoose: (song: RequestSong) => void } | null>(null);
   return <>
-    <RoomIconButton icon="album" label={`Choose a version: ${song.title}`} onClick={() => setPicker({ song, onChoose })} />
+    <RoomIconButton icon="album" label={`Other recordings: ${song.title}`} onClick={() => setPicker({ song, onChoose })} />
     {picker && <VersionsDialog song={picker.song} close={() => setPicker(null)} choose={version => {
       setPicker(null);
       const { artist, title, album, musicbrainz_id, duration, performance, version: edition } = version;
       picker.onChoose({ artist, title, album, musicbrainz_id, duration, performance, version: edition });
-    }} />}
+    }} browse={onBrowseCopies && (() => { setPicker(null); onBrowseCopies(); })} />}
   </>;
 }
 
-function VersionsDialog({ song, close, choose }: { song: Song; close: () => void; choose: (track: DiscoverTrack) => void }) {
+function VersionsDialog({ song, close, choose, browse }: {
+  song: Song; close: () => void; choose: (track: DiscoverTrack) => void; browse?: () => void;
+}) {
   const [result, setResult] = useState<Results>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const { artist, title, musicbrainz_id: current } = song;
@@ -46,7 +51,7 @@ function VersionsDialog({ song, close, choose }: { song: Song; close: () => void
     <DialogBackdrop />
     <RoomDialogContent className="format-dialog">
       <header className="format-dialog-header">
-        <DialogTitle>Choose a recording</DialogTitle>
+        <DialogTitle>Other recordings</DialogTitle>
         <RoomIconButton icon="close" label="Close recording choices" onClick={close} />
       </header>
       <DialogDescription>{title} · {artist}</DialogDescription>
@@ -66,6 +71,9 @@ function VersionsDialog({ song, close, choose }: { song: Song; close: () => void
           <RoomIcon name="chevronRight" />
         </button>)}
       </div> : <p role="status">No other recordings found.</p>)}
+      {browse && <div className="format-dialog-footer">
+        <RoomAction icon="back" onClick={browse}>Back to copies</RoomAction>
+      </div>}
     </RoomDialogContent>
   </Dialog>;
 }

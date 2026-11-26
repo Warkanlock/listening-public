@@ -19,6 +19,7 @@ Connection behavior is unchanged too: WAL mode, a 30-second timeout,
 and one short connection per operation.
 """
 
+import hashlib
 import json
 import secrets
 import sqlite3
@@ -28,7 +29,7 @@ from pathlib import Path
 
 from system import state_database
 from system.formats import REQUEST_SUFFIXES
-from .request_state import COPY_REVIEW_MESSAGE, EDITABLE_FORMAT, REPLACEABLE_RECORDING, request_state
+from .request_state import COPY_FAILURES, COPY_REVIEW_MESSAGE, EDITABLE_FORMAT, FAILED_SEARCHES, REPLACEABLE_RECORDING, request_state
 
 
 def mp3_retry(row):
@@ -108,6 +109,13 @@ SCHEMA = (
         format TEXT NOT NULL,
         expires REAL NOT NULL,
         payload TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS request_copy_failures (
+        request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
+        fingerprint TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        attempted_at REAL NOT NULL,
+        PRIMARY KEY (request_id, fingerprint)
     )""",
 )
 
@@ -260,6 +268,7 @@ class RequestsStore:
             confirmed = row["format_confirmed"] and row["requested_format"] is not None
             status = "queued" if confirmed else "waiting_format"
             conn.execute("DELETE FROM request_copies WHERE request_id=?", (request_id,))
+            conn.execute("DELETE FROM request_copy_failures WHERE request_id=?", (request_id,))
             conn.execute(
                 "UPDATE requests SET track_index=NULL, artist=?, title=?, album=?, length=?, search_title=?, "
                 "original_recording_id=COALESCE(NULLIF(original_recording_id,''),musicbrainz_id), "
@@ -318,7 +327,22 @@ class RequestsStore:
                 raise ValueError("Another request already exists for this song. Open it in Requests.")
         return row
 
-    def save_copy_matches(self, request_id, choice, revision, recording, selection, candidates, *, for_review=False):
+    @staticmethod
+    def _copy_fingerprint(candidate):
+        return hashlib.sha256(json.dumps([candidate["source"], candidate["id"]]).encode()).hexdigest()
+
+    def _display_copy_matches(self, conn, request_id, payload):
+        failures = dict(conn.execute("SELECT fingerprint, reason FROM request_copy_failures WHERE request_id=?",
+                                     (request_id,)))
+        matches = []
+        for match in payload["matches"]:
+            candidate = payload["picks"][match["key"]]
+            reason = COPY_FAILURES.get(failures.get(self._copy_fingerprint(candidate)))
+            matches.append({**match, "failure": reason} if reason else match)
+        return sorted(matches, key=lambda match: "failure" in match)
+
+    def save_copy_matches(self, request_id, choice, revision, recording, selection, candidates, *, for_review=False,
+                          fresh=False):
         """Return opaque handles with display metadata. Keep transfer IDs server-side."""
         picks, matches = {}, []
         for number, candidate in enumerate(candidates, 1):
@@ -336,19 +360,19 @@ class RequestsStore:
                 raise ValueError("This request changed. Reopen it to browse copies.")
             now = time.time()
             conn.execute("DELETE FROM request_copies WHERE expires > 0 AND expires < ?", (now,))
-            if not for_review:
+            if not (for_review or fresh):
                 existing = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND revision=? "
                                         "AND format=? AND expires>?", (request_id, revision, choice, now)).fetchone()
                 saved = json.loads(existing["payload"]) if existing else {}
-                if saved.get("recording") == recording and saved.get("selection") == selection and saved.get("matches"):
-                    return saved["matches"]
+                if saved.get("recording") == recording and saved.get("selection") == selection and "matches" in saved:
+                    return self._display_copy_matches(conn, request_id, saved)
                 if not matches:
                     return []
             payload = {"recording": recording, "selection": selection, "picks": picks, "matches": matches}
             lifetime = 86400 if for_review else 900
             conn.execute("INSERT OR REPLACE INTO request_copies VALUES (?, ?, ?, ?, ?)",
                          (request_id, revision, choice, now + lifetime, json.dumps(payload)))
-            return matches
+            return self._display_copy_matches(conn, request_id, payload)
         return self._run(work)
 
     def review_matches(self, request_id, choice, revision, recording, selection):
@@ -356,8 +380,8 @@ class RequestsStore:
             row = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND format=? "
                                "AND revision=? AND expires>?", (request_id, choice, revision, time.time())).fetchone()
             payload = json.loads(row["payload"]) if row else {}
-            if payload.get("recording") == recording and payload.get("selection") == selection:
-                return payload.get("matches")
+            if payload.get("recording") == recording and payload.get("selection") == selection and "matches" in payload:
+                return self._display_copy_matches(conn, request_id, payload)
             return None
         return self._run(work)
 
@@ -397,14 +421,13 @@ class RequestsStore:
                     raise ValueError("This request already started. Reopen it to choose another copy.")
                 return row, False
             if copy_key is not None:
-                saved = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND revision=? "
+                saved = conn.execute("SELECT payload, expires FROM request_copies WHERE request_id=? AND revision=? "
                                      "AND format=? AND expires>?", (request_id, revision, choice, time.time())).fetchone()
                 payload = json.loads(saved["payload"]) if saved else {}
                 candidate = payload.get("picks", {}).get(copy_key)
                 if not candidate:
                     raise ValueError("These results changed or expired. Browse copies again.")
-                del payload["picks"]
-                payload.pop("matches", None)
+                payload["listed_until"] = saved["expires"]
                 payload["candidate"] = candidate
                 conn.execute("UPDATE request_copies SET revision=?, expires=0, payload=? WHERE request_id=?",
                              (revision + 1, json.dumps(payload), request_id))
@@ -457,11 +480,11 @@ class RequestsStore:
             "WHERE id=? AND status='searching' AND (phase!=? OR download_percent IS NOT ?)",
             (phase, download_percent, request_id, phase, download_percent)))
 
-    def defer_attempt(self, row, message, *, provider_delay=0):
+    def defer_attempt(self, row, message, *, provider_delay=0, copy_failure=None):
         """Release the worker while preserving a selected copy and its format."""
         attempts = row["retry_count"]
         if not provider_delay and attempts >= len(RETRY_DELAYS):
-            self.finish(row["id"], "error", message, "")
+            self.finish(row["id"], "error", message, "", copy_failure=copy_failure)
             return "error"
         delay = provider_delay or RETRY_DELAYS[attempts]
         self._run(lambda conn: conn.execute(
@@ -470,7 +493,7 @@ class RequestsStore:
             (message, time.time() + delay, int(not provider_delay), row["id"])))
         return "queued"
 
-    def finish(self, request_id, status, message, audio_path):
+    def finish(self, request_id, status, message, audio_path, *, copy_failure=None):
         """Record a request's outcome: status, message, and audio path."""
         def work(conn):
             conn.execute("UPDATE requests SET status=?, message=?, audio_path=?, "
@@ -478,6 +501,24 @@ class RequestsStore:
                          "updated_at=CURRENT_TIMESTAMP, resolved_at=CURRENT_TIMESTAMP WHERE id=?",
                          (status, message, audio_path, request_id))
             if status not in ("queued", "waiting_space"):
+                if status in FAILED_SEARCHES:
+                    saved = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND expires=0",
+                                         (request_id,)).fetchone()
+                    if saved:
+                        payload = json.loads(saved["payload"])
+                        candidate = payload.pop("candidate")
+                        if copy_failure in COPY_FAILURES:
+                            fingerprint = self._copy_fingerprint(candidate)
+                            conn.execute("INSERT OR REPLACE INTO request_copy_failures VALUES (?,?,?,?)",
+                                         (request_id, fingerprint, copy_failure, time.time()))
+                            conn.execute("DELETE FROM request_copy_failures WHERE request_id=? AND fingerprint NOT IN "
+                                         "(SELECT fingerprint FROM request_copy_failures WHERE request_id=? "
+                                         "ORDER BY attempted_at DESC LIMIT 40)", (request_id, request_id))
+                        lifetime = payload.pop("listed_until", 0)
+                        if lifetime > time.time() and "matches" in payload and "picks" in payload:
+                            payload.pop("audio_path", None)
+                            conn.execute("UPDATE request_copies SET expires=?, payload=? WHERE request_id=?",
+                                         (lifetime, json.dumps(payload), request_id))
                 conn.execute("DELETE FROM request_copies WHERE request_id=? AND expires=0", (request_id,))
         self._run(work)
 

@@ -222,6 +222,7 @@ export type CopyMatch = {
   duration?: number;
   bitrate?: number;
   recommended?: boolean;
+  failure?: string;
 };
 export type Mp3Retry = { id: number; format_revision: number };
 export type RequestSong = { track_id: number } | { artist: string; title: string; musicbrainz_id?: string; version?: string; performance?: string; album?: string; duration?: number };
