@@ -150,7 +150,8 @@ export function WeeklyDiscovery() {
             const id = ready(track.request);
             const row = requestRow(track);
             const stage = track.request && requestStage(track.request);
-            const review = row && stage && canChooseFormat(stage);
+            const chooseFormat = row && stage && canChooseFormat(stage);
+            const review = stage && needsCopyChoice(stage);
             const relation = track.trail?.length ? track.trail.join(" → ") : track.depth === 0
               ? "Artist you’ve played" : `${track.depth} artist ${track.depth === 1 ? "connection" : "connections"} away`;
             return <li key={track.id}>
@@ -159,9 +160,9 @@ export function WeeklyDiscovery() {
                 {track.request && track.request.status !== "missing" && <RequestStatus request={track.request} />}
                 {track.request && !track.in_library && <RetryRequestButton request={track.request} title={track.title}
                   onRetry={() => setRevision(value => value + 1)} />}
-                {!store.member && !track.in_library && (!track.request || id !== null || row && stage && canChangeRecording(stage)) &&
+                {!store.member && !review && !track.in_library && (!track.request || id !== null || row && stage && canChangeRecording(stage)) &&
                   <RecordingVersions song={row ?? { ...track, musicbrainz_id: track.id }}
-                    onBrowseCopies={row && stage && needsCopyChoice(stage) ? () => reviewCopies(track) : undefined} onChoose={song => {
+                    onChoose={song => {
                     if (!row || id !== null) void store.createSongRequest(song);
                     else void store.requestsSlice.chooseRecording(row, song).then(() => setRevision(value => value + 1));
                   }} />}
@@ -169,7 +170,7 @@ export function WeeklyDiscovery() {
                   onClick={() => void store.sendSession("play_request", { request_id: id })} />
                   : track.request?.status === "missing" ? <small>Copy unavailable</small>
                   : track.in_library ? <small>In library</small>
-                  : review ? <RoomIconButton icon={needsCopyChoice(stage) ? "catalogs" : "settings"} label={needsCopyChoice(stage)
+                  : chooseFormat ? <RoomIconButton icon={review ? "catalogs" : "settings"} label={review
                     ? `Review copies for ${track.title}` : `Choose format for ${track.title}`}
                     onClick={() => reviewCopies(track)} />
                   : playlist?.can_request && needsCopy(track) && !track.request ? <RoomIconButton icon="download"

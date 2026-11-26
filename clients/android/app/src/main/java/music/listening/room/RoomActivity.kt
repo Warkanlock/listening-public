@@ -1353,7 +1353,7 @@ class RoomActivity : Activity() {
                                     load({ target.retryCopy(request) }) { show() }
                                 })
                             }
-                            if (!inLibrary && (request == null || request.canReplaceRecording())) {
+                            if (!inLibrary && (request == null || (!request.needsCopyReview() && request.canReplaceRecording()))) {
                                 addView(ui.iconButton("Other recordings: $title", Mark.ALBUM) {
                                     chooseRequestVersion(target, track, request)
                                 })
@@ -1370,10 +1370,7 @@ class RoomActivity : Activity() {
     }
 
     private fun chooseRequestVersion(target: Room, item: JSONObject, row: JSONObject?) {
-        val browse = row?.takeIf { it.needsCopyReview() }?.let { current ->
-            { chooseDiscoveryFormat(current, target) { show() } }
-        }
-        chooseRecordingVersion(target, row?.takeIf { it.optString("musicbrainz_id").isNotBlank() } ?: item, browse) { version ->
+        chooseRecordingVersion(target, row?.takeIf { it.optString("musicbrainz_id").isNotBlank() } ?: item) { version ->
             if (row == null || row.optString("status") == "downloaded") {
                 openPick(target, version, null)
             } else {
@@ -1386,7 +1383,7 @@ class RoomActivity : Activity() {
         }
     }
 
-    private fun chooseRecordingVersion(target: Room, item: JSONObject, browse: (() -> Unit)? = null, choose: (JSONObject) -> Unit) {
+    private fun chooseRecordingVersion(target: Room, item: JSONObject, choose: (JSONObject) -> Unit) {
         val content = ui.column(8)
         val status = ui.label("Looking for versions…")
         content.addView(status)
@@ -1398,20 +1395,13 @@ class RoomActivity : Activity() {
             if (active && screen == Screen.WEEKLY) handler.postDelayed(refreshDiscover, 8_000L)
         }
         dialog.show()
-        if (browse != null) content.addView(ui.iconButton("Back to copies", Mark.BACK) {
-            dialog.dismiss()
-            browse()
-        })
         load({ target.recordingVersions(item) }, reportErrors = false,
             failed = { status.text = "Couldn’t load versions. Try again." }) { versions ->
             if (!dialog.isShowing) return@load
             content.removeView(status)
             if (versions.isEmpty()) content.addView(ui.label("No other recordings found."))
             for (version in versions) {
-                val duration = version.getDouble("duration").toInt()
-                val detail = listOf("artist", "version", "performance", "album").map(version::optString)
-                    .filter(String::isNotBlank) + "${duration / 60}:${(duration % 60).toString().padStart(2, '0')}"
-                content.addView(ui.button(version.getString("title") + "\n" + detail.joinToString(" · ")) {
+                content.addView(ui.recordingChoice(version) {
                     dialog.dismiss()
                     choose(version)
                 })
