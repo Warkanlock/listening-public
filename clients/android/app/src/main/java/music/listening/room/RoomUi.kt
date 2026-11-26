@@ -20,20 +20,23 @@ internal data class Entry(val title: String, val subtitle: String = "", val deta
 
 /** Native controls for room and offline players. */
 internal class RoomUi(private val context: Context) {
-    val eInk = Build.MODEL.equals("Kompakt", ignoreCase = true)
+    val eInk = RoomTheme.isKompakt
+    val theme = RoomTheme.load(context)
+    private val palette = RoomPalettes.load(context, theme)
     val compactPlayerLandscape get() = eInk && context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    private fun tone(kompakt: Int, color: Int) = if (eInk) Color.rgb(kompakt, kompakt, kompakt) else color
-    val ink = tone(0, Color.rgb(32, 57, 65))
-    val paper = tone(255, Color.rgb(249, 251, 249))
-    val card = Color.WHITE
-    val fog = tone(234, Color.rgb(233, 240, 237))
-    val secondary = tone(51, Color.rgb(83, 107, 109))
-    val accent = tone(0, Color.rgb(40, 111, 101))
-    val accentInk = tone(0, Color.rgb(31, 75, 69))
-    val onAccent = Color.WHITE
-    val rule = tone(117, Color.rgb(199, 217, 211))
-    private val controlEdge = tone(0, Color.rgb(131, 157, 150))
-    private val pressed = tone(200, Color.rgb(220, 238, 230))
+    private fun tone(kompakt: Int, token: String) = if (eInk) Color.rgb(kompakt, kompakt, kompakt)
+        else RoomPalettes.color(palette, token)
+    val ink = tone(0, "text")
+    val paper = tone(255, "panel")
+    val card = tone(255, "card")
+    val fog = tone(234, "tint")
+    val secondary = tone(51, "muted")
+    val accent = tone(0, "accent")
+    val accentInk = tone(0, "accent-ink")
+    val onAccent = tone(255, "on-accent")
+    val rule = tone(117, "line-strong")
+    private val controlEdge = tone(0, "control-edge")
+    private val pressed = tone(200, "accent-tint")
     private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     val headline: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
     fun dp(value: Int) = (value * context.resources.displayMetrics.density + 0.5f).toInt()

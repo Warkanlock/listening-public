@@ -25,7 +25,7 @@ function RoomRoot() {
     return () => window.removeEventListener("hashchange", sync);
   }, []);
   return offline ? <OfflineHiking /> : <RoomLogin onUnavailable={openSavedTrip}>
-    {role => <App role={role} />}
+    {(role, appearanceAccount) => <App role={role} appearanceAccount={appearanceAccount} />}
   </RoomLogin>;
 }
 

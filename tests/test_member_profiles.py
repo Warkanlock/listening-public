@@ -74,6 +74,28 @@ class HouseholdProfileTests(ServerFixture, unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertEqual(json.loads(body)["current_ref"], track)
 
+    def test_appearance_is_private_to_the_signed_in_account(self):
+        alice = self.auth.household.add_member("appearance-alice", PASSWORD)
+        self.auth.household.add_member("appearance-bob", PASSWORD)
+        first, _ = self.sign_in(alice.username)
+        owner, _ = self.sign_in("owner")
+        other, _ = self.sign_in("appearance-bob")
+        path = "/api/my/appearance"
+        self.assertEqual(self.result(path, first), {"theme": "sea-glass"})
+        status, _, response = self.call("POST", path, first, {"theme": "night"})
+        self.assertEqual((status, json.loads(response)), (200, {"theme": "night"}))
+        second, _ = self.sign_in(alice.username)
+        self.assertEqual(self.result(path, second), {"theme": "night"})
+        self.assertEqual(self.result(path, other), {"theme": "sea-glass"})
+        self.assertEqual(self.result(path, owner), {"theme": "sea-glass"})
+        self.assertEqual(self.call("POST", path, owner, {"theme": "paper"})[0], 200)
+        self.assertEqual(self.result(path, owner), {"theme": "paper"})
+        self.assertEqual(self.call("POST", path, other, {"theme": "custom"})[0], 400)
+        self.assertEqual(self.call("POST", path, other, {"theme": []})[0], 400)
+        self.assertEqual(self.call("POST", path, other, {"theme": "paper"}, **{"X-Listening-Account": alice.id})[0], 409)
+        self.assertEqual(self.result(path, other), {"theme": "sea-glass"})
+        self.assertIn(self.call("GET", path)[0], (401, 403))
+
     def test_favorites_queues_and_histories_are_private_and_durable(self):
         alice = self.auth.household.add_member("Alice", PASSWORD)
         bob = self.auth.household.add_member("Bob", PASSWORD)

@@ -30,6 +30,7 @@ class CardSaveActivity : Activity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        ui.theme.applyWindow(this, ui.paper)
         val frame = ui.screen()
         frame.addView(ui.row(8).apply {
             addView(ui.iconButton("Back to device files", Mark.BACK) { finish() },

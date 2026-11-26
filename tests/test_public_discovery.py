@@ -63,6 +63,48 @@ class PublicDiscoveryTests(ServerFixture, TestCase):
                 self.assertEqual(json.loads(body)["checks"][-1]["state"], "failed")
                 self.assertEqual(server.SETTINGS["download_engines"], {})
 
+    def test_reviewed_update_is_owner_only_and_older_managers_never_apply_it(self):
+        path = "/api/extensions"
+        preview = {"action": "update_preview", "engine": "fixture"}
+        approve = {**preview, "action": "update_reviewed", "approval": "a" * 64}
+        for account in (self.sign_in("discover-member"), self.lan_device_cookie()):
+            self.assertEqual(self.call("POST", path, preview, account)[0], 403)
+            self.assertEqual(self.call("POST", path, approve, account)[0], 403)
+        owner = self.sign_in("discover-owner")
+        with mock.patch.object(server, "manager_call", return_value={"engines": []}) as manager:
+            status, _, body = self.call("POST", path, approve, owner)
+            self.assertEqual(status, 409)
+            self.assertIn("Update the host engine manager", json.loads(body)["error"])
+            manager.assert_called_once_with("status")
+
+    def test_stale_reviewed_update_returns_conflict_without_forwarding_client_selection(self):
+        owner = self.sign_in("discover-owner")
+        selection = {"search": "fixture", "fetch": "fixture"}
+        with mock.patch.dict(server.SETTINGS, {"download_engines": selection}), mock.patch.object(
+                server, "manager_call", side_effect=[{"reviewed_updates": True},
+                    server.EngineUpdateConflict("extension_update_changed")]) as manager:
+            status, _, raw = self.call("POST", "/api/extensions", {
+                "action": "update_reviewed", "engine": "fixture", "approval": "a" * 64,
+                "selection": {},
+            }, owner)
+            self.assertEqual(status, 409)
+            self.assertEqual(json.loads(raw)["code"], "extension_update_changed")
+            self.assertEqual(manager.call_args_list[-1],
+                             mock.call("update_reviewed", engine="fixture", selection=selection,
+                                       approval="a" * 64, timeout=225))
+
+    def test_extension_update_requires_review_in_the_browser_and_preserves_local_cli(self):
+        owner = self.sign_in("discover-owner")
+        update = {"action": "update", "engine": "fixture"}
+        with mock.patch.object(server, "manager_call") as manager:
+            self.assertEqual(self.call("POST", "/api/extensions", update, owner)[0], 409)
+            manager.assert_not_called()
+            token = OwnerAuth(self.config_path.parent).cli_token()
+            status, _, body = self.request(self.loop_port, "POST", "/api/extensions", body=update,
+                                           headers={"Authorization": f"Bearer {token}"})
+            self.assertEqual(status, 200, body)
+            manager.assert_any_call("update", engine="fixture", timeout=225)
+
     def test_owner_can_add_music_source_and_members_can_discover_it(self):
         sources = "/api/discovery/sources"
         browse = "/api/discovery/search"
