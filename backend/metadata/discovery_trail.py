@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from metadata.artist_connections import (ConnectionsBusy, MBID, clean, credited_names, credit_key,
                                         credits, items, valid_id)
+from system.normalize import song_key
 
 _BRANCH_SLOTS = threading.BoundedSemaphore(4)
 BRANCH_PATH = re.compile(r"/api/discover/(artist|recording)/(" + MBID.pattern + ")")
@@ -82,7 +83,7 @@ class LibraryRecordings:
             if not row.get("active", True):
                 continue
             key = (credit_key(row["artist"]), credit_key(row["title"]))
-            self.song_titles.add(key)
+            self.song_titles.add(song_key(row["artist"], row["title"]))
             identity = row.get("musicbrainz_id")
             if not valid_id(identity):
                 uri = (row.get("uri") or row.get("identifier") or "").lower()
@@ -95,7 +96,7 @@ class LibraryRecordings:
 
     def contains_song(self, track):
         """Match the song regardless of a different edition's recording ID."""
-        key = (credit_key(track["artist"]), credit_key(track["title"]))
+        key = song_key(track["artist"], track["title"])
         return key in self.song_titles or self.contains(track)
 
     def contains(self, track):

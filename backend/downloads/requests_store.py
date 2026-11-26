@@ -29,6 +29,7 @@ from pathlib import Path
 
 from system import state_database
 from system.formats import REQUEST_SUFFIXES
+from system.normalize import song_key
 from .request_state import COPY_FAILURES, COPY_REVIEW_MESSAGE, EDITABLE_FORMAT, FAILED_SEARCHES, REPLACEABLE_RECORDING, request_state
 
 
@@ -129,6 +130,25 @@ QUEUE_COLUMNS = {
 }
 # A request the user can still act on or that is already on its way.
 ACTIVE_STATUSES = ("waiting_format", "queued", "searching", "waiting_space")
+
+
+def weekly_request_origin(row, songs_by_recording):
+    identity = row["original_recording_id"]
+    if identity and identity != row["musicbrainz_id"] and identity in songs_by_recording:
+        return songs_by_recording[identity]
+    if row["original_artist"] and row["original_title"]:
+        return song_key(row["original_artist"], row["original_title"])
+    return None
+
+
+def weekly_request_songs(row, songs_by_recording):
+    keys = {song_key(row["artist"], row["title"])}
+    if row["musicbrainz_id"] in songs_by_recording:
+        keys.add(songs_by_recording[row["musicbrainz_id"]])
+    if origin := weekly_request_origin(row, songs_by_recording):
+        keys.add(origin)
+    return keys
+
 
 # The longest TTL any cache caller uses (MusicBrainz recording and
 # per-track metadata lookups, 30 days). Rows older than that are expired
@@ -287,23 +307,48 @@ class RequestsStore:
             return decode_request_row(updated), status == "queued"
         return self._run(work)
 
-    def queue_weekly(self, tracks):
+    def queue_weekly(self, tracks, *, selected_ids=None, audio_available=None):
         """Queue a confirmed MP3/AAC choice, respecting existing manual requests."""
+        songs_by_recording = {track["id"]: song_key(track["artist"], track["title"]) for track in tracks}
+        selected = [track for track in tracks if selected_ids is None or track["id"] in selected_ids]
+        if not selected:
+            return 0
+
+        # The restored collection can store audio and requests in the same
+        # SQLite file. Check audio before taking the request write lock and
+        # only apply that observation to the same row and path.
+        missing = set()
+        if audio_available is not None:
+            selected_songs = {songs_by_recording[track["id"]] for track in selected}
+            missing = {(row["id"], row["audio_path"]) for row in self.weekly_requests()
+                       if row["status"] == "downloaded" and weekly_request_songs(row, songs_by_recording) & selected_songs
+                       and not audio_available(row["audio_path"])}
+
         def work(conn):
             conn.execute("BEGIN IMMEDIATE")
             queued = 0
-            for track in tracks:
+            reserved = set()
+            for row in self._weekly_requests(conn):
+                if row["status"] != "downloaded" or (row["id"], row["audio_path"]) not in missing:
+                    reserved.update(weekly_request_songs(row, songs_by_recording))
+            for track in selected:
                 artist, title, recording_id = track["artist"], track["title"], track["id"]
-                if (self._active(conn, None, artist, title, recording_id)
+                song = songs_by_recording[recording_id]
+                if (song in reserved or self._active(conn, None, artist, title, recording_id)
                         or self._active(conn, None, artist, title)):
                     continue
                 previous = self._latest(conn, None, artist, title, recording_id, include_completed_origin=True)
                 if previous:
+                    retried_songs = weekly_request_songs(previous, songs_by_recording)
+                    if retried_songs & reserved:
+                        continue
                     released = self._queue_retry(conn, previous["id"], previous["search_title"])
                     if released and not previous["format_confirmed"]:
                         conn.execute("UPDATE requests SET requested_format='mp3', format_confirmed=1, "
                                      "aac_revision=format_revision, broad_revision=NULL WHERE id=?", (previous["id"],))
                     queued += released
+                    if released:
+                        reserved.update(retried_songs)
                     continue
                 search = " ".join(filter(None, (title, track["version"])))[:200]
                 conn.execute(
@@ -311,6 +356,7 @@ class RequestsStore:
                     "requested_format,format_revision,aac_revision,format_confirmed) "
                     "VALUES (?,?,?,?,?,?,?,'mp3',1,1,1)",
                     (artist, title, track["album"], track["seconds"], search, recording_id, track["version"]))
+                reserved.add(song)
                 queued += 1
             return queued
         return self._run(work)
@@ -645,6 +691,13 @@ class RequestsStore:
         return conn.execute(f"SELECT * FROM requests WHERE {condition} ORDER BY id DESC LIMIT 1", params).fetchone()
 
     @staticmethod
+    def _active_filter(statuses):
+        placeholders = ",".join("?" for _ in statuses)
+        return (f"(status IN ({placeholders}) OR (status='rejected' AND message=?) "
+                "OR (status IN ('not_found','error','rejected') AND selected_copy_key IS NOT NULL))",
+                (*statuses, COPY_REVIEW_MESSAGE))
+
+    @staticmethod
     def _active(conn, index, artist="", title="", musicbrainz_id=""):
         statuses = ACTIVE_STATUSES
         if index is None:
@@ -653,12 +706,19 @@ class RequestsStore:
         else:
             condition = "(track_index=? OR original_track_index=?)"
             params = (index, index)
-        placeholders = ",".join("?" for _ in statuses)
+        active, values = RequestsStore._active_filter(statuses)
         return conn.execute(
-            f"SELECT * FROM requests WHERE {condition} AND (status IN ({placeholders}) "
-            "OR (status='rejected' AND message=?) "
-            "OR (status IN ('not_found','error','rejected') AND selected_copy_key IS NOT NULL)) "
-            "ORDER BY id DESC LIMIT 1", (*params, *statuses, COPY_REVIEW_MESSAGE)).fetchone()
+            f"SELECT * FROM requests WHERE {condition} AND {active} ORDER BY id DESC LIMIT 1",
+            (*params, *values)).fetchone()
+
+    @staticmethod
+    def _weekly_requests(conn):
+        active, params = RequestsStore._active_filter((*ACTIVE_STATUSES, "downloaded"))
+        return conn.execute(f"SELECT * FROM requests WHERE track_index IS NULL AND {active} ORDER BY id DESC", params)
+
+    def weekly_requests(self):
+        """Current and downloaded requests that can satisfy a weekly song."""
+        return self._run(lambda conn: [decode_request_row(row) for row in self._weekly_requests(conn)])
 
     def active_for_track(self, track_index):
         row = self._run(lambda conn: self._active(conn, track_index))
