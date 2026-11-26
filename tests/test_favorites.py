@@ -245,6 +245,47 @@ class FavoritesHttpTests(unittest.TestCase):
                                         "/api/favorites", body=body)
             self.assertEqual(status, 400, body)
 
+    def test_download_favorite_uses_the_original_request(self):
+        store = RequestsStore(server.DB)
+        request, _ = store.create_or_find(None, "Fixture Artist", "Downloaded song", "Fixture Concert", 60, "",
+                                          individual=True, musicbrainz_id="00000000-0000-4000-8000-000000000025")
+        request_id = request["id"]
+
+        def favorite(on):
+            return self.request(self.loop_port, "POST", "/api/favorites",
+                                body={"request_id": request_id, "favorite": on})
+
+        self.assertEqual(favorite(True)[0], 400)
+        server.LIBRARY.mkdir(parents=True, exist_ok=True)
+        audio_file = server.LIBRARY / "favorite-fixture.mp3"
+        audio_file.write_bytes(b"fixture audio reference")
+        self.addCleanup(audio_file.unlink, missing_ok=True)
+        store.finish(request_id, "downloaded", "", audio_file.name)
+        status, _, data = favorite(True)
+        self.assertEqual((status, json.loads(data)), (200, {"request_id": request_id, "favorite": True}))
+        self.assertIn(f"custom-{request_id}", FavoritesStore(server.DB).keys())
+        self.post_favorite(2, True)
+        filters = {"filter": "favorites", "facets": "download-favorites", "limit": 1}
+        first = self.fetch_tracks(filters)
+        self.assertEqual((first["total"], first["download_favorites"]), (2, []))
+        second = self.fetch_tracks({**filters, "offset": 1})
+        self.assertEqual(second["tracks"], [])
+        self.assertEqual([row["request_id"] for row in second["download_favorites"]], [request_id])
+        self.assertEqual(second["download_favorites"][0]["album"], "Fixture Concert")
+        self.assertEqual(self.fetch_tracks({"filter": "favorites"})["total"], 1)
+        status, _, data = self.request(self.loop_port, "POST", "/api/session",
+                                       body={"op": "play_request", "request_id": request_id})
+        self.assertEqual(status, 200)
+        self.assertIs(json.loads(data)["current"]["favorite"], True)
+        audio_file.unlink()
+        self.assertEqual(self.fetch_tracks(filters)["total"], 1)
+        self.assertEqual(favorite(False)[0], 200)
+        self.assertEqual(self.fetch_tracks(filters)["total"], 1)
+        status, _, data = self.request(self.loop_port, "GET", "/api/session")
+        self.assertEqual(status, 200)
+        self.assertIs(json.loads(data)["current"]["favorite"], False)
+        self.request(self.loop_port, "POST", "/api/session", body={"op": "pause"})
+
     def test_post_is_a_paired_device_action_not_a_host_one(self):
         # The paired-device tier reaches it, like /api/session...
         cookie = self.lan_device_cookie()

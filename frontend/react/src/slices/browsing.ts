@@ -3,7 +3,9 @@ import {
   api,
   postJson,
   scrollBehavior,
+  type DownloadFavorite,
   type ExternalResult,
+  type FavoriteTrack,
   type Track,
   type Mood,
   type TracksPage,
@@ -27,6 +29,8 @@ export class BrowsingSlice {
   moods: Mood[] = [];
 
   tracks: Track[] = [];
+  downloadFavorites: DownloadFavorite[] = [];
+  get loadedTrackCount() { return this.tracks.length + this.downloadFavorites.length; }
   tracksTotal = 0;
   tracksLoading = false;
   tracksResetting = false;
@@ -62,6 +66,7 @@ export class BrowsingSlice {
     const sequence = ++this.loadSeq;
     if (reset) {
       this.tracks = [];
+      this.downloadFavorites = [];
       this.tracksError = null;
       this.tracksPageError = null;
       this.tracksResetting = true;
@@ -74,18 +79,21 @@ export class BrowsingSlice {
         playlist: this.playlist,
         q: this.query,
         filter: this.filter,
-        offset: String(reset ? 0 : this.tracks.length),
+        offset: String(reset ? 0 : this.loadedTrackCount),
         limit: this.view === "moods" ? "1" : "60",
       });
       if (reset && this.view === "moods") {
         params.set("facets", "moods");
       }
+      if (this.filter === "favorites") params.append("facets", "download-favorites");
       for (const genre of this.genres) params.append("genre", genre);
       const result = await api<TracksPage>(`/api/tracks?${params}`);
       if (sequence !== this.loadSeq) return;
       if (result.moods) this.moods = result.moods;
       if (result.genres) this.genreOptions = result.genres;
       this.tracks = reset ? result.tracks : [...this.tracks, ...result.tracks];
+      this.downloadFavorites = reset ? result.download_favorites ?? []
+        : [...this.downloadFavorites, ...(result.download_favorites ?? [])];
       this.tracksTotal = result.total;
       this.tracksLoaded = true;
     } catch (error) {
@@ -256,18 +264,21 @@ export class BrowsingSlice {
     this.host.bump();
   }
 
-  async toggleFavorite(track: {
-    id: number;
-    title: string;
-    favorite: boolean;
-  }): Promise<boolean> {
+  async toggleFavorite(track: FavoriteTrack): Promise<boolean> {
     // Optimistic flip on every surface holding the track (plan
     // 048): the tracks list, the session's current and upcoming,
     // and, through those same objects, the open song dialog. The
     // POST reconciles; a failure reverts and toasts.
-    const next = !track.favorite;
+    const target = typeof track.id === "number" ? { index: track.id }
+      : track.request_id !== undefined ? { request_id: track.request_id } : null;
+    if (!target) return false;
+    const original = !!track.favorite;
+    const next = !original;
     const flip = (favorite: boolean) => {
       for (const item of this.tracks) {
+        if (item.id === track.id) item.favorite = favorite;
+      }
+      for (const item of this.downloadFavorites) {
         if (item.id === track.id) item.favorite = favorite;
       }
       this.host.setSessionFavorite(track.id, favorite);
@@ -275,12 +286,12 @@ export class BrowsingSlice {
     };
     flip(next);
     try {
-      const result = await postJson<{ index: number; favorite: boolean }>(
+      const result = await postJson<{ favorite: boolean }>(
         "/api/favorites",
-        { index: track.id, favorite: next },
+        { ...target, favorite: next },
       );
       if (result.favorite !== next) flip(result.favorite);
-      if (this.filter === "favorites" && !result.favorite) {
+      if (this.filter === "favorites" && (!result.favorite || "request_id" in target)) {
         // An un-favorite leaves the favorites view: reload so the
         // row and the total stay truthful.
         void this.loadTracks(true);
@@ -288,7 +299,7 @@ export class BrowsingSlice {
       void this.host.refreshOverview();
       return true;
     } catch (error) {
-      flip(track.favorite);
+      flip(original);
       notify(errorMessage(error, "Favorite could not be saved"));
       return false;
     }

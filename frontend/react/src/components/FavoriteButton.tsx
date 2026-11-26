@@ -1,6 +1,7 @@
 import { RoomIcon } from "./RoomIcon";
 import { Toggle } from "@ui-sdk/react/toggle";
 import { useStore } from "../store";
+import type { FavoriteTrack } from "../api";
 
 // The favorite control (plan 048): a ui-sdk Toggle carrying the
 // room's favorite state for one catalog track. The store owns the
@@ -11,10 +12,11 @@ export function FavoriteButton({
   track,
   className = "",
 }: {
-  track: { id: number; title: string; favorite: boolean };
+  track: FavoriteTrack;
   className?: string;
 }) {
   const store = useStore();
+  if (typeof track.id !== "number" && track.request_id === undefined) return null;
   const favorite = !!track.favorite;
   return (
     <Toggle

@@ -5,6 +5,7 @@ import { Toggle } from "@ui-sdk/react/toggle";
 import type { SessionTrack } from "../api";
 import { useStore } from "../store";
 import { CoverArt, GradientPortrait, portraitSeed } from "./Artwork";
+import { FavoriteButton } from "./FavoriteButton";
 import { PlaybackDevices } from "./PlaybackDevices";
 import { RoomIcon } from "./RoomIcon";
 
@@ -149,12 +150,15 @@ export function NowPlaying({ track, timeline, transport, close, explore }: {
           <CoverArt cover={track.cover} fallback={<GradientPortrait seed={portraitSeed(track)} />} />
         </div>
       </div>
-      <div className="now-playing-title">
-        <h2>{track.title}</h2>
-        <p>{canOpenMusicProfile(track.id) ? <button type="button" className="music-profile-byline"
-          aria-label={`Open artist ${track.artist}`} onClick={() => openConnections("artist-profile")}>{track.artist}</button> : track.artist}</p>
-        {track.album && <small>{canOpenMusicProfile(track.id) ? <button type="button" className="music-profile-byline"
-          aria-label={`Open album ${track.album}`} onClick={() => openConnections("album-tracks")}>{track.album}</button> : track.album}</small>}
+      <div className="now-playing-song">
+        <div className="now-playing-title">
+          <h2>{track.title}</h2>
+          <p>{canOpenMusicProfile(track.id) ? <button type="button" className="music-profile-byline"
+            aria-label={`Open artist ${track.artist}`} onClick={() => openConnections("artist-profile")}>{track.artist}</button> : track.artist}</p>
+          {track.album && <small>{canOpenMusicProfile(track.id) ? <button type="button" className="music-profile-byline"
+            aria-label={`Open album ${track.album}`} onClick={() => openConnections("album-tracks")}>{track.album}</button> : track.album}</small>}
+        </div>
+        <FavoriteButton className="now-playing-icon" track={track} />
       </div>
       {timeline}
       <div className="now-playing-controls" role="group" aria-label="Playback controls">

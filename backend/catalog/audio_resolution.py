@@ -137,6 +137,16 @@ def resolve_playable(stored, library, media_store=None, buffer=None):
     return resolve_stored(stored, library)
 
 
+def custom_track(row):
+    """Project a downloaded request into the same playback shape as catalog audio."""
+    request_id = row["id"]
+    return {"id": f"custom-{request_id}", "request_id": request_id, "title": row["title"], "artist": row["artist"],
+            "album": row.get("album", "") if row.get("musicbrainz_id") else "",
+            "duration": row["length"] or 0, "cover": "", "status": "verified",
+            "audio": f"/api/audio/custom/{request_id}",
+            **{key: row[key] for key in ("musicbrainz_id", "version") if row.get("musicbrainz_id")}}
+
+
 def resolve_ref(ref, catalog, store):
     """A playable track dict for a session ref, or None.
 
@@ -153,12 +163,7 @@ def resolve_ref(ref, catalog, store):
             return None
         row = store.downloaded_custom(request_id)
         if row:
-            item = {"id": ref, "title": row["title"], "artist": row["artist"], "album": "",
-                    "duration": row["length"] or 0, "cover": "", "status": "verified",
-                    "audio": f"/api/audio/custom/{request_id}"}
-            if row.get("musicbrainz_id"):
-                item.update(musicbrainz_id=row["musicbrainz_id"], version=row["version"], album=row["album"])
-            return item
+            return custom_track(row)
     return None
 
 

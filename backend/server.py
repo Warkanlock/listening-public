@@ -1042,13 +1042,31 @@ def recent_process_lines():
 
 
 def resolve_ref(ref):
-    return audio_resolution.resolve_ref(ref, catalog, requests_store())
+    track = audio_resolution.resolve_ref(ref, catalog, requests_store())
+    if track is not None and isinstance(track["id"], str):
+        track["favorite"] = track["id"] in catalog.favorites
+    return track
 
 
 def stored_audio_available(path, library, media):
     if is_blob_ref(path):
         return media is not None and media.has(blob_key(path))
     return audio_resolution.resolve_stored(path, library) is not None
+
+
+def favorite_downloads(favorite_keys, query):
+    ids = sorted(int(match[1]) for key in favorite_keys
+                 if (match := re.fullmatch(r"custom-([1-9][0-9]{0,17})", key)))
+    rows = [row for row in requests_store().downloaded_customs(ids)
+            if not query or query in normalize_title(f"{row['title']} {row['artist']}")]
+    keys = sorted({blob_key(row["audio_path"]) for row in rows if is_blob_ref(row["audio_path"])})
+    available = set()
+    if keys and (media := MEDIA.store()):
+        for start in range(0, len(keys), 800):
+            available.update(media.original_formats(keys[start:start + 800]))
+    return {f"custom-{row['id']}": row for row in rows
+            if (blob_key(row["audio_path"]) in available if is_blob_ref(row["audio_path"])
+                else audio_resolution.resolve_stored(row["audio_path"], LIBRARY) is not None)}
 
 
 # The descriptive probe fields the player's quality readout and the
@@ -3206,6 +3224,9 @@ class Handler(BaseHTTPRequestHandler):
         genre_filter_set = set(genre_filters)
         mood = params.get("mood", [""])[0]
         include_moods = "moods" in params.get("facets", [])
+        include_download_favorites = ("download-favorites" in params.get("facets", [])
+                                      and filter_name == "favorites" and playlist == "all"
+                                      and profile is None and not (spotify_only or mood or genre_filter_set))
         groups = moods.groups(DB) if include_moods or mood else []
         mood_genres = next((set(group["genres"]) for group in groups if group["id"] == mood), None)
         if mood and mood_genres is None:
@@ -3278,9 +3299,12 @@ class Handler(BaseHTTPRequestHandler):
                     return (-completed, -(last_played or 0), index)
                 return (-(last_played or 0), index)
             matching.sort(key=history_key)
+        downloads = favorite_downloads(favorite_keys, query) if include_download_favorites else {}
+        matching.extend(downloads)
         page = matching[offset:offset + limit]
-        tracks = ([catalog.track(index, requests) for index in page] if profile is None
-                  else [track for index in page if (track := member_catalog_track(index, favorite_keys)) is not None])
+        indices = [index for index in page if type(index) is int]
+        tracks = ([catalog.track(index, requests) for index in indices] if profile is None
+                  else [track for index in indices if (track := member_catalog_track(index, favorite_keys)) is not None])
         for track in tracks:
             if track["status"] == "not_found" and (request := requests.get(track["id"])) and (retry := mp3_retry(request)):
                 track["mp3_retry"] = retry
@@ -3289,6 +3313,10 @@ class Handler(BaseHTTPRequestHandler):
         return self.json_response({"tracks": tracks,
                                    "total": len(matching), "offset": offset, "limit": limit,
                                    "genres": catalog.canonical_genres(),
+                                   **({"download_favorites": [
+                                       {**audio_resolution.custom_track(downloads[ref]), "favorite": True}
+                                       for ref in page if ref in downloads
+                                   ]} if include_download_favorites else {}),
                                    **({"moods": groups} if include_moods else {}), **availability})
 
     def do_POST(self):
@@ -3433,6 +3461,21 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(body, dict):
                     raise ValueError("Choose a song")
                 index = body.get("index")
+                if "request_id" in body:
+                    request_id = body["request_id"]
+                    favorite = body.get("favorite")
+                    if ("index" in body or profile is not None or type(request_id) is not int or
+                            not 0 < request_id < 10**18):
+                        raise ValueError("Unknown song")
+                    if type(favorite) is not bool:
+                        raise ValueError("Say whether the song is a favorite")
+                    with ROOT_LOCK:
+                        row = requests_store().downloaded_custom(request_id)
+                        if not row or (favorite and not stored_audio_available(row["audio_path"], LIBRARY, MEDIA.store())):
+                            raise ValueError("This download is unavailable.")
+                        favorites.set(f"custom-{request_id}", favorite)
+                        catalog.reload_favorites()
+                    return self.json_response({"request_id": request_id, "favorite": favorite})
                 if not catalog.valid_index(index):
                     raise ValueError("Unknown song")
                 favorite = body.get("favorite")
