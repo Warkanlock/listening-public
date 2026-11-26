@@ -76,6 +76,7 @@ export interface Mood {
 }
 
 export interface TracksPage {
+  download_favorites?: DownloadFavorite[];
   moods?: Mood[];
   ready_genres?: Record<string, number>;
   tracks: Track[];
@@ -87,13 +88,14 @@ export interface TracksPage {
 
 export interface SessionTrack {
   id: number | string;
+  request_id?: number;
   title: string;
   artist: string;
   album?: string;
   cover: string;
   audio: string;
   duration: number;
-  favorite: boolean;
+  favorite?: boolean;
   // Probe facts (plan 042 stage 6), present only when the probe
   // found them: the quality readout and ReplayGain normalization.
   codec?: string;
@@ -105,6 +107,9 @@ export interface SessionTrack {
   album_peak?: number;
   r128_track_gain?: number;
 }
+
+export type DownloadFavorite = SessionTrack & { request_id: number };
+export type FavoriteTrack = Pick<SessionTrack, "id" | "title" | "favorite" | "request_id">;
 
 export interface MetadataConnection {
   musicbrainz_id: string;

@@ -31,7 +31,7 @@ export interface SliceHost {
   pollSession(): Promise<void>;
   setActivityDialogOpen(open: boolean): void;
   resetRequestsSignature(): void;
-  setSessionFavorite(id: number, favorite: boolean): void;
+  setSessionFavorite(id: number | string, favorite: boolean): void;
 }
 
 export const errorMessage = (error: unknown, fallback: string) =>

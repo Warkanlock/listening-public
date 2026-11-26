@@ -517,6 +517,27 @@ def verify_request_restart(page, root, screenshot):
             play.click()
             wait_for("the selected version in the player", lambda:
                      server.request("GET", "/api/session")[1]["current_ref"] == "custom-" + str(verified["id"]))
+            player = page.get_by_label("Audio player")
+            player.get_by_role("button", name="Favorite Format fixture", exact=True).click()
+            wait_for("download favorite saved", lambda: server.request("GET", "/api/session")[1]["current"]["favorite"])
+            page.get_by_role("button", name="Favorites", exact=True).click()
+            favorite_row = page.locator(".track-row", has_text="Format fixture")
+            before_replay = server.request("GET", "/api/session")[1]["version"]
+            favorite_row.get_by_role("button", name="Play Format fixture", exact=True).click()
+            wait_for("the favorite replays the original request", lambda:
+                     (state := server.request("GET", "/api/session")[1])["version"] > before_replay
+                     and state["current_ref"] == f"custom-{verified['id']}")
+            page.set_viewport_size({"width": 390, "height": 844})
+            try:
+                player.get_by_role("button", name="Open now playing").click()
+                now_playing = page.get_by_role("dialog", name="Now playing", exact=True)
+                now_playing.get_by_role("button", name="Remove Format fixture from favorites").click()
+                now_playing.get_by_role("button", name="Close now playing").click()
+            finally:
+                page.set_viewport_size({"width": 1440, "height": 900})
+            favorite_row.wait_for(state="detached")
+            wait_for("download favorite removed", lambda:
+                     server.request("GET", "/api/session")[1]["current"]["favorite"] is False)
         finally:
             page.unroute("**/api/discover")
             page.unroute("**/api/discover/recording/*")
@@ -3937,7 +3958,7 @@ def run_browser(server, output):
                 with tempfile.TemporaryDirectory(prefix="listening-format-room-") as root:
                     verify_request_restart(page, Path(root), output / "17-request-format.png")
                 item.ok = True
-                item.detail = "Format choice survives restart, AAC rejected, verified ALAC and Deep Dive playback, mobile per-song MP3 retry"
+                item.detail = "Format choice survives restart, verified downloads can be liked and replayed, mobile per-song MP3 retry"
             except Exception as error:
                 item.detail = repr(error)
             item = surface("private-household-and-catalogs")
