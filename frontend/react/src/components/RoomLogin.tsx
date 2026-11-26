@@ -3,15 +3,16 @@ import { offlineAccount, setOfflineAccount } from "../hikingStorage";
 import { accountChangedKey, announceAccountChange, api, postJson, setExpectedAccount } from "../api";
 
 export type RoomRole = "owner" | "member" | "listener" | "paired";
-type RoomAccess = { kind: "checking" } | { kind: "signed-in"; role: RoomRole; id: string } |
+type RoomAccess = { kind: "checking" } | { kind: "signed-in"; role: RoomRole; id: string; personal?: boolean } |
   { kind: "sign-in"; setupRequired: boolean };
 
 function roomAccess(value: unknown): RoomAccess {
   if (typeof value !== "object" || value === null || !("enabled" in value) || !value.enabled ||
       !("role" in value)) return { kind: "signed-in", role: "paired", id: "paired" };
-  if (value.role === "owner") return { kind: "signed-in", role: "owner", id: "owner" };
+  if (value.role === "owner") return { kind: "signed-in", role: "owner", id: "owner",
+    personal: "username" in value && typeof value.username === "string" };
   if (value.role === "member" && "id" in value && typeof value.id === "string")
-    return { kind: "signed-in", role: "member", id: value.id };
+    return { kind: "signed-in", role: "member", id: value.id, personal: true };
   if (value.role === "listener" && !new URLSearchParams(location.search).has("signin"))
     return { kind: "signed-in", role: "listener", id: "paired" };
   if (value.role === "bootstrap") return { kind: "signed-in", role: "paired", id: "paired" };
@@ -26,7 +27,7 @@ export function verifiedRoomAccount(value: unknown) {
 }
 
 export function RoomLogin({ children, onUnavailable }: {
-  children: (role: RoomRole) => ReactNode;
+  children: (role: RoomRole, appearanceAccount: string | null) => ReactNode;
   onUnavailable: () => boolean;
 }) {
   const [access, setAccess] = useState<RoomAccess>({ kind: "checking" });
@@ -79,7 +80,7 @@ export function RoomLogin({ children, onUnavailable }: {
     }
   }
 
-  if (access.kind === "signed-in") return children(access.role);
+  if (access.kind === "signed-in") return children(access.role, access.personal ? access.id : null);
   if (access.kind === "checking") return <main className="room-login" aria-busy="true"><p role="status">Connecting to the room…</p></main>;
 
   return <main className="room-login">

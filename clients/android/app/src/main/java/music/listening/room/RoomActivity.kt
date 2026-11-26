@@ -29,7 +29,7 @@ import java.util.concurrent.Executors
 
 class RoomActivity : Activity() {
     private enum class Screen { LIBRARY, EXPLORE, ACTIVITIES, DISCOVER, WEEKLY, CATALOGS, RADIO, PLAYER, INSIGHTS }
-    private val ui by lazy { RoomUi(this) }
+    private lateinit var ui: RoomUi
     private val io = Executors.newSingleThreadExecutor()
     private val catalogIo = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
@@ -112,11 +112,11 @@ class RoomActivity : Activity() {
 
     override fun onCreate(saved: Bundle?) {
         super.onCreate(saved)
+        ui = RoomUi(this)
         room = if (pairOnly) null
             else Room.load(this, homeWifi = homeWifi)
-        window.statusBarColor = ui.paper
         window.navigationBarColor = Color.BLACK
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        ui.theme.applyWindow(this, ui.paper)
         show()
     }
 
@@ -174,14 +174,32 @@ class RoomActivity : Activity() {
         status.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
     }
 
+    private fun chooseAppearance(onChanged: () -> Unit = {}) {
+        ui.choices(this, "Appearance", RoomTheme.entries.map { theme ->
+            Entry(theme.label, mark = if (theme == ui.theme) Mark.CHECK else null, open = {
+                if (theme != ui.theme) {
+                    theme.save(this)
+                    ui = RoomUi(this)
+                    ui.theme.applyWindow(this, ui.paper)
+                    onChanged()
+                    show()
+                }
+            })
+        })
+    }
+
     private fun connection(target: Room) {
         val info = ui.column(8).apply {
             setPadding(ui.dp(24), ui.dp(18), ui.dp(24), ui.dp(8))
         }
+        lateinit var dialog: AlertDialog
         fun section(title: String) {
             if (info.childCount > 0) info.addView(ui.line())
             info.addView(ui.heading(title, 19f))
         }
+        section("Appearance")
+        if (ui.eInk) info.addView(ui.label("Paper", 15f, ui.secondary))
+        else info.addView(ui.button("Theme · " + ui.theme.label) { chooseAppearance { dialog.dismiss() } })
         section("Playback")
         lateinit var audio: Button
         audio = ui.button("Mobile audio · " + MobileAudio.load(this).label) {
@@ -204,7 +222,6 @@ class RoomActivity : Activity() {
         info.addView(ui.button("View room extensions") { showRoomExtensions(target) })
         section("Offline library")
         val library = PhoneLibrary.get(this, target.replicaId)
-        lateinit var dialog: AlertDialog
         val summary = ui.label("", 15f, ui.secondary)
         fun mode(local: Boolean) {
             stopService(Intent(this, RoomPlayback::class.java))
@@ -372,6 +389,8 @@ class RoomActivity : Activity() {
             })
             else if (target != null && !(ui.eInk && screen == Screen.PLAYER)) addView(files)
             if (target != null) addView(ui.iconButton("Settings", Mark.SETTINGS) { connection(target) },
+                LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+            else if (!ui.eInk) addView(ui.iconButton("Appearance", Mark.SETTINGS) { chooseAppearance() },
                 LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
         })
         status = ui.label("", 15f, ui.secondary).apply {

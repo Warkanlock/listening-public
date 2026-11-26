@@ -42,6 +42,19 @@ class EngineBusy(EngineError):
     """The worker is already in use by another request."""
 
 
+class EngineUpdateConflict(EngineError):
+    messages = {
+        "extension_update_changed": "The extension package changed. Review the latest update.",
+        "extension_update_current": "This extension is already up to date.",
+        "extension_update_sources": "Choose compatible download sources before updating this extension.",
+        "extension_update_settings": "Disable this extension before updating and setting up its new credentials.",
+    }
+
+    def __init__(self, code):
+        super().__init__(self.messages[code], retryable=False)
+        self.code = code
+
+
 class EngineCooldown(EngineError):
     def __init__(self, message, seconds):
         super().__init__(message)
@@ -150,6 +163,10 @@ def manager_call(action, *, timeout=2, check_space=None, server_release=None, **
     if not isinstance(response, dict):
         raise EngineError("The download engine returned an invalid response.")
     if response.get("ok") is not True:
+        if action in ("update_preview", "update_reviewed"):
+            code = response.get("code")
+            if isinstance(code, str) and code in EngineUpdateConflict.messages:
+                raise EngineUpdateConflict(code)
         if response.get("code") == "busy":
             raise EngineBusy("The extension is busy. Try again after the current operation.")
         if response.get("code") == "timeout":

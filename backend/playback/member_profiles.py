@@ -12,6 +12,10 @@ from playback.playback import PlaybackSession
 from system import state_database
 
 
+DEFAULT_THEME = "sea-glass"
+THEMES = frozenset((DEFAULT_THEME, "night", "paper"))
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS member_favorites (
     room TEXT NOT NULL,
@@ -47,6 +51,12 @@ CREATE TABLE IF NOT EXISTS private_playlists (
     room TEXT NOT NULL, member TEXT NOT NULL, id TEXT NOT NULL,
     name TEXT NOT NULL, revision INTEGER NOT NULL, tracks TEXT NOT NULL,
     PRIMARY KEY (room, member, id)
+);
+CREATE TABLE IF NOT EXISTS member_appearance (
+    room TEXT NOT NULL,
+    member TEXT NOT NULL,
+    theme TEXT NOT NULL,
+    PRIMARY KEY (room, member)
 );
 """
 
@@ -113,6 +123,19 @@ class MemberProfile:
         self._connect = connect
         self.room = room
         self.scope = scope
+
+    def appearance(self):
+        with closing(self._connect()) as db:
+            row = db.execute("SELECT theme FROM member_appearance WHERE room=? AND member=?", self.scope).fetchone()
+        return {"theme": row[0] if row and row[0] in THEMES else DEFAULT_THEME}
+
+    def set_appearance(self, theme):
+        if not isinstance(theme, str) or theme not in THEMES:
+            raise ValueError("Choose Sea Glass, Night, or Paper.")
+        with closing(self._connect()) as db, db:
+            db.execute("INSERT OR REPLACE INTO member_appearance (room, member, theme) VALUES (?, ?, ?)",
+                       (*self.scope, theme))
+        return {"theme": theme}
 
     def keys(self):
         with closing(self._connect()) as db:

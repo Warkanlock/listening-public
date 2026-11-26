@@ -95,9 +95,8 @@ class CardActivity : Activity() {
 
     override fun onCreate(saved: Bundle?) {
         super.onCreate(saved)
+        ui.theme.applyWindow(this, ui.paper)
         tree = prefs.getString("tree", null)?.let(Uri::parse)
-        window.statusBarColor = ui.paper
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         val body = ui.screen()
         heading = ui.heading("Device files", 23f).apply {
             maxLines = 2

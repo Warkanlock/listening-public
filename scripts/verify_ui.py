@@ -499,6 +499,8 @@ def verify_request_restart(page, root, screenshot):
                 "album": "Concert", "version": "Live", "duration": 2, "musicbrainz_id": recording_id}
         page.route("**/api/discover", lambda route: route.fulfill(json={"week": "test", "tracks": [song]}))
         page.route("**/api/discover/recording/*", lambda route: route.fulfill(json={"leads": []}))
+        page.route("**/api/discover/releases", lambda route: route.fulfill(
+            json={"state": "empty", "releases": [], "refreshing": False, "updated_at": None}))
         try:
             page.get_by_role("button", name="Deep Dive", exact=True).click()
             page.get_by_role("region", name="Artist trails").get_by_role("button", name=re.compile("Starting artist")).click()
@@ -518,6 +520,7 @@ def verify_request_restart(page, root, screenshot):
         finally:
             page.unroute("**/api/discover")
             page.unroute("**/api/discover/recording/*")
+            page.unroute("**/api/discover/releases")
         page.get_by_role("button", name="Library", exact=True).click()
         page.get_by_role("button", name="Choose format for Older song").click()
         assert picker.get_by_role("radio", name="Any lossless (prefer FLAC)").is_checked()
@@ -1438,6 +1441,7 @@ def verify_artist_connections(browser, server, output, errors, warnings):
             if phone:
                 page.get_by_role("button", name="Play Atlas Air", exact=True).tap()
                 page.get_by_role("button", name="Open now playing").tap()
+                page.get_by_role("dialog", name="Now playing").get_by_role("heading", name="Atlas Air", exact=True).wait_for()
                 page.get_by_role("button", name="Artist credits", exact=True).tap()
             else:
                 page.get_by_role("button", name="Song details for Atlas Air", exact=True).click()
@@ -1858,6 +1862,26 @@ def verify_household_browser(browser, root, output):
 
         first = visit("first-listener")
         second = visit("second-listener")
+        first.get_by_role("button", name="Settings", exact=True).click()
+        first.get_by_role("heading", name="Appearance", exact=True).wait_for()
+        first.get_by_role("button", name=re.compile(r"^Night\b")).click()
+        first.wait_for_function("document.documentElement.dataset.roomTheme === 'night'")
+        wait_for("Night theme saved", lambda: first.request.get(server.base + "/api/my/appearance").json()["theme"] == "night")
+        first.screenshot(path=str(output.with_name("20-appearance-night.png")))
+        resumed_appearance = visit("first-listener")
+        resumed_appearance.wait_for_function("document.documentElement.dataset.roomTheme === 'night'")
+        assert second.request.get(server.base + "/api/my/appearance").json()["theme"] == "sea-glass"
+        assert second.evaluate("!document.documentElement.dataset.roomTheme")
+        resumed_appearance.get_by_role("button", name="Settings", exact=True).click()
+        resumed_appearance.get_by_role("button", name=re.compile(r"^Paper\b")).click()
+        resumed_appearance.wait_for_function("document.documentElement.dataset.roomTheme === 'paper'")
+        wait_for("Paper theme saved", lambda: resumed_appearance.request.get(
+            server.base + "/api/my/appearance").json()["theme"] == "paper")
+        resumed_appearance.screenshot(path=str(output.with_name("20-appearance-paper.png")))
+        resumed_appearance.get_by_role("button", name=re.compile(r"^Sea Glass\b")).click()
+        wait_for("Default theme saved", lambda: resumed_appearance.request.get(
+            server.base + "/api/my/appearance").json()["theme"] == "sea-glass")
+        resumed_appearance.close()
         first.get_by_role("button", name="Radio", exact=True).click()
         first.get_by_role("searchbox", name="Find a station").fill("brown")
         rejected = []
@@ -1989,8 +2013,9 @@ def verify_household_browser(browser, root, output):
         first.screenshot(path=str(output.with_name("22-private-playlist.png")))
         second.reload()
         second.get_by_role("button", name="Favorite First light").wait_for()
-        if second.get_by_role("button", name="Settings", exact=True).count():
-            raise AssertionError("A household member was offered owner settings")
+        second.get_by_role("button", name="Settings", exact=True).click()
+        second.get_by_role("heading", name="Appearance", exact=True).wait_for()
+        assert not second.get_by_role("tablist", name="Settings sections").count(), "A household member was offered room settings"
         second.get_by_role("button", name="My playlists").click()
         second.get_by_role("heading", name="My playlists").wait_for()
         if second.get_by_role("button", name="Private fixture list").count():
@@ -2288,6 +2313,9 @@ def verify_discovery_trail(page, screenshot):
     shelf.append({**song, "seed_id": "another-seed", "seed_artist": "The Smiths", "seed_rank": 1,
                   "musicbrainz_id": "another-recording", "title": "After the rain"})
     producer = {"kind": "artist", "id": "producer", "label": "Producer", "name": "Ada Fields"}
+    release_group = "00000000-0000-4000-8000-000000000014"
+    release_song = "00000000-0000-4000-8000-000000000015"
+    radar_requests = []
     attempts = []
     def branch(route):
         key = route.request.url.rsplit("/", 1)[-1]
@@ -2297,7 +2325,25 @@ def verify_discovery_trail(page, screenshot):
         source = {"name": "Bandcamp", "url": "https://fixture.bandcamp.com/track/frequencies"}
         route.fulfill(json={"leads": [lead, producer] if key == studio else [], "source": source if key == live else None})
 
+    def radar_copy(route):
+        if route.request.method != "POST" or route.request.post_data_json.get("musicbrainz_id") != release_song:
+            return route.fallback()
+        radar_requests.append(route.request.post_data_json)
+        route.fulfill(json={"id": 903, "status": "waiting_format", "request_state": "choose_format",
+                            "format_revision": 0, "requested_format": None, **radar_requests[-1]})
+
     page.route("**/api/discover", lambda route: route.fulfill(json={"week": "2026-W47", "weekly_edition": "2026-11-23", "tracks": shelf}))
+    page.route("**/api/discover/releases", lambda route: route.fulfill(json={
+        "state": "ready", "refreshing": False, "updated_at": "2026-11-25T12:00:00+00:00",
+        "releases": [{"id": release_group, "title": "New Signals", "artist": "The Fixture Trio",
+                      "seed_artist": "The Fixture Trio", "kind": "EP", "date": "2026-11-24", "cover": ""}],
+    }))
+    page.route(f"**/api/music-profile/release-group/{release_group}", lambda route: route.fulfill(json={
+        "kind": "album", "identity": release_group, "title": "New Signals", "artist": "The Fixture Trio",
+        "tracks": [{"musicbrainz_id": release_song, "title": "New Frequencies", "artist": "The Fixture Trio",
+                    "album": "New Signals", "duration": 182}],
+    }))
+    page.route("**/api/requests", radar_copy)
     page.route("**/api/discover/weekly", lambda route: route.fulfill(json={"week": "2026-11-23", "state": "ready",
         "can_request": True, "download_progress": {"total": 2, "downloaded": 1, "pending": 0,
                                                      "needs_attention": 1, "percent": 50},
@@ -2334,6 +2380,19 @@ def verify_discovery_trail(page, screenshot):
         board.get_by_role("link", name=re.compile("announce a live session")).wait_for()
         cards = board.get_by_role("region", name="Recordings to hear").get_by_role("button")
         assert cards.count() == len(shelf)
+        radar = page.get_by_role("region", name="Release Radar")
+        release = radar.get_by_role("button", name=re.compile("New Signals"))
+        release.wait_for()
+        release.click()
+        album = page.get_by_role("dialog", name="New Signals")
+        album.get_by_role("heading", name="Track list").wait_for()
+        assert not radar_requests
+        album.get_by_role("button", name="Find a copy New Frequencies").click()
+        picker = page.get_by_role("dialog", name="Choose format")
+        picker.get_by_role("button", name="Later", exact=True).click()
+        assert len(radar_requests) == 1 and radar_requests[0]["musicbrainz_id"] == release_song
+        album.get_by_role("button", name="Close album").click()
+        assert release.evaluate("(el) => el === document.activeElement")
         page.get_by_text("Week of Nov 23", exact=True).wait_for()
         page.get_by_role("button", name="Open Weekly Discovery").click()
         page.get_by_role("heading", name="Weekly Discovery").wait_for()
@@ -2424,8 +2483,11 @@ def verify_discovery_trail(page, screenshot):
         page.set_viewport_size({"width": 1440, "height": 900})
         page.emulate_media(reduced_motion="no-preference")
         page.unroute("**/api/discover")
+        page.unroute("**/api/discover/releases")
         page.unroute("**/api/discover/weekly")
         page.unroute("**/api/requests/copies")
+        page.unroute("**/api/requests", radar_copy)
+        page.unroute(f"**/api/music-profile/release-group/{release_group}")
         page.unroute("**/api/discover/*/*")
         for pattern in ("**/api/connections/song/1", "**/api/discover/activity", "**/api/discover/press", "**/api/discover/matches?*", "**/api/search?q=Fixture*"):
             page.unroute(pattern)
@@ -3084,14 +3146,16 @@ def run_browser(server, output):
                       "settings": [{"key": "api_token", "label": "Catalog token",
                                     "type": "secret", "required": True}]}
             plugin.update(enabled=True, ready=True, retry_at=int(time.time()) + 1800)
-            signed_update = {**plugin, "server_versions": ["1.5.0"]}
+            signed_update = {**plugin, "version": "1.1", "server_versions": ["2.0.0"]}
             disabled = {"id": "paused-engine", "version": "1.0", "capabilities": ["search", "fetch"],
                         "sources": {"search": ["fixture"], "fetch": ["fixture"]},
                         "enabled": False, "ready": False}
             healthy = {**disabled, "id": "ready-engine", "enabled": True, "ready": True}
             available = {**disabled, "id": "example-catalog"}
             extension_settings = {"radio": [], "installed": [plugin, disabled, healthy], "available": [signed_update, available],
-                                  "configured": True, "selection": {"search": "paused-engine", "fetch": "paused-engine"}, "error": ""}
+                                  "configured": True, "reviewed_updates": True,
+                                  "selection": {"search": "paused-engine", "fetch": "paused-engine"}, "error": ""}
+            reviewed_updates = []
 
             def engine_settings(route):
                 if route.request.method == "POST":
@@ -3107,6 +3171,22 @@ def run_browser(server, output):
                     elif body["action"] == "radio":
                         assert body == {"action": "radio", "provider": "youtube", "enabled": True}
                         extension_settings["radio"] = ["youtube"]
+                    elif body["action"] == "update_preview":
+                        assert body == {"action": "update_preview", "engine": "fixture"}
+                        approval = "a" * 64 if not reviewed_updates else "b" * 64
+                        route.fulfill(json={"approval": approval, "installed": plugin, "proposed": signed_update,
+                                            "missing_settings": [], "requires_disable": False,
+                                            "incompatible_sources": False})
+                        return
+                    elif body["action"] == "update_reviewed":
+                        assert body["engine"] == "fixture"
+                        reviewed_updates.append(body["approval"])
+                        if reviewed_updates == ["a" * 64]:
+                            route.fulfill(status=409, json={"code": "extension_update_changed",
+                                                           "error": "The signed catalog changed. Review the update again."})
+                            return
+                        assert reviewed_updates == ["a" * 64, "b" * 64]
+                        plugin.update(version=signed_update["version"], server_versions=signed_update["server_versions"])
                     else:
                         assert body == {
                             "action": "configure", "engine": "fixture",
@@ -3214,8 +3294,19 @@ def run_browser(server, output):
                         visible_panel.get_by_role("button", name="Save engine settings").click()
                         visible_panel.get_by_placeholder("Saved · leave blank to keep").wait_for()
                         assert token.input_value() == ""
+                        update.click()
+                        review = page.get_by_role("dialog", name="Update fixture", exact=True)
+                        review.get_by_text("1.0 → 1.1", exact=True).wait_for()
+                        assert reviewed_updates == []
+                        confirm = review.get_by_role("button", name="Update extension", exact=True)
+                        confirm.click()
+                        review.get_by_role("alert").get_by_text("The signed catalog changed. Review the update again.").wait_for()
+                        assert reviewed_updates == ["a" * 64]
+                        confirm.click()
+                        review.wait_for(state="hidden")
+                        assert reviewed_updates == ["a" * 64, "b" * 64]
                     item.ok = True
-                    item.detail = ("Styled actions, disabled source recovery, Radio switch, and write-only credential form"
+                    item.detail = ("Reviewed update refresh on conflict, disabled source recovery, and write-only settings"
                                    if label == "Extensions" else f"{label} panel renders")
                     shot(item, f"11-settings-{label.lower().replace(' ', '-')}.png")
                 except Exception as error:

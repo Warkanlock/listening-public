@@ -6,17 +6,16 @@ import { api, postJson } from "../../api";
 import { notify } from "../../toasts";
 import { useStore } from "../../store";
 import { ExtensionIconAction, ExtensionInventory, ExtensionInventoryRow, retryTime } from "./ExtensionInventory";
+import { ExtensionUpdateReview, type ExtensionPackage, type ExtensionRole } from "./ExtensionUpdateReview";
 
-type Role = "search" | "fetch";
-type Setting = { key: string; label: string; type: "text" | "secret"; required: boolean };
-type Engine = {
-  id: string; version: string; capabilities: Role[]; enabled?: boolean; ready?: boolean; retry_at?: number;
-  image: string; server_versions: string[]; sources: Partial<Record<Role, string[]>>;
-  previous?: unknown; settings?: Setting[]; configured_settings?: string[];
+type Role = ExtensionRole;
+type Engine = ExtensionPackage & {
+  enabled?: boolean; ready?: boolean; retry_at?: number;
+  previous?: unknown; configured_settings?: string[];
 };
-type Extensions = {
+export type Extensions = {
   radio: string[]; installed: Engine[]; available: Engine[];
-  configured: boolean; error: string; selection: Partial<Record<Role, string>> | null;
+  configured: boolean; error: string; selection: Partial<Record<Role, string>> | null; reviewed_updates?: boolean;
 };
 
 function packageMetadata({ version, image, server_versions, capabilities, sources, settings }: Engine) {
@@ -78,6 +77,7 @@ export function ExtensionsPanel() {
   const settingsId = useId();
   const [configuring, setConfiguring] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState<string | null>(null);
   const [extensions, setExtensions] = useState<Extensions>();
   const [selection, setSelection] = useState<Partial<Record<Role, string>>>({});
   const [saving, setSaving] = useState(false);
@@ -225,7 +225,9 @@ export function ExtensionsPanel() {
               {!!engine.settings?.length && <ExtensionIconAction icon="settings" label={`Configure ${engine.id}`}
                 disabled={busy} aria-expanded={configuring === engine.id} aria-controls={formId}
                 onClick={() => setConfiguring(value => value === engine.id ? null : engine.id)} />}
-              {update && action("update", "up", "Update", engine.id, engine.enabled && !!retry && update.image !== engine.image)}
+              {update && <ExtensionIconAction icon="up" label={`Update ${engine.id}`}
+                disabled={busy || (engine.enabled && !!retry && update.image !== engine.image)}
+                onClick={() => setReviewing(engine.id)} />}
               {engine.previous ? action("rollback", "undo", "Roll back", engine.id, engine.enabled && !!retry) : null}
               <ExtensionIconAction icon="trash" label={`Remove ${engine.id}`} disabled={busy}
                 onClick={() => setRemoving(engine.id)} />
@@ -253,6 +255,13 @@ export function ExtensionsPanel() {
       description="This stops the extension and removes it from this room’s installed list."
       confirmLabel="Remove extension" onClose={() => setRemoving(null)}
       onConfirm={() => void change("remove", { engine: removing })} />}
+    {reviewing && <ExtensionUpdateReview key={reviewing} engine={reviewing} supported={extensions.reviewed_updates === true}
+      close={() => setReviewing(null)} onUpdated={result => {
+        accept(result);
+        setReviewing(null);
+        void store.settingsSlice.loadExtensionSources(true);
+        notify("Extension updated.");
+      }} />}
   </div>;
 }
 

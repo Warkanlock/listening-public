@@ -67,6 +67,98 @@ class FleetStorageTests(unittest.TestCase):
             self.assertFalse(self.fleet.manage({"action": "status"}, None)["engines"][0]["ready"])
             worker.assert_not_called()
 
+    @unittest.skipUnless(shutil.which("openssl"), "OpenSSL required to sign the fixture catalog")
+    def test_reviewed_update_binds_signed_metadata_even_when_the_image_is_unchanged(self):
+        private_key = self.fleet.state / "private.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048",
+                        "-out", private_key], check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", private_key, "-pubout", "-out", self.fleet.public_key],
+                       check=True, capture_output=True)
+        self.engine.update(image="registry.example/engine@sha256:" + "a" * 64, version="1.0")
+        preview = {"action": "update_preview", "engine": "fixture"}
+        update = {**preview, "action": "update_reviewed"}
+        entry = {**self.engine, "architecture": "arm64", "server_versions": ["0.1", "0.2"]}
+
+        def sign():
+            self.fleet.catalog.write_text(json.dumps({"version": 1, "engines": [entry]}))
+            subprocess.run(["openssl", "dgst", "-sha256", "-sign", private_key, "-out",
+                            self.fleet.catalog.with_suffix(".sig"), self.fleet.catalog],
+                           check=True, capture_output=True)
+
+        with mock.patch.object(self.fleet, "docker") as docker:
+            sign()
+            with self.assertRaisesRegex(ValueError, "update for an installed engine"):
+                self.fleet.manage({**preview, "action": "install"}, None)
+            first = self.fleet.manage(preview, None)
+            self.assertEqual(first["installed"]["image"], first["proposed"]["image"])
+            self.assertEqual(self.fleet.engines["fixture"]["server_versions"], ["0.1"])
+            entry["server_versions"].append("0.3")
+            sign()
+            response = self.fleet.manage({**update, "approval": first["approval"]}, None)
+            self.assertEqual(response["code"], "extension_update_changed")
+            self.assertEqual(self.fleet.engines["fixture"]["server_versions"], ["0.1"])
+            reviewed = {**update, "approval": self.fleet.manage(preview, None)["approval"]}
+            self.assertTrue(self.fleet.manage(reviewed, None)["ok"])
+            self.assertEqual(self.fleet.engines["fixture"]["server_versions"], ["0.1", "0.2", "0.3"])
+            self.assertEqual(self.fleet.manage(reviewed, None)["code"], "extension_update_changed")
+            docker.assert_not_called()
+
+    def test_review_blocks_incompatible_sources_and_shows_new_required_settings_without_values(self):
+        self.engine.update(image="registry.example/engine@sha256:" + "a" * 64, version="1.0",
+                           settings=[{"key": "existing", "label": "Current token", "required": True, "type": "secret"}])
+        saved = self.fleet.state / "fixture" / "credentials"
+        engine_fleet.engine_settings.write(saved, self.engine["settings"], {"existing": "disposable secret"})
+        proposed = {**engine_fleet.package_metadata(self.engine), "version": "1.1",
+                    "sources": {"search": ["different"], "fetch": ["fixture"]},
+                    "settings": [*self.engine["settings"],
+                                 {"key": "new", "label": "New token", "required": True, "type": "secret"}]}
+        selection = {"search": "fixture", "fetch": "fixture"}
+        request = {"engine": "fixture", "action": "update_preview", "selection": selection}
+        with mock.patch.object(self.fleet, "available", return_value={"fixture": proposed}), \
+                mock.patch.object(self.fleet, "docker") as docker:
+            preview = self.fleet.manage(request, None)
+            self.assertTrue(preview["incompatible_sources"])
+            self.assertTrue(preview["requires_disable"])
+            self.assertEqual(preview["missing_settings"], ["New token"])
+            self.assertNotIn("disposable secret", json.dumps(preview))
+            update = {**request, "action": "update_reviewed", "approval": preview["approval"]}
+            self.assertEqual(self.fleet.manage(update, None)["code"], "extension_update_sources")
+            self.assertEqual(self.fleet.manage({**update, "selection": {}}, None)["code"], "extension_update_settings")
+            docker.assert_not_called()
+        self.assertEqual(engine_fleet.engine_settings.read(saved), {"existing": "disposable secret"})
+
+    def test_reviewed_update_cannot_swap_a_worker_during_an_active_transfer(self):
+        request = {"engine": "fixture", "action": "update_reviewed", "approval": "a" * 64}
+        with (self.fleet.state / "fixture" / ".operation").open("a") as lease:
+            engine_fleet.fcntl.flock(lease, engine_fleet.fcntl.LOCK_EX | engine_fleet.fcntl.LOCK_NB)
+            with mock.patch.object(self.fleet, "docker") as docker:
+                with self.assertRaises(BlockingIOError):
+                    self.fleet.manage(request, None)
+                docker.assert_not_called()
+
+    def test_failed_reviewed_update_restores_the_running_package_and_keeps_settings(self):
+        field = {"key": "account", "label": "Account", "type": "secret", "required": True}
+        self.engine.update(image="registry.example/engine@sha256:" + "a" * 64,
+                           version="1.0", settings=[field])
+        proposed = {**engine_fleet.package_metadata(self.engine), "version": "1.1",
+                    "image": "registry.example/engine@sha256:" + "b" * 64}
+        credentials = self.fleet.state / "fixture" / "credentials"
+        engine_fleet.engine_settings.write(credentials, [field], {"account": "disposable credential"})
+        request = {"action": "update_preview", "engine": "fixture"}
+        with (mock.patch.object(self.fleet, "available", return_value={"fixture": proposed}),
+              mock.patch.object(self.fleet, "docker"),
+              mock.patch.object(self.fleet, "validate_image"),
+              mock.patch.object(self.fleet, "stop"),
+              mock.patch.object(self.fleet, "start") as start,
+              mock.patch.object(self.fleet, "acquire_worker", return_value={"ok": False})):
+            approved = self.fleet.manage(request, None)["approval"]
+            with self.assertRaisesRegex(RuntimeError, "readiness"):
+                self.fleet.manage({**request, "action": "update_reviewed", "approval": approved}, None)
+            self.assertEqual([call.args[0]["image"] for call in start.call_args_list],
+                             [proposed["image"], self.engine["image"]])
+        self.assertEqual(self.fleet.engines["fixture"], self.engine)
+        self.assertEqual(engine_fleet.engine_settings.read(credentials), {"account": "disposable credential"})
+
     def test_health_checks_a_running_engine_without_starting_a_disabled_engine(self):
         request = {"action": "health", "engine": "fixture"}
         with (mock.patch.object(self.fleet, "running_containers", return_value={self.fleet.container("fixture")}),
