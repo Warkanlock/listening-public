@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createInputController } from "@ui-sdk/react/input";
-import { Toast, ToastRegion, ToastTitle } from "@ui-sdk/react/toast";
+import { Toast, ToastAction, ToastRegion, ToastTitle } from "@ui-sdk/react/toast";
 import { announceAccountChange, postJson, scrollBehavior } from "./api";
 import { AppearanceProvider } from "./appearance";
 import {
@@ -14,6 +14,7 @@ import { notify, toaster } from "./toasts";
 import { RequestFormatPicker } from "./components/RequestFormatPicker";
 import type { RoomRole } from "./components/RoomLogin";
 import { ActivityDialog } from "./components/ActivityDialog";
+import { DownloadUpdatesTray } from "./components/DownloadUpdatesTray";
 import { RoomIcon, type RoomIconName } from "./components/RoomIcon";
 import { AnnouncementsDialog } from "./components/AnnouncementsDialog";
 import { ArtworkDialog } from "./components/ArtworkDialog";
@@ -361,6 +362,8 @@ function Shell({ role }: { role: RoomRole }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [store, controller]);
 
+  const { downloadTray, formatPicker } = store.requestsSlice;
+  const picker = formatPicker && <RequestFormatPicker key={`${formatPicker.id}/${formatPicker.format_revision}`} row={formatPicker} />;
   return (
     <PlaylistComposer named={named}><div className={`app-shell${store.queueOpen ? " queue-visible" : ""}`}>
       <Sidebar named={named} />
@@ -390,16 +393,12 @@ function Shell({ role }: { role: RoomRole }) {
       <Player />
       <QueuePanel />
       <ToastRegion toaster={toaster}>
-        {() => (
-          <Toast>
-            <ToastTitle />
-          </Toast>
-        )}
+        {toast => toast.action ? <Toast className="download-updates-toast">
+          <ToastTitle className="visually-hidden" />
+          <ToastAction aria-haspopup="dialog">{toast.action.label}<RoomIcon name="chevronRight" /></ToastAction>
+        </Toast> : <Toast><ToastTitle /></Toast>}
       </ToastRegion>
-      {store.requestsSlice.formatPicker && (
-        <RequestFormatPicker key={`${store.requestsSlice.formatPicker.id}/${store.requestsSlice.formatPicker.format_revision}`}
-          row={store.requestsSlice.formatPicker} />
-      )}
+      {downloadTray ? <DownloadUpdatesTray outcomes={downloadTray}>{picker}</DownloadUpdatesTray> : picker}
       <ShortcutsDialog />
       <AnnouncementsDialog />
       <SongDialog />

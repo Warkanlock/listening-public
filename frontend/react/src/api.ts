@@ -250,10 +250,11 @@ export interface RequestRow {
 }
 
 export type RecentDownload = Pick<RequestRow, "id" | "track_index" | "artist" | "title"> & { audio: string };
-export type DownloadOutcome = Pick<RequestRow, "title" | "request_state"> & {
+export type DownloadOutcome = Pick<RequestRow, "id" | "title" | "artist" | "request_state"> & {
   key: string;
   status: "downloaded" | "not_found" | "rejected" | "error";
 };
+export type DownloadOutcomePayload = Omit<DownloadOutcome, "id" | "artist"> & Partial<Pick<DownloadOutcome, "id" | "artist">>;
 
 export interface WatchdogHealth {
   last_error: string;
