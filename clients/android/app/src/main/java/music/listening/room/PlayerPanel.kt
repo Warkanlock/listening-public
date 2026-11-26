@@ -23,6 +23,7 @@ internal fun clockTime(seconds: Int): String =
 /** Keep the scrubber and controls in place between shared-session updates. */
 internal class PlayerPanel(private val activity: Activity, private val ui: RoomUi, private val room: Room,
                            private val action: (String, JSONObject) -> Unit, private val addToPlaylist: ((JSONObject) -> Unit)?,
+                           private val saveFavorite: ((FavoriteSong, Boolean, (Boolean?) -> Unit) -> Unit)?,
                            library: () -> Unit) : FrameLayout(activity) {
     private val scroll = if (ui.eInk) null else ScrollView(activity)
     private val artworkFirst = ui.eInk && !ui.compactPlayerLandscape
@@ -106,7 +107,11 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     )
     private val details: LinearLayout
     private val more = ui.iconButton("More playback options", Mark.MORE, outlined = !artworkFirst, action = ::showOptions)
-    private val sleeve = RecordSleeve(context, ui, captionAction = more.takeIf { artworkFirst })
+    private var savingFavorite = false
+    private val heart = ui.iconButton("Add to favorites", Mark.HEART, outlined = false, action = ::toggleFavorite)
+        .apply { visibility = View.GONE }
+    private val sleeve = RecordSleeve(context, ui, captionAction = more.takeIf { artworkFirst },
+        favoriteAction = heart.takeIf { saveFavorite != null })
     private val shuffle = ui.iconButton("Shuffle play", Mark.SHUFFLE, outlined = false) { action("shuffle", JSONObject()) }
     private val queueIcon = ui.iconButton("Queue", Mark.QUEUE, outlined = false, action = ::showQueue)
     private val queue = ui.queueButton(::showQueue).apply {
@@ -115,6 +120,41 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     }
     private val elapsed = ui.label("", 14f, ui.secondary)
     private val length = ui.label("", 14f, ui.secondary)
+
+    private fun toggleFavorite() {
+        val save = saveFavorite ?: return
+        val track = current ?: return
+        val song = FavoriteSong.from(track) ?: return
+        if (savingFavorite || snapshot.optBoolean("radio")) return
+        savingFavorite = true
+        renderFavorite()
+        save(song, !track.getBoolean("favorite")) { favorite ->
+            current?.takeIf { it.optString("id") == song.ref }?.let {
+                if (favorite != null) it.put("favorite", favorite)
+            }
+            savingFavorite = false
+            renderFavorite()
+        }
+    }
+
+    private fun renderFavorite() {
+        val track = current ?: return
+        val available = saveFavorite != null && !snapshot.optBoolean("radio") && FavoriteSong.from(track) != null
+        heart.visibility = if (available) View.VISIBLE else View.GONE
+        heart.isEnabled = available && !savingFavorite
+        if (!available) return
+        val favorite = track.getBoolean("favorite")
+        val label = if (favorite) "Remove ${track.optString("title")} from favorites" else "Favorite ${track.optString("title")}"
+        if (!TextUtils.equals(heart.contentDescription, label)) {
+            heart.contentDescription = label
+            heart.tooltipText = label
+        }
+        if (heart.isSelected != favorite) {
+            heart.isSelected = favorite
+            heart.setImageDrawable(ui.mark(if (favorite) Mark.HEART_FILLED else Mark.HEART, 23, ui.accentInk))
+        }
+    }
+
     private fun showSongDetails() {
         val track = current ?: return
         ui.showSongInfo(activity, room, track, copyAvailable = true,
@@ -321,6 +361,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         val ref = snapshot.optString("current_ref")
         sleeve.bind(track, ref, RoomPlayback.artwork(room.id, ref))
         sleeve.linkProfiles(profileAction(track, "artist"), profileAction(track, "album"))
+        renderFavorite()
         duration = track.optDouble("duration", 0.0).toInt()
         seconds = snapshot.getDouble("position").toInt()
         if (artworkFirst) timeline.visibility = if (duration > 0) View.VISIBLE else View.GONE
