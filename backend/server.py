@@ -3582,14 +3582,35 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("Enter another search phrase")
                     search_title = search_title.strip()[:200]
                 store = requests_store()
-                if not store.retry(request_id, search_title, revision=revision):
-                    raise ValueError("Only queued or failed searches can be retried")
                 with ROOT_LOCK:
+                    restore_missing = body.get("restore_missing", False)
+                    if type(restore_missing) is not bool:
+                        raise ValueError("Invalid retry option")
+                    if restore_missing:
+                        row = store.get(request_id)
+                        if (search_title is not None or revision is None or not row
+                                or row["status"] != "downloaded" or row["format_revision"] != revision):
+                            raise ValueError("This request changed. Refresh it before retrying.")
+                        audio_path = row["audio_path"]
+                        media = MEDIA.store()
+                        storage_available = media is not None if is_blob_ref(audio_path) else LIBRARY.is_dir()
+                        if not storage_available:
+                            return self.error_json("Audio storage is unavailable. Reconnect it before downloading again.",
+                                                   HTTPStatus.SERVICE_UNAVAILABLE)
+                        if (recent_requests([row], check_audio=True)[0]["request_state"] != "copy_missing"
+                                or (audio_path and stored_audio_available(audio_path, LIBRARY, media))):
+                            raise ValueError("A copy is still available or being prepared. Refresh the request.")
+                        if not store.retry_missing(request_id, revision, audio_path):
+                            raise ValueError("This request changed. Refresh it before retrying.")
+                    elif not store.retry(request_id, search_title, revision=revision):
+                        raise ValueError("Only queued or failed searches can be retried")
                     start_worker("requests", force=True)
                 return self.json_response({"status": "Request moved to the front of the queue",
                                            "request": store.get(request_id)})
             except (ValueError, TypeError) as error:
                 return self.error_json(str(error))
+            except (OSError, sqlite3.Error):
+                return self.error_json("The request could not be retried. Try again shortly.", HTTPStatus.SERVICE_UNAVAILABLE)
         if self.path == "/api/requests/batch":
             indices = body.get("track_ids")
             if (not isinstance(indices, list) or not indices or len(indices) > 50

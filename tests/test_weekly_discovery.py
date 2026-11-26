@@ -33,7 +33,8 @@ class WeeklyTests(unittest.TestCase):
         requests = [ready, ready, {"id": 2, "status": "queued"}, {"id": 3, "status": "rejected"},
                     {"id": 4, "status": "downloaded"}, None]
         self.assertEqual(weekly.download_progress([{"request": request} for request in requests]),
-                         {"total": 4, "downloaded": 1, "pending": 1, "needs_attention": 2, "percent": 25})
+                         {"total": 4, "downloaded": 1, "pending": 1, "needs_attention": 2,
+                          "attention_ids": [3, 4], "percent": 25})
 
     def test_graph_reaches_three_levels_and_omits_known_and_duplicate_titles(self):
         meta, connections = Mock(), Mock()
@@ -233,6 +234,44 @@ class WeeklyTests(unittest.TestCase):
 
 
 class WeeklyHttpTests(ServerFixture, unittest.TestCase):
+    def test_missing_weekly_audio_can_be_requeued_on_the_same_request(self):
+        song = pick(118, "Missing weekly audio")
+        store = server.requests_store()
+        room, week = str(server.ROOT), server.weekly.week()
+        store.cache_put(server.weekly._key(room, week), json.dumps([song]), time.time())
+        self.assertEqual(store.queue_weekly([song]), 1)
+        row = store.for_picks([(song["artist"], song["title"], song["id"])])[
+            (song["artist"], song["title"], song["id"])]
+        file = server.LIBRARY / "weekly-restore-fixture.mp3"
+        file.parent.mkdir(parents=True, exist_ok=True)
+        store.finish(row["id"], "downloaded", "", file.name)
+        headers = {"Cookie": self.lan_device_cookie("weekly-restore"), "Origin": self.lan_origin()}
+
+        def retry(revision):
+            return self.request(self.lan_port, "POST", "/api/requests/retry", headers=headers,
+                                body={"request_id": row["id"], "format_revision": revision, "restore_missing": True})
+
+        with patch.object(server, "start_worker") as start:
+            file.touch()
+            self.assertEqual(retry(row["format_revision"])[0], 400)
+            self.assertTrue(file.is_file())
+            start.assert_not_called()
+            file.unlink()
+            with patch.object(server, "LIBRARY", file.parent / "disconnected-fixture"):
+                self.assertEqual(retry(row["format_revision"])[0], 503)
+            self.assertEqual(store.get(row["id"])["audio_path"], file.name)
+            self.assertEqual(retry(row["format_revision"] + 1)[0], 400)
+            status, _, data = retry(row["format_revision"])
+            self.assertEqual(status, 200)
+            queued = json.loads(data)["request"]
+            self.assertEqual((queued["id"], queued["requested_format"], queued["status"], queued["audio_path"]),
+                             (row["id"], row["requested_format"], "queued", ""))
+            self.assertEqual(queued["format_revision"], row["format_revision"] + 1)
+            start.assert_called_once_with("requests", force=True)
+            weekly_result = json.loads(self.request(self.lan_port, "GET", weekly.PATH, headers=headers)[2])
+            self.assertEqual(weekly_result["download_progress"]["attention_ids"], [])
+            self.assertEqual(weekly_result["tracks"][0]["request"]["id"], row["id"])
+
     def test_replacing_a_recording_invalidates_an_old_removal_choice(self):
         original = pick(114, "Original Discovery")
         replacement = pick(115, "Alternate Discovery")
@@ -378,7 +417,8 @@ class WeeklyHttpTests(ServerFixture, unittest.TestCase):
                              (request["id"], "missing", "copy_missing"))
             self.assertNotIn("audio", unavailable)
             self.assertEqual(missing["download_progress"],
-                             {"total": 1, "downloaded": 0, "pending": 0, "needs_attention": 1, "percent": 0})
+                             {"total": 1, "downloaded": 0, "pending": 0, "needs_attention": 1,
+                              "attention_ids": [request["id"]], "percent": 0})
             refs = {"op": "play_requests", "request_ids": [request["id"]]}
             self.assertEqual(server.selected_playback_tracks(refs), [])
             audio.touch()

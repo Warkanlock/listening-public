@@ -15,6 +15,7 @@ import { useStore } from "../store";
 import { RoomSelect } from "../components/RoomControls";
 import { StateCard } from "../components/StateCard";
 import { RefreshButton } from "../components/RefreshButton";
+import { RequestAttentionButton } from "../components/RequestAttentionButton";
 
 const TITLES: Record<JobKind, string> = {
   downloads: "Download missing songs",
@@ -111,6 +112,7 @@ function JobProgress({ card }: { card: JobCard }) {
             ? "No requests are waiting."
             : `${formatCount(pending)} request${pending === 1 ? "" : "s"} waiting`}
         </p>
+        <RequestAttentionButton />
       </div>
     );
   }
