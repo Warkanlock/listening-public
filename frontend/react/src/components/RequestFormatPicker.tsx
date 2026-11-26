@@ -9,8 +9,10 @@ import { RoomIcon, RoomIconButton } from "./RoomIcon";
 import { RoomAction } from "./RoomControls";
 import { needsCopyChoice, requestStage } from "../requestState";
 
-type BrowseState = { kind: "idle" | "searching" } |
-  { kind: "results"; matches: CopyMatch[] } | { kind: "error"; message: string };
+type BrowseState = { kind: "format" } |
+  { kind: "searching"; format: RequestFormat; fresh: boolean } |
+  { kind: "results"; format: RequestFormat; matches: CopyMatch[] } |
+  { kind: "error"; format: RequestFormat; message: string };
 
 export function RequestFormatPicker({ row }: { row: RequestRow }) {
   const store = useStore();
@@ -24,30 +26,30 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
     else if (restoreSourceFocus.current) sourceReturn.current?.focus();
   }, [showExtensions]);
   const [saving, setSaving] = useState(false);
+  const confirming = useRef(false);
   const [error, setError] = useState("");
   const review = needsCopyChoice(requestStage(row));
-  const [browse, setBrowse] = useState<BrowseState>(review ? { kind: "searching" } : { kind: "idle" });
-  const [browseRequest, setBrowseRequest] = useState<{ format: RequestFormat } | null>(
-    () => review ? { format: choice } : null);
-  const browsing = browse.kind !== "idle";
+  const [browse, setBrowse] = useState<BrowseState>(() => review
+    ? { kind: "searching", format: choice, fresh: false } : { kind: "format" });
+  const browsing = browse.kind !== "format";
+  const search = browse.kind === "searching" ? browse : null;
   const browseBack = useRef<HTMLButtonElement>(null);
   const browseButton = useRef<HTMLButtonElement>(null);
   const restoreBrowseFocus = useRef(false);
-  const listing = useRef<AbortController>(null);
   useEffect(() => {
-    if (!browseRequest) return;
+    if (!search) return;
     const controller = new AbortController();
-    listing.current = controller;
+    const { format, fresh } = search;
     void postJson<{ matches: CopyMatch[] }>("/api/requests/copies", {
-      request_id: row.id, requested_format: browseRequest.format, format_revision: row.format_revision,
+      request_id: row.id, requested_format: format, format_revision: row.format_revision, fresh,
     }, controller.signal).then(({ matches }) => {
-      if (!controller.signal.aborted) setBrowse({ kind: "results", matches });
+      if (!controller.signal.aborted) setBrowse({ kind: "results", format, matches });
     }, error => {
-      if (!controller.signal.aborted) setBrowse({ kind: "error",
+      if (!controller.signal.aborted) setBrowse({ kind: "error", format,
         message: error instanceof Error ? error.message : "Could not search for copies." });
     });
     return () => controller.abort();
-  }, [browseRequest, row.id, row.format_revision]);
+  }, [search, row.id, row.format_revision]);
   useEffect(() => {
     if (browsing) browseBack.current?.focus();
     else if (restoreBrowseFocus.current) {
@@ -56,35 +58,33 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
     }
   }, [browsing]);
   const close = () => store.requestsSlice.chooseFormat(null);
-  const fields = { request_id: row.id, requested_format: choice, format_revision: row.format_revision };
   const leaveMatches = () => {
-    listing.current?.abort();
-    setBrowseRequest(null);
     restoreBrowseFocus.current = true;
-    setBrowse({ kind: "idle" });
+    setBrowse({ kind: "format" });
     setError("");
   };
-  const showMatches = () => {
-    listing.current?.abort();
+  const showMatches = (format: RequestFormat, fresh = false) => {
     setError("");
-    setBrowse({ kind: "searching" });
-    setBrowseRequest({ format: choice });
+    setBrowse({ kind: "searching", format, fresh });
   };
-  const confirm = async (copyKey?: string) => {
-    if (saving) return;
+  const confirm = async (format: RequestFormat, copyKey?: string) => {
+    if (confirming.current) return;
+    confirming.current = true;
     setSaving(true);
     setError("");
     try {
       const updated = await postJson<RequestRow>("/api/requests/format", {
-        ...fields, ...(copyKey ? { copy_key: copyKey } : {}),
+        request_id: row.id, requested_format: format, format_revision: row.format_revision,
+        ...(copyKey ? { copy_key: copyKey } : {}),
       });
       store.requestsSlice.applyRequest(updated);
       close();
-      notify(copyKey ? `Copy queued for ${row.title}` : `Search queued for ${row.title}`);
+      if (updated.status === "queued") notify(copyKey ? `Copy queued for ${row.title}` : `Search queued for ${row.title}`);
       void store.loadRequests();
       if (store.view === "all" || store.view === "moods") void store.loadTracks(true);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not confirm the format.");
+      confirming.current = false;
       setSaving(false);
       void store.loadRequests();
     }
@@ -92,7 +92,6 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
   const dismiss = () => {
     if (saving) return;
     if (showExtensions) setShowExtensions(false);
-    else if (browse.kind !== "idle") leaveMatches();
     else close();
   };
   const dialogClass = showExtensions ? "extensions-dialog" : "format-dialog";
@@ -108,28 +107,33 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
           <ExtensionsContent />
         </> : browsing ? <>
           <header className="format-dialog-header">
-            <RoomIconButton ref={browseBack} icon="back" label="Back to format" disabled={saving} onClick={leaveMatches} />
             <DialogTitle>Choose a copy</DialogTitle>
+            <RoomIconButton ref={browseBack} icon="close" label="Close copy choices" disabled={saving} onClick={close} />
           </header>
           <DialogDescription>{[row.title, row.artist].filter(Boolean).join(" · ")}</DialogDescription>
           {browse.kind === "searching" && <p role="status">Searching for copies…</p>}
           {browse.kind === "error" && <p role="alert">{browse.message}</p>}
-          {browse.kind === "results" && (browse.matches.length ? <div aria-label="Available copies">
-            {review && <p>No copy was saved. Choose one to download.</p>}
+          {browse.kind === "results" && (browse.matches.length ? <div className="copy-picker-list" aria-label="Available copies">
             {browse.matches.map(match => {
               const facts = [match.format?.toUpperCase(), match.duration ? time(match.duration) : "",
                 match.bitrate ? `${match.bitrate} kbps` : "",
                 match.recommended === true ? "Recommended" : match.recommended === false ? "Check match" : ""].filter(Boolean);
               return <button type="button" className="radio-result" key={match.key} disabled={saving}
-                onClick={() => void confirm(match.key)}>
-                <span><strong>{match.label}</strong>{facts.length > 0 && <small>{facts.join(" · ")}</small>}</span>
-                <RoomIcon name="download" />
+                onClick={() => void confirm(browse.format, match.key)}>
+                <span><strong>{match.label}</strong>{facts.length > 0 && <small>{facts.join(" · ")}</small>}
+                  {match.failure && <small className="copy-picker-failure">{match.failure}</small>}
+                </span>
+                <span className="copy-picker-action"><RoomIcon name={match.failure ? "refresh" : "download"} />
+                  {match.failure ? "Retry" : "Download"}</span>
               </button>;
             })}
           </div> : <p role="status">No copies found in this format.</p>)}
           {error && <p role="alert">{error}</p>}
-          {(browse.kind === "error" || browse.kind === "results" && !browse.matches.length) &&
-            <RoomAction icon="refresh" onClick={() => void showMatches()}>Search again</RoomAction>}
+          <div className="format-dialog-footer">
+            <RoomAction icon="settings" disabled={saving} onClick={leaveMatches}>Change format</RoomAction>
+            <RoomAction icon="refresh" disabled={saving || browse.kind === "searching"}
+              onClick={() => showMatches(browse.format, true)}>Search again</RoomAction>
+          </div>
         </> : <>
         <header className="format-dialog-header">
           <DialogTitle>Choose format</DialogTitle>
@@ -154,8 +158,8 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
         } />
         {error && <p role="alert">{error}</p>}
         <div className="format-dialog-footer">
-          <RoomAction ref={browseButton} icon="catalogs" disabled={saving} onClick={() => void showMatches()}>Browse copies</RoomAction>
-          <button className="primary-action" type="button" disabled={saving} onClick={() => void confirm()}>
+          <RoomAction ref={browseButton} icon="catalogs" disabled={saving} onClick={() => showMatches(choice)}>Browse copies</RoomAction>
+          <button className="primary-action" type="button" disabled={saving} onClick={() => void confirm(choice)}>
             <RoomIcon name="search" />
             {saving ? "Confirming…" : "Confirm and search"}
           </button>

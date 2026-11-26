@@ -262,7 +262,8 @@ internal class Room(val origin: String, val id: String, private val token: Strin
             .put("requested_format", format)
     fun confirmFormat(row: JSONObject, format: String, copyKey: String? = null) = request("/api/requests/format",
         copyRequestFields(row, format).apply { if (copyKey != null) put("copy_key", copyKey) })
-    fun browseCopies(row: JSONObject, format: String) = request("/api/requests/copies", copyRequestFields(row, format))
+    fun browseCopies(row: JSONObject, format: String, fresh: Boolean = false) =
+        request("/api/requests/copies", copyRequestFields(row, format).put("fresh", fresh))
     fun retryCopy(row: JSONObject) = request("/api/requests/retry", JSONObject().put("request_id", row.getLong("id")).apply {
         if (row.has("format_revision")) put("format_revision", row.getLong("format_revision"))
     })

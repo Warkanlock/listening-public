@@ -8,6 +8,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.TextView
 
 internal enum class SongDetailsView(val label: String, val mark: Mark) {
     DETAILS("Details", Mark.INFO), CREDITS("Credits", Mark.EXPLORE), ALBUM("Album", Mark.ALBUM)
@@ -66,12 +67,12 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
         }
 
     fun dialog(activity: Activity, title: String, body: View, artist: String = "", closeLabel: String = "Close",
-               backLabel: String? = null): AlertDialog {
+               backLabel: String? = null, titleView: TextView = ui.heading(title, 23f)): AlertDialog {
         val header = ui.row().apply {
             val padding = ui.dp(16)
             setPadding(padding, padding, padding, ui.dp(12))
             addView(ui.column().apply {
-                addView(ui.heading(title, 23f))
+                addView(titleView)
                 if (artist.isNotBlank()) addView(ui.label(artist, color = ui.secondary))
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = ui.dp(8) })
         }
