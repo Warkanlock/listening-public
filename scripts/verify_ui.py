@@ -2401,8 +2401,9 @@ def verify_discovery_trail(page, screenshot):
         assert page.get_by_text("1 of 2 downloaded · 50% · 1 needs attention").is_visible()
         assert page.get_by_role("button", name="Review copies for Recording to review").is_visible()
         page.get_by_role("button", name="Review copies", exact=True).click()
-        page.get_by_role("dialog", name="Choose a copy").get_by_role("button", name=re.compile("Possible copy")).wait_for()
-        page.get_by_role("button", name="Back to format").click()
+        copies = page.get_by_role("dialog", name="Choose a copy")
+        copies.get_by_role("button", name=re.compile("Possible copy")).wait_for()
+        copies.get_by_role("button", name="Change format").click()
         page.get_by_role("button", name="Later", exact=True).click()
         assert not board.is_visible()
         page.get_by_role("button", name="Back to Deep Dive").click()
@@ -3361,7 +3362,8 @@ def run_browser(server, output):
                 page.get_by_role("dialog", name="Extensions", exact=True).get_by_role("button", name="Close extensions").click()
                 page.set_viewport_size({"width": 1440, "height": 900})
                 progress_row = {"id": 10000, "title": "Transfer fixture", "artist": "Fixture Artist",
-                                "status": "searching", "phase": "testing", "download_percent": 42}
+                                "status": "searching", "phase": "testing", "download_percent": 42,
+                                "requested_format": "mp3", "format_revision": 3}
 
                 def requests_with_progress(route):
                     upstream = route.fetch()
@@ -3390,6 +3392,44 @@ def run_browser(server, output):
                     progress_row.update(status="rejected", request_state="copy_unavailable")
                     refresh_requests.click()
                     progress.get_by_text("Copy unavailable", exact=True).wait_for()
+                    copy_calls = []
+
+                    def copy_options(route):
+                        copy_calls.append(route.request.post_data_json)
+                        route.fulfill(json={"matches": [
+                            {"key": "b" * 32, "label": "Alternate copy", "format": "mp3", "bitrate": 320},
+                            {"key": "a" * 32, "label": "First copy", "format": "mp3",
+                             "failure": "The source could not deliver this file."},
+                        ]})
+
+                    def select_copy(route):
+                        body = route.request.post_data_json
+                        assert body == {"request_id": 10000, "format_revision": 3, "requested_format": "mp3",
+                                        "copy_key": "b" * 32}
+                        progress_row.update(status="queued", request_state="queued_copy", format_revision=4, phase="")
+                        route.fulfill(json=progress_row)
+
+                    page.route("**/api/requests/copies", copy_options)
+                    page.route("**/api/requests/format", select_copy)
+                    try:
+                        page.set_viewport_size({"width": 390, "height": 844})
+                        progress.get_by_role("button", name="Browse copies", exact=True).click()
+                        copies = page.get_by_role("dialog", name="Choose a copy")
+                        copies.get_by_text("The source could not deliver this file.", exact=True).wait_for()
+                        assert copy_calls[-1] == {"request_id": 10000, "format_revision": 3,
+                                                  "requested_format": "mp3", "fresh": False}
+                        assert not copies.get_by_role("radio").count()
+                        copies.get_by_role("button", name="Search again").click()
+                        copies.get_by_role("button", name=re.compile("Alternate copy")).click()
+                        assert copy_calls[-1]["fresh"] is True
+                        progress.get_by_text("Copy queued", exact=True).wait_for()
+                        copies.wait_for(state="hidden")
+                    finally:
+                        page.unroute("**/api/requests/copies", copy_options)
+                        page.unroute("**/api/requests/format", select_copy)
+                        page.set_viewport_size({"width": 1440, "height": 900})
+                    progress_row.update(status="rejected", request_state="copy_unavailable")
+                    refresh_requests.click()
                     progress.get_by_role("button", name="Browse copies", exact=True).wait_for()
                     assert not progress.get_by_role("button", name=re.compile("Retry now|Change format")).count()
                 finally:
@@ -3418,8 +3458,8 @@ def run_browser(server, output):
                     (live_id, "Live", "Concert sessions", 185), (studio_id, "Studio", "Studio album", 190))]
                 page.route("**/api/discover/matches?*", lambda route: route.fulfill(json={"leads": versions}))
                 try:
-                    queued.get_by_role("button", name="Choose a version: Feeling Good").click()
-                    picker = page.get_by_role("dialog", name="Choose a recording")
+                    queued.get_by_role("button", name="Other recordings: Feeling Good").click()
+                    picker = page.get_by_role("dialog", name="Other recordings")
                     picker.get_by_role("button", name=re.compile("Studio album")).wait_for()
                     with page.expect_response(lambda res: res.url.endswith("/api/requests") and res.request.method == "POST" and res.ok) as submitted:
                         picker.get_by_role("button", name=re.compile("Concert sessions")).click()
@@ -3445,6 +3485,7 @@ def run_browser(server, output):
 
             item = surface("recent-downloads")
             try:
+                page.get_by_role("button", name="Requests", exact=True).click()
                 download = {"id": 902, "track_index": 1, "title": "Verified fixture copy", "artist": "Fixture",
                             "audio": "/api/audio/1"}
                 request_data = {"requests": [], "downloads": [download], "outcomes": []}

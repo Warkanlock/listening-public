@@ -73,6 +73,7 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
       {row && <RetryRequestButton request={row} title={track.title} />}
       {!store.member && (!row || ready || stage && canChangeRecording(stage)) && <RecordingVersions
         song={row?.musicbrainz_id ? row : track}
+        onBrowseCopies={row && review ? () => store.requestsSlice.chooseFormat(row) : undefined}
         onChoose={song => void (row && !ready ? store.requestsSlice.chooseRecording(row, song) : store.createSongRequest(song))} />}
       <RoomIconButton icon="info" label="Song details" onClick={() => store.openSongInfo(track)} />
       <AddToPlaylist song={track} iconOnly />

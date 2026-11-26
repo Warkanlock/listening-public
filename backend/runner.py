@@ -36,11 +36,12 @@ from catalog.media_reconciliation import (BlobIndex,
                                           dumps_migration_status,
                                           migrate_library,
                                           migration_status_record, unmigrated_files)
-from downloads.engine_contract import (CandidateTimeout, EngineBusy, EngineCooldown, EngineError, EngineTimeout,
+from downloads.engine_contract import (CandidateHandoffError, CandidateTimeout, EngineBusy, EngineCooldown, EngineError,
+                                       EngineTimeout, FetchTimeout, WorkerTimeout,
                                        InsufficientDownloadSpace,
                                        engine_recording, engine_selection, fetch_recording, request_recording, simplify_title, timed_stage)
 from downloads.requests_store import COPY_REVIEW_MESSAGE, RequestsStore
-from downloads.request_state import COPY_UNAVAILABLE_MESSAGE
+from downloads.request_state import COPY_FAILURES
 from downloads.state_store import StateStore
 from downloads.verification import (CLI_LENGTH_TOLERANCE, FULL_DECODE_TIMEOUT, MIN_BITRATE_KBPS,
                                     PROBE_CACHE_VERSION, PROBE_TIMEOUT, decode_audio, judge, judge_bulk_download,
@@ -797,6 +798,12 @@ def managed_candidate(selection, recording, accept, *, chosen=None, recommended_
                            on_review=on_review, on_transfer=on_transfer, on_progress=on_progress)
 
 
+class CopyFailed(Exception):
+    def __init__(self, reason):
+        super().__init__(COPY_FAILURES[reason])
+        self.reason = reason
+
+
 def managed_request(selection, request_dir, row, record, title, length, selected):
     choice = row.get("requested_format", "any_lossless")
     recording = request_recording(row, record, choice)
@@ -804,16 +811,24 @@ def managed_request(selection, request_dir, row, record, title, length, selected
         return "error", "The request or its sources changed. Browse copies again.", ""
     store = requests_store()
     review = []
+    attempted_transfer = False
     attempted_verification = False
+    failure = "transfer"
     transfer_phase = "downloading" if selected else "testing"
 
     def save_review(candidates):
         review.extend(store.save_copy_matches(
             row["id"], choice, row["format_revision"], recording, selection, candidates, for_review=True))
 
+    def start_transfer():
+        nonlocal attempted_transfer
+        attempted_transfer = True
+        store.set_phase(row["id"], transfer_phase)
+
     def accept(path, remaining_time):
-        nonlocal attempted_verification
+        nonlocal attempted_verification, failure
         attempted_verification = True
+        failure = "verification"
         store.set_phase(row["id"], "verifying")
         facts = verified_engine_audio(path, lambda facts: judge_download(
             title, length, facts, path.suffix, choice, **request_identity(row)), remaining_time)
@@ -824,6 +839,7 @@ def managed_request(selection, request_dir, row, record, title, length, selected
             with timed_stage(selection["fetch"], "full decode", budget):
                 decode_audio(path, probed_duration=facts["duration"], expected_duration=length, timeout=budget)
         except (subprocess.CalledProcessError, ValueError):
+            failure = "decode"
             return False
         except subprocess.TimeoutExpired as error:
             raise CandidateTimeout("Verifying the download timed out while decoding the audio.") from error
@@ -834,15 +850,17 @@ def managed_request(selection, request_dir, row, record, title, length, selected
     try:
         with managed_candidate(selection, recording, accept, chosen=selected["candidate"] if selected else None,
                                recommended_only=bool(row.get("format_confirmed")), on_review=save_review,
-                               on_transfer=lambda: store.set_phase(row["id"], transfer_phase),
+                               on_transfer=start_transfer,
                                on_progress=lambda percent: store.set_phase(row["id"], transfer_phase, percent)) as path:
             if path is None:
                 if review:
                     return "rejected", COPY_REVIEW_MESSAGE, ""
                 if selected:
-                    return "rejected", COPY_UNAVAILABLE_MESSAGE, ""
+                    raise CopyFailed(failure)
                 if attempted_verification:
                     return "rejected", "The copies found did not pass audio verification.", ""
+                if attempted_transfer:
+                    return "rejected", "The copies found could not be downloaded.", ""
                 return "not_found", "No copy found", ""
             return retain_request_file(path, path.parent, request_dir, row, record, title, length,
                                        selected=bool(selected))
@@ -1032,6 +1050,7 @@ def process_requests(records, limit=3):
         record = None
         provider_delay = 0
         retryable = False
+        copy_failure = None
         try:
             if row["track_index"]:
                 record = records[row["track_index"] - 1]
@@ -1060,9 +1079,18 @@ def process_requests(records, limit=3):
                 status, message, audio_path = "downloaded", "Already in the library", audio_path
             else:
                 status, message, audio_path = run_request(row, record)
+        except CopyFailed as error:
+            status, message, audio_path = "rejected", str(error), ""
+            copy_failure = error.reason
         except EngineError as error:
             status, message, audio_path = "error", str(error), ""
             retryable = error.retryable
+            if isinstance(error, (WorkerTimeout, FetchTimeout)):
+                copy_failure = "transfer_timeout"
+            elif isinstance(error, CandidateTimeout):
+                copy_failure = "decode_timeout"
+            elif isinstance(error, CandidateHandoffError):
+                copy_failure = "handoff"
             if isinstance(error, EngineCooldown):
                 provider_delay = error.seconds
             elif isinstance(error, EngineBusy):
@@ -1073,9 +1101,9 @@ def process_requests(records, limit=3):
             # Publish the verified replacement before the report consults older coverage.
             catalog_store().update_coverage_path(record["index"], audio_path)
         if retryable:
-            status = store.defer_attempt(row, message, provider_delay=provider_delay)
+            status = store.defer_attempt(row, message, provider_delay=provider_delay, copy_failure=copy_failure)
         else:
-            store.finish(request_id, status, message, audio_path)
+            store.finish(request_id, status, message, audio_path, copy_failure=copy_failure)
         print(f"Request {request_id}: {status}", flush=True)
         # Per-request work only marks the report dirty (A3 PERF-02);
         # the full report is written once, after the loop.

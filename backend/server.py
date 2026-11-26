@@ -3531,6 +3531,9 @@ class Handler(BaseHTTPRequestHandler):
                 store = requests_store()
                 choice, revision = body.get("requested_format"), body.get("format_revision")
                 if self.path == "/api/requests/copies":
+                    fresh = body.get("fresh", False)
+                    if type(fresh) is not bool:
+                        raise ValueError("Invalid copy refresh option.")
                     if not isinstance(choice, str) or choice not in REQUEST_SUFFIXES or type(revision) is not int:
                         raise ValueError("Choose a supported audio format.")
                     with ROOT_LOCK:
@@ -3544,11 +3547,12 @@ class Handler(BaseHTTPRequestHandler):
                         if not selection:
                             raise ValueError("Choose search and download sources in Extensions to browse copies.")
                         recording = request_recording(row, record, choice)
-                    saved = store.review_matches(request_id, choice, revision, recording, selection)
-                    if saved:
-                        return self.json_response({"matches": saved})
+                    if not fresh:
+                        saved = store.review_matches(request_id, choice, revision, recording, selection)
+                        if saved is not None:
+                            return self.json_response({"matches": saved})
                     candidates = search_recording(selection, recording)
-                    matches = store.save_copy_matches(request_id, choice, revision, recording, selection, candidates)
+                    matches = store.save_copy_matches(request_id, choice, revision, recording, selection, candidates, fresh=fresh)
                     return self.json_response({"matches": matches})
                 row, released = store.confirm_format(request_id, choice, revision, body.get("copy_key"))
                 if released:

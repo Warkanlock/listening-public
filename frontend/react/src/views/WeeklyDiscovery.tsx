@@ -160,7 +160,8 @@ export function WeeklyDiscovery() {
                 {track.request && !track.in_library && <RetryRequestButton request={track.request} title={track.title}
                   onRetry={() => setRevision(value => value + 1)} />}
                 {!store.member && !track.in_library && (!track.request || id !== null || row && stage && canChangeRecording(stage)) &&
-                  <RecordingVersions song={row ?? { ...track, musicbrainz_id: track.id }} onChoose={song => {
+                  <RecordingVersions song={row ?? { ...track, musicbrainz_id: track.id }}
+                    onBrowseCopies={row && stage && needsCopyChoice(stage) ? () => reviewCopies(track) : undefined} onChoose={song => {
                     if (!row || id !== null) void store.createSongRequest(song);
                     else void store.requestsSlice.chooseRecording(row, song).then(() => setRevision(value => value + 1));
                   }} />}

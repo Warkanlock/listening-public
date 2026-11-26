@@ -475,8 +475,8 @@ class RoomActivity : Activity() {
 
     private fun requestCopy(target: Room, id: Int) {
         load({ target.requestCatalogCopy(id) }) { request ->
-            if (request.optString("status") in CHANGEABLE_FORMAT) chooseDiscoveryFormat(request, target) { format, copyKey ->
-                load({ target.confirmFormat(request, format, copyKey) }) { message("Requested a copy.") }
+            if (request.optString("status") in CHANGEABLE_FORMAT) chooseDiscoveryFormat(request, target) { updated ->
+                message(updated.copyStatusLabel())
             } else message(request.optString("message").ifBlank { "Request saved." })
         }
     }
@@ -1273,9 +1273,7 @@ class RoomActivity : Activity() {
                         val request = track.getJSONObject("request")
                         val row = JSONObject(request.toString()).put("title", request.optString("title", track.getString("title")))
                             .put("artist", request.optString("artist", track.getString("artist")))
-                        chooseDiscoveryFormat(row, target) { format, copy ->
-                            load({ target.confirmFormat(row, format, copy) }) { show() }
-                        }
+                        chooseDiscoveryFormat(row, target) { show() }
                     }
                     val readyIds = tracks.mapNotNull(::readyId)
                     message(when {
@@ -1356,7 +1354,7 @@ class RoomActivity : Activity() {
                                 })
                             }
                             if (!inLibrary && (request == null || request.canReplaceRecording())) {
-                                addView(ui.iconButton("Choose a recording: $title", Mark.ALBUM) {
+                                addView(ui.iconButton("Other recordings: $title", Mark.ALBUM) {
                                     chooseRequestVersion(target, track, request)
                                 })
                             }
@@ -1372,7 +1370,10 @@ class RoomActivity : Activity() {
     }
 
     private fun chooseRequestVersion(target: Room, item: JSONObject, row: JSONObject?) {
-        chooseRecordingVersion(target, row?.takeIf { it.optString("musicbrainz_id").isNotBlank() } ?: item) { version ->
+        val browse = row?.takeIf { it.needsCopyReview() }?.let { current ->
+            { chooseDiscoveryFormat(current, target) { show() } }
+        }
+        chooseRecordingVersion(target, row?.takeIf { it.optString("musicbrainz_id").isNotBlank() } ?: item, browse) { version ->
             if (row == null || row.optString("status") == "downloaded") {
                 openPick(target, version, null)
             } else {
@@ -1385,18 +1386,22 @@ class RoomActivity : Activity() {
         }
     }
 
-    private fun chooseRecordingVersion(target: Room, item: JSONObject, choose: (JSONObject) -> Unit) {
+    private fun chooseRecordingVersion(target: Room, item: JSONObject, browse: (() -> Unit)? = null, choose: (JSONObject) -> Unit) {
         val content = ui.column(8)
         val status = ui.label("Looking for versions…")
         content.addView(status)
         val style = SongDetailsStyle(ui)
-        val dialog = style.dialog(this, "Choose a recording", ScrollView(this).apply { addView(content) },
+        val dialog = style.dialog(this, "Other recordings", ScrollView(this).apply { addView(content) },
             artist = item.optString("title"))
         handler.removeCallbacks(refreshDiscover)
         dialog.setOnDismissListener {
             if (active && screen == Screen.WEEKLY) handler.postDelayed(refreshDiscover, 8_000L)
         }
         dialog.show()
+        if (browse != null) content.addView(ui.iconButton("Back to copies", Mark.BACK) {
+            dialog.dismiss()
+            browse()
+        })
         load({ target.recordingVersions(item) }, reportErrors = false,
             failed = { status.text = "Couldn’t load versions. Try again." }) { versions ->
             if (!dialog.isShowing) return@load
@@ -1417,9 +1422,7 @@ class RoomActivity : Activity() {
     private fun openPick(target: Room, item: JSONObject, row: JSONObject?,
                          creditCache: MutableMap<CreditTarget, Credits> = mutableMapOf()) {
         fun choose(rowToConfirm: JSONObject) {
-            chooseDiscoveryFormat(rowToConfirm, target) { format, copyKey ->
-                load({ target.confirmFormat(rowToConfirm, format, copyKey) }) { show() }
-            }
+            chooseDiscoveryFormat(rowToConfirm, target) { show() }
         }
         fun openView(view: SongDetailsView, current: JSONObject?) {
             if (view == SongDetailsView.DETAILS) openPick(target, item, current, creditCache)

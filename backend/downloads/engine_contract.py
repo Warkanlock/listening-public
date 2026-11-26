@@ -38,6 +38,14 @@ class EngineTimeout(EngineError):
     """An engine operation exceeded its deadline."""
 
 
+class FetchTimeout(EngineTimeout):
+    """The room did not receive a transfer reply before its deadline."""
+
+
+class CandidateHandoffError(EngineError):
+    """The engine did not hand off a complete, regular candidate file."""
+
+
 class EngineBusy(EngineError):
     """The worker is already in use by another request."""
 
@@ -403,7 +411,7 @@ def read_transfer_percent(directory):
 def _copy_result(directory, name, destination, suffixes, check_space):
     if (not isinstance(name, str) or name in {"", ".", ".."}
             or Path(name).name != name or "\x00" in name):
-        raise EngineError("The download engine returned an invalid file name.")
+        raise CandidateHandoffError("The download engine returned an invalid file name.")
     suffix = Path(name).suffix.lower()
     if suffix not in suffixes:
         return None
@@ -415,12 +423,12 @@ def _copy_result(directory, name, destination, suffixes, check_space):
         finally:
             os.close(folder)
     except OSError as error:
-        raise EngineError("The download engine did not return a regular staged file.") from error
+        raise CandidateHandoffError("The download engine did not return a regular staged file.") from error
     with os.fdopen(descriptor, "rb") as source:
         before = os.fstat(source.fileno())
         if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
                 or not 0 < before.st_size <= MAX_CANDIDATE_BYTES):
-            raise EngineError("The download engine did not return a regular staged file.")
+            raise CandidateHandoffError("The download engine did not return a regular staged file.")
         check_space(before.st_size)
         path = destination / ("candidate" + suffix)
         with path.open("xb") as output:
@@ -429,7 +437,7 @@ def _copy_result(directory, name, destination, suffixes, check_space):
                 check_space()
                 chunk = source.read(min(remaining, 1024 * 1024))
                 if not chunk:
-                    raise EngineError("The staged download changed before verification.")
+                    raise CandidateHandoffError("The staged download changed before verification.")
                 output.write(chunk)
                 remaining -= len(chunk)
             output.flush()
@@ -437,7 +445,7 @@ def _copy_result(directory, name, destination, suffixes, check_space):
         after = os.fstat(source.fileno())
         if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                 after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-            raise EngineError("The staged download changed before verification.")
+            raise CandidateHandoffError("The staged download changed before verification.")
     return path
 
 
@@ -524,6 +532,10 @@ def fetch_recording(selection, recording, *, state, free_bytes, reserve, estimat
                             options = {"report_progress": True} if on_progress is not None else {}
                             fetched = manager_call("fetch", engine=selection["fetch"], candidate=reference,
                                                    job=job, timeout=budget, check_space=monitor_transfer, **options)
+                    except WorkerTimeout:
+                        raise
+                    except EngineTimeout as error:
+                        raise FetchTimeout(str(error)) from error
                     except EngineError as error:
                         if error.retryable:
                             raise
