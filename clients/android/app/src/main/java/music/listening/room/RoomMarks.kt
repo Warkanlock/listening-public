@@ -12,7 +12,8 @@ import android.graphics.drawable.Drawable
 internal enum class Mark {
     ROOM, LIBRARY, EXPLORE, RADIO, PLAYING, INSIGHTS, PLAY, PAUSE, PREVIOUS, NEXT, SHUFFLE,
     SETTINGS, BROWSE, INFO, MAGNET, BACK, FORWARD, CLOSE, ALBUM, EXTERNAL, FOLDER, QUEUE, POSITION, MORE, EXPAND,
-    EXTENSIONS, SEARCH, REFRESH, DOWNLOAD, PLAYLIST_ADD, QUEUE_ADD, QUEUE_NEXT, YOUTUBE, ARTIST, CHECK
+    EXTENSIONS, SEARCH, REFRESH, DOWNLOAD, PLAYLIST_ADD, QUEUE_ADD, QUEUE_NEXT, YOUTUBE, ARTIST, CHECK,
+    HEART, HEART_FILLED
 }
 
 internal class RoomMark(private val mark: Mark, private val baseColor: Int, private val size: Int) : Drawable() {
@@ -36,6 +37,17 @@ internal class RoomMark(private val mark: Mark, private val baseColor: Int, priv
         }
         pen.style = Paint.Style.STROKE
         when (mark) {
+            Mark.HEART, Mark.HEART_FILLED -> {
+                if (mark == Mark.HEART_FILLED) pen.style = Paint.Style.FILL
+                c.drawPath(Path().apply {
+                    moveTo(12f, 20f)
+                    cubicTo(11f, 19f, 3f, 14f, 3f, 8.8f)
+                    cubicTo(3f, 4.2f, 9f, 2.8f, 12f, 7.2f)
+                    cubicTo(15f, 2.8f, 21f, 4.2f, 21f, 8.8f)
+                    cubicTo(21f, 14f, 13f, 19f, 12f, 20f)
+                    close()
+                }, pen)
+            }
             Mark.CHECK -> { line(5, 12, 10, 17); line(10, 17, 19, 7) }
             Mark.ROOM, Mark.PLAYING -> {
                 line(3, 10, 3, 14); line(7, 6, 7, 18); line(12, 2, 12, 22)

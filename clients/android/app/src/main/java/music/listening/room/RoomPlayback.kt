@@ -54,6 +54,15 @@ class RoomPlayback : MediaSessionService() {
                 SystemClock.elapsedRealtime() - it.lastSnapshotAt < 6_000L
         }?.snapshot
 
+        internal fun saveRoomFavorite(target: Room, song: FavoriteSong, favorite: Boolean,
+                                      completed: (Result<Boolean>) -> Unit): Boolean {
+            val playback = instance?.takeIf {
+                !it.closed && it.joined && it.room?.id == target.id && it.room?.origin == target.origin
+            } ?: return false
+            playback.saveFavorite(target, song, favorite, completed)
+            return true
+        }
+
         fun bufferedTracks(device: String): Int =
             instance?.takeIf { it.room?.id == device }?.buffer?.readyCount() ?: 0
 
@@ -507,6 +516,26 @@ class RoomPlayback : MediaSessionService() {
     private fun schedulePoll() {
         main.removeCallbacks(poll)
         if (joined) main.postDelayed(poll, 2500L)
+    }
+
+    private fun saveFavorite(target: Room, song: FavoriteSong, favorite: Boolean, completed: (Result<Boolean>) -> Unit) {
+        // Order the write with playback reads so an older response cannot undo it.
+        val epoch = playbackEpoch
+        network.execute {
+            val result = runCatching { target.setFavorite(song, favorite) }
+            main.post {
+                if (!closed && epoch == playbackEpoch) result.onSuccess { saved ->
+                    fun update(track: JSONObject?) {
+                        if (track?.optString("id") == song.ref) track.put("favorite", saved)
+                    }
+                    update(snapshot?.optJSONObject("current"))
+                    snapshot?.optJSONArray("upcoming")?.let { items ->
+                        for (index in 0 until items.length()) update(items.optJSONObject(index))
+                    }
+                }
+                completed(result)
+            }
+        }
     }
 
     private fun command(op: String, fields: JSONObject = JSONObject()) {

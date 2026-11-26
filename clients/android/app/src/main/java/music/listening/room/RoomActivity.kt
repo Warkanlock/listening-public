@@ -481,14 +481,40 @@ class RoomActivity : Activity() {
                 content.addView(panel)
             }
             Screen.PLAYER -> {
+                val favorite = if (phone()?.local == true) null
+                    else { song: FavoriteSong, liked: Boolean, done: (Boolean?) -> Unit ->
+                        saveFavorite(target, song, liked, done)
+                    }
                 playerPanel = PlayerPanel(this, ui, target, ::send,
-                    addToPlaylist = if (phone()?.local == true) null else { item -> pickPlaylist(target, SongDraft.from(item, catalogTrack = true)) }) {
+                    addToPlaylist = if (phone()?.local == true) null else { item -> pickPlaylist(target, SongDraft.from(item, catalogTrack = true)) },
+                    saveFavorite = favorite) {
                     resetLibrary(); show()
                 }
                 content.addView(playerPanel, LinearLayout.LayoutParams(-1, if (ui.eInk) -1 else -2))
             }
         }
         if (active) refreshPlayer()
+    }
+
+    private fun saveFavorite(target: Room, song: FavoriteSong, liked: Boolean, done: (Boolean?) -> Unit) {
+        val requestingScreen = generation
+        val completed: (Result<Boolean>) -> Unit = { result ->
+            if (!isDestroyed && room?.id == target.id && room?.origin == target.origin) {
+                if (generation == requestingScreen) {
+                    done(result.getOrNull())
+                    result.exceptionOrNull()?.let { error ->
+                        if (error is PairingRequired) pairAgain()
+                        else message(error.message ?: "Couldn’t save the favorite. Try again.")
+                    }
+                } else if (result.isSuccess && screen == Screen.LIBRARY && filterName == "favorites") show()
+            }
+        }
+        if (!RoomPlayback.saveRoomFavorite(target, song, liked, completed)) {
+            io.execute {
+                val result = runCatching { target.setFavorite(song, liked) }
+                runOnUiThread { completed(result) }
+            }
+        }
     }
 
     private fun requestCopy(target: Room, id: Int) {
@@ -949,8 +975,9 @@ class RoomActivity : Activity() {
         content.addView(form)
         val count = ui.label("", 14f, ui.secondary).apply { setPadding(0, ui.dp(9), 0, ui.dp(4)) }
         content.addView(count)
-        val params = listOf("playlist" to playlist, "genre" to genre, "mood" to mood, "filter" to filterName,
+        val params = (listOf("playlist" to playlist, "genre" to genre, "mood" to mood, "filter" to filterName,
             "q" to query, "offset" to offset.toString(), "limit" to "20")
+            + if (filterName == "favorites") listOf("facets" to "download-favorites") else emptyList())
             .joinToString("&") { (k, v) -> "$k=${Room.encode(v)}" }
         val library = phone()
         val local = library?.local == true
@@ -1009,7 +1036,7 @@ class RoomActivity : Activity() {
                         show()
                     } else info()
                 }
-            }
+            } + favoriteDownloads(data)
             content.addView(ui.index(rows).apply {
                 listPosition?.let { (first, top) -> setSelectionFromTop(first, top) }
             }, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -1036,6 +1063,20 @@ class RoomActivity : Activity() {
                     show()
                 }.apply { isEnabled = offset + 20 < total }, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
                 content.addView(pages)
+            }
+        }
+    }
+
+    private fun favoriteDownloads(page: JSONObject): List<Entry> {
+        val downloads = page.optJSONArray("download_favorites") ?: return emptyList()
+        return (0 until downloads.length()).mapNotNull { index ->
+            val track = downloads.optJSONObject(index) ?: return@mapNotNull null
+            val song = FavoriteSong.from(track) as? FavoriteSong.Download ?: return@mapNotNull null
+            val duration = track.optInt("duration")
+            Entry(track.optString("title"), track.optString("artist"), if (duration > 0) clockTime(duration) else "") {
+                send("play_request", JSONObject().put("request_id", song.key))
+                screen = Screen.PLAYER
+                show()
             }
         }
     }

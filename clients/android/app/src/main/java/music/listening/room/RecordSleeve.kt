@@ -21,7 +21,8 @@ import android.widget.LinearLayout
 import org.json.JSONObject
 
 /** Cover artwork and track details shared by room and device-file playback. */
-internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAction: View? = null) : FrameLayout(context) {
+internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAction: View? = null,
+                            favoriteAction: View? = null) : FrameLayout(context) {
     private var picture: Bitmap? = null
     private var viewer: Dialog? = null
     private val monochrome = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
@@ -85,10 +86,15 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAct
     }
 
     init {
-        val caption = ui.column(1).apply {
+        val metadata = ui.column(1).apply {
             addView(title)
             addView(artist)
             if (!artworkFirst) addView(album)
+        }
+        val actions = listOfNotNull(favoriteAction, captionAction)
+        val caption = if (actions.isEmpty()) metadata else ui.row(8).apply {
+            addView(metadata, LinearLayout.LayoutParams(0, -2, 1f))
+            for (action in actions) addView(action, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
         }
         if (captionAction != null) {
             val stage = object : FrameLayout(context) {
@@ -101,10 +107,7 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAct
             }.apply { addView(cover, LayoutParams(0, 0, Gravity.CENTER)) }
             addView(ui.column(6).apply {
                 addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
-                addView(ui.row(8).apply {
-                    addView(caption, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(captionAction, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-                }, LinearLayout.LayoutParams(-1, -2))
+                addView(caption, LinearLayout.LayoutParams(-1, -2))
             }, LayoutParams(-1, -1))
         } else {
             val sleeve = if (ui.eInk) {
