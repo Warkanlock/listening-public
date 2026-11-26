@@ -88,7 +88,7 @@ export class SessionSlice {
   // The favorite flip's session half (plan 048): browsing's
   // toggleFavorite flips the track in its own list and bumps,
   // and asks here for the current and upcoming copies.
-  setFavorite(id: number, favorite: boolean) {
+  setFavorite(id: number | string, favorite: boolean) {
     if (this.session?.current?.id === id) {
       this.session.current.favorite = favorite;
     }

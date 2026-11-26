@@ -18,6 +18,7 @@ import {
   type Discover,
   type DiscoverTrack,
   type ExternalResult,
+  type FavoriteTrack,
   type DownloadJobScope,
   type JobKind,
   type JobsResult,
@@ -338,7 +339,7 @@ export class Store implements SliceHost {
     return this.sessionSlice.current;
   }
 
-  setSessionFavorite(id: number, favorite: boolean) {
+  setSessionFavorite(id: number | string, favorite: boolean) {
     this.sessionSlice.setFavorite(id, favorite);
   }
 
@@ -498,11 +499,7 @@ export class Store implements SliceHost {
   typeSearch(text: string) { this.browsingSlice.typeSearch(text); }
   searchExternal() { return this.browsingSlice.searchExternal(); }
   clearExternal() { this.browsingSlice.clearExternal(); }
-  toggleFavorite(track: {
-    id: number;
-    title: string;
-    favorite: boolean;
-  }): Promise<boolean> {
+  toggleFavorite(track: FavoriteTrack): Promise<boolean> {
     return this.browsingSlice.toggleFavorite(track);
   }
   showFavorites() { this.browsingSlice.showFavorites(); }
