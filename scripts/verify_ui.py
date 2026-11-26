@@ -2344,14 +2344,29 @@ def verify_discovery_trail(page, screenshot):
                     "album": "New Signals", "duration": 182}],
     }))
     page.route("**/api/requests", radar_copy)
-    page.route("**/api/discover/weekly", lambda route: route.fulfill(json={"week": "2026-11-23", "state": "ready",
-        "can_request": True, "download_progress": {"total": 2, "downloaded": 1, "pending": 0,
-                                                     "needs_attention": 1, "percent": 50},
-        "tracks": [{"id": seed, "title": "Weekly edition track", "artist": "Fixture Ensemble", "depth": 2,
-                    "request": {"id": 901, "status": "downloaded", "audio": "/api/audio/custom/901"}},
-                   {"id": live, "title": "Recording to review", "artist": "Fixture Ensemble", "depth": 2,
-                    "request": {"id": 902, "status": "rejected", "copy_review": True,
-                                "format_revision": 2, "requested_format": "any_lossy"}}]}))
+    weekly_tracks = [{"id": seed, "title": "Weekly edition track", "artist": "Fixture Ensemble", "depth": 2, "remove_key": "first",
+                      "request": {"id": 901, "status": "downloaded", "audio": "/api/audio/custom/901"}},
+                     {"id": live, "title": "Recording to review", "artist": "Fixture Ensemble", "depth": 2, "remove_key": "second",
+                      "request": {"id": 902, "status": "rejected", "copy_review": True,
+                                  "format_revision": 2, "requested_format": "any_lossy"}}]
+
+    hold_weekly_refresh = False
+    held_weekly_reads = []
+
+    def weekly_playlist(route):
+        if route.request.method == "POST":
+            assert route.request.post_data_json == {"remove_id": live, "week": "2026-11-23", "remove_key": "second"}
+            weekly_tracks.pop()
+        elif hold_weekly_refresh:
+            held_weekly_reads.append(route)
+            return
+        total = len(weekly_tracks)
+        route.fulfill(json={"week": "2026-11-23", "state": "ready", "can_request": True,
+                            "download_progress": {"total": total, "downloaded": 1, "pending": 0,
+                                                  "needs_attention": total - 1, "percent": 100 // total},
+                            "tracks": weekly_tracks})
+
+    page.route("**/api/discover/weekly", weekly_playlist)
     page.route("**/api/requests/copies", lambda route: route.fulfill(json={"matches": [
         {"key": "a" * 32, "label": "Possible copy.mp3", "format": "mp3", "recommended": False}]}))
     page.route("**/api/discover/*/*", branch)
@@ -2406,6 +2421,15 @@ def verify_discovery_trail(page, screenshot):
         copies.get_by_role("button", name=re.compile("Possible copy")).wait_for()
         copies.get_by_role("button", name="Change format").click()
         page.get_by_role("button", name="Later", exact=True).click()
+        hold_weekly_refresh = True
+        page.get_by_role("button", name="Remove Recording to review from Weekly Discovery").click()
+        page.get_by_text("Song removed from this week’s playlist.").wait_for()
+        page.get_by_text("Recording to review", exact=True).wait_for(state="detached")
+        assert page.get_by_role("progressbar", name="Playlist downloads").get_attribute("value") == "100"
+        assert page.get_by_role("button", name="Play Weekly edition track").is_visible()
+        hold_weekly_refresh = False
+        for read in held_weekly_reads:
+            weekly_playlist(read)
         assert not board.is_visible()
         page.get_by_role("button", name="Back to Deep Dive").click()
         first.wait_for()

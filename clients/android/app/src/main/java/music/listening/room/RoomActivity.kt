@@ -1252,6 +1252,7 @@ class RoomActivity : Activity() {
                     val rows = playlist.getJSONArray("tracks")
                     val tracks = (0 until rows.length()).map(rows::getJSONObject)
                     val canRequest = playlist.optBoolean("can_request")
+                    var editingPlaylist = false
                     val pending = tracks.filter { track ->
                         val request = track.optJSONObject("request")
                         val status = request?.optString("status")
@@ -1277,19 +1278,23 @@ class RoomActivity : Activity() {
                     }
                     val readyIds = tracks.mapNotNull(::readyId)
                     message(when {
-                        tracks.isEmpty() -> "No new songs matched your listening this week."
+                        tracks.isEmpty() -> "This week’s playlist is empty."
                         !canRequest && pending.isNotEmpty() -> "Downloads are unavailable in this room."
                         else -> ""
                     })
                     if (readyIds.isNotEmpty()) {
                         actions.addView(ui.iconButton("Play downloaded songs", Mark.PLAY) {
+                            if (editingPlaylist) return@iconButton
                             play("play_requests", JSONObject().put("request_ids", JSONArray(readyIds)))
                         }, 0)
                     }
                     if (canRequest && pending.isNotEmpty()) {
                         actions.addView(ui.iconButton("Download playlist", Mark.DOWNLOAD, solid = true) {
+                            if (editingPlaylist) return@iconButton
+                            editingPlaylist = true
                             message("Queuing songs for download…")
-                            load({ target.requestWeeklySongs(pending.map { it.getString("id") }) }) { result ->
+                            load({ target.requestWeeklySongs(pending.map { it.getString("id") }) },
+                                 finished = { editingPlaylist = false }) { result ->
                                 show()
                                 val count = result.optInt("queued")
                                 message(if (count == 0) "These songs already have a room request or copy."
@@ -1356,6 +1361,16 @@ class RoomActivity : Activity() {
                             if (!inLibrary && (request == null || (!request.needsCopyReview() && request.canReplaceRecording()))) {
                                 addView(ui.iconButton("Other recordings: $title", Mark.ALBUM) {
                                     chooseRequestVersion(target, track, request)
+                                })
+                            }
+                            val removeKey = track.optString("remove_key")
+                            if (removeKey.isNotBlank()) {
+                                addView(ui.iconButton("Remove $title from Weekly Discovery", Mark.CLOSE) {
+                                    if (editingPlaylist) return@iconButton
+                                    editingPlaylist = true
+                                    message("Removing song…")
+                                    load({ target.removeWeeklySong(track.getString("id"), playlist.getString("week"), removeKey) },
+                                         finished = { editingPlaylist = false }) { show() }
                                 })
                             }
                         })

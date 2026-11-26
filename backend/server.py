@@ -2442,11 +2442,56 @@ class Handler(BaseHTTPRequestHandler):
                       "channels": SOMAFM_CHANNELS, "stations": live_stations_from(SETTINGS)}
         return self.json_response(result)
 
+    def _remove_weekly_song(self, body):
+        identity = body.get("remove_id")
+        if (set(body) != {"remove_id", "week", "remove_key"} or not valid_id(identity)
+                or not isinstance(body["week"], str) or not isinstance(body["remove_key"], str)):
+            raise ValueError("Choose a song from this week’s playlist.")
+        with ROOT_LOCK:
+            if update_draining():
+                return self.error_json("The room is restarting. Try again shortly.", HTTPStatus.SERVICE_UNAVAILABLE)
+            room, week = str(ROOT), weekly.week()
+            cache = RequestsStore(host_database(DB, STATE))
+            tracks = weekly.saved(cache, room, week) if body["week"] == week else None
+            if not tracks or identity not in {track["id"] for track in tracks}:
+                return self.error_json("Reload the current weekly playlist before removing songs.", HTTPStatus.CONFLICT)
+            removed = weekly.removed(cache, room, week)
+            if identity not in removed:
+                media = MEDIA.store()
+                groups = weekly_discovery.track_groups(
+                    [track for track in tracks if track["id"] not in removed],
+                    requests_store(), metadata.discovery_index(catalog),
+                    lambda path: stored_audio_available(path, LIBRARY, media))
+                track, ids = next(group for group in groups if identity in group[1])
+                if body["remove_key"] != weekly_discovery.removal_key(track, ids):
+                    return self.error_json("This song changed. Review the playlist and try again.", HTTPStatus.CONFLICT)
+                weekly.save_removals(cache, room, week, removed | ids)
+        return self._weekly_playlist()
+
+    def _weekly_playlist(self):
+        with ROOT_LOCK:
+            store = requests_store()
+            cache = RequestsStore(host_database(DB, STATE))
+            current = catalog
+            library, media = LIBRARY, MEDIA.store()
+            room = str(ROOT)
+            snapshot = weekly.status(cache, store, room, current, play_events)
+            removed = weekly.removed(cache, room, snapshot["week"]) if snapshot["tracks"] else set()
+        tracks = [track for track in snapshot["tracks"] if track["id"] not in removed]
+        result = weekly_discovery.with_requests(
+            tracks, store, metadata.discovery_index(current),
+            lambda path: stored_audio_available(path, library, media)) if tracks else []
+        return self.json_response({**snapshot, "tracks": result,
+                                   "download_progress": weekly_discovery.download_progress(result),
+                                   "can_request": bool(tracks) and download_ready()})
+
     def _weekly_discovery(self, body=None):
         try:
             if body is not None:
                 if not isinstance(body, dict):
                     raise ValueError("Choose weekly discovery tracks.")
+                if "remove_id" in body:
+                    return self._remove_weekly_song(body)
                 ids = body.get("ids")
                 if (not isinstance(ids, list) or not 1 <= len(ids) <= weekly_discovery.MAX_TRACKS
                         or not all(valid_id(identity) for identity in ids)):
@@ -2461,8 +2506,10 @@ class Handler(BaseHTTPRequestHandler):
                                                HTTPStatus.SERVICE_UNAVAILABLE)
                     store = requests_store()
                     cache = RequestsStore(host_database(DB, STATE))
-                    tracks = weekly.saved(cache, str(ROOT), weekly.week())
-                    if not tracks or ids - {track["id"] for track in tracks}:
+                    room, week = str(ROOT), weekly.week()
+                    tracks = weekly.saved(cache, room, week)
+                    removed = weekly.removed(cache, room, week)
+                    if not tracks or ids - ({track["id"] for track in tracks} - removed):
                         return self.error_json("Reload the current weekly playlist before requesting tracks.",
                                                HTTPStatus.CONFLICT)
                     known = metadata.discovery_index(catalog)
@@ -2475,19 +2522,7 @@ class Handler(BaseHTTPRequestHandler):
                     start_worker("requests", force=True)
                 return self.json_response({"queued": queued, "existing": len(ids) - queued})
 
-            with ROOT_LOCK:
-                store = requests_store()
-                cache = RequestsStore(host_database(DB, STATE))
-                current = catalog
-                library, media = LIBRARY, MEDIA.store()
-                snapshot = weekly.status(cache, store, str(ROOT), current, play_events)
-            tracks = snapshot["tracks"]
-            result = weekly_discovery.with_requests(
-                tracks, store, metadata.discovery_index(current),
-                lambda path: stored_audio_available(path, library, media)) if tracks else []
-            return self.json_response({**snapshot, "tracks": result,
-                                       "download_progress": weekly_discovery.download_progress(result),
-                                       "can_request": bool(tracks) and download_ready()})
+            return self._weekly_playlist()
         except ValueError as error:
             return self.error_json(str(error))
         except (OSError, sqlite3.Error):
