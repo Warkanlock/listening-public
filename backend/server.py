@@ -58,7 +58,7 @@ from playback.play_events import PlayEventsStore
 from playback import radio_resume
 from playback.radio import (PROVIDERS, RADIO_PRESETS, SOMAFM_CHANNELS, clean_live_stations, clean_stations,
                             live_catalog, live_stations_from, provider_enabled, source_enabled, stations_from)
-from downloads.engine_contract import (EngineError, engine_selection, engines_ready, extension_health,
+from downloads.engine_contract import (EngineError, EngineUpdateConflict, engine_selection, engines_ready, extension_health,
                                        manager_call, request_recording, search_recording, source_summary)
 from system import client_artifacts
 from devices.announcements import AnnouncementBoard
@@ -71,7 +71,7 @@ from downloads.verification import PROBE_CACHE_VERSION, probe
 from metadata.artist_connections import ArtistConnections, CONNECTION_PATH, ConnectionsBusy, valid_id
 from metadata.music_profiles import PROFILE_PATH, MusicProfiles
 from metadata.external_metadata import ExternalMetadata
-from metadata import discovery_board, discovery_trail, weekly_discovery
+from metadata import discovery_board, discovery_trail, release_radar, weekly_discovery
 from library.library_protocol import (SUPPORTED, canonicalize_directory, canonicalize_source, migrate_legacy_lists, parse_list,
                               playlist_title, portable_m3u8, read_list, track_key, write_csv, write_xspf,
                               xspf_files)
@@ -1378,6 +1378,7 @@ spotify = None  # Built by init().
 metadata = None  # Built by init().
 artist_connections = None
 weekly = None
+radar = None
 
 
 updater = None  # Built by init().
@@ -1516,9 +1517,10 @@ MEMBER_GET = {"/api/room", "/api/overview", "/api/tracks", "/api/settings", "/ap
               "/api/status", "/api/activity", "/api/discovery/sources", "/api/extensions/sources", "/api/hiking", "/api/insights",
               "/api/jams", "/api/jams/session"}
 JAM_ROUTES = {"/api/jams", "/api/jams/session"}
-PERSONAL_ROUTES = {"/api/my/playlists", "/api/my/session", "/api/my/radio"}
+PERSONAL_ROUTES = {"/api/my/playlists", "/api/my/session", "/api/my/radio", "/api/my/appearance"}
 EXTENSION_HEALTH = "/api/extensions/health"
 EXTENSION_HEALTH_LOCK = threading.Lock()
+EXTENSION_SELECTION_LOCK = threading.Lock()
 MEMBER_POST = {"/api/radio/presence", "/api/session", "/api/favorites", "/api/device", "/api/discovery/search", "/api/jams",
                EXTENSION_HEALTH} | PERSONAL_ROUTES
 MEMBER_TRACK_URL = re.compile(r"/api/(audio|metadata|lyrics)/([1-9][0-9]{0,9})")
@@ -1971,6 +1973,9 @@ class Handler(BaseHTTPRequestHandler):
             with ROOT_LOCK, REFRESH_LOCK:
                 if not member_profiles.selected(profile):
                     raise ProfileConflict("The room changed. Try again.")
+                if path == "/api/my/appearance":
+                    appearance = profile.appearance() if body is None else profile.set_appearance(body.get("theme"))
+                    return self.json_response(appearance)
                 if path == "/api/my/session":
                     if body is not None and update_draining():
                         return self.error_json("The room is restarting. Try again shortly.", HTTPStatus.SERVICE_UNAVAILABLE)
@@ -2536,15 +2541,19 @@ class Handler(BaseHTTPRequestHandler):
             return self.error_json("Only the room owner can manage extensions.", HTTPStatus.FORBIDDEN)
         if body is None:
             installed, available, error = [], [], ""
+            reviewed_updates = False
             if os.environ.get("LISTENING_ENGINE_SOCKET"):
                 try:
-                    installed = manager_call("status")["engines"]
+                    status = manager_call("status")
+                    installed = status["engines"]
+                    reviewed_updates = status.get("reviewed_updates") is True
                     available = manager_call("catalog")["engines"]
                 except EngineError as failure:
                     error = str(failure)
             return self.json_response({"radio": SETTINGS.get("radio_providers", []),
                                        "installed": installed, "available": available, "error": error,
                                        "configured": bool(os.environ.get("LISTENING_ENGINE_SOCKET")),
+                                       "reviewed_updates": reviewed_updates,
                                        "selection": engine_selection(SETTINGS)})
         try:
             action = body.get("action")
@@ -2561,15 +2570,34 @@ class Handler(BaseHTTPRequestHandler):
                 selection = body.get("selection")
                 if not isinstance(selection, dict):
                     raise ValueError("Choose search and download engines.")
-                if selection and not engines_ready({"download_engines": selection}):
-                    raise ValueError("Enable compatible search and download engines first.")
-                with ROOT_LOCK:
-                    if worker_running("downloads") or worker_running("requests"):
-                        return self.error_json("Wait for active downloads before switching engines.", HTTPStatus.CONFLICT)
-                    SETTINGS["download_engines"] = engine_selection({"download_engines": selection})
-                    save_settings()
+                with EXTENSION_SELECTION_LOCK:
+                    if selection and not engines_ready({"download_engines": selection}):
+                        raise ValueError("Enable compatible search and download engines first.")
+                    with ROOT_LOCK:
+                        if worker_running("downloads") or worker_running("requests"):
+                            return self.error_json("Wait for active downloads before switching engines.", HTTPStatus.CONFLICT)
+                        SETTINGS["download_engines"] = engine_selection({"download_engines": selection})
+                        save_settings()
+            elif action in ("update_preview", "update_reviewed"):
+                if manager_call("status").get("reviewed_updates") is not True:
+                    return self.error_json("Update the host engine manager to review extension updates.", HTTPStatus.CONFLICT)
+                if action == "update_preview":
+                    preview = manager_call(action, engine=body.get("engine"), selection=engine_selection(SETTINGS),
+                                           timeout=15)
+                    return self.json_response({key: value for key, value in preview.items() if key != "ok"})
+                approval = body.get("approval")
+                if not isinstance(approval, str) or not re.fullmatch(r"[a-f0-9]{64}", approval):
+                    raise ValueError("Review the extension update first.")
+                with EXTENSION_SELECTION_LOCK:
+                    manager_call(action, engine=body.get("engine"), selection=engine_selection(SETTINGS),
+                                 approval=approval, timeout=225)
             elif action == "configure":
                 manager_call(action, engine=body.get("engine"), settings=body.get("settings"), timeout=30)
+            elif action == "update" and not (
+                self._auth_tier() == "control"
+                or (self._legacy_local_owner() and not self.headers.get_all("Origin"))
+            ):
+                return self.error_json("Review the extension update first.", HTTPStatus.CONFLICT)
             elif action in ("install", "test", "enable", "disable", "update", "rollback", "remove"):
                 manager_call(action, engine=body.get("engine"), timeout=225)
             else:
@@ -2577,6 +2605,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._extensions()
         except ValueError as error:
             return self.error_json(str(error))
+        except EngineUpdateConflict as error:
+            return self.json_response({"error": str(error), "code": error.code}, HTTPStatus.CONFLICT)
         except EngineError as error:
             return self.error_json(str(error), HTTPStatus.SERVICE_UNAVAILABLE)
 
@@ -2952,6 +2982,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_response(discovery_board.listening_activity(catalog, favorites, play_events))
         if path == weekly_discovery.PATH:
             return self._weekly_discovery()
+        if path == release_radar.PATH:
+            with ROOT_LOCK:
+                owner_cache = RequestsStore(host_database(DB, STATE))
+                discovery_context = (owner_cache, requests_store(), str(ROOT), catalog, play_events)
+            try:
+                return self.json_response(radar.status(*discovery_context))
+            except (OSError, sqlite3.Error):
+                return self.error_json("Release Radar is temporarily unavailable.", HTTPStatus.SERVICE_UNAVAILABLE)
         if path == "/api/discover/press":
             try:
                 return self.json_response(discovery_board.weekly_press(metadata))
@@ -4384,7 +4422,7 @@ def init(config_path=None):
     global CONFIG, CONFIG_PATH, SETTINGS, ROOT, STATE, LIBRARY, PLAYLIST_OUTPUT
     global DB, RUNNER_LOG
     global SUPERVISOR, REFRESH, MEDIA, catalog, playback, play_events, favorites, spotify, metadata, updater, jobs, device_store, artist_connections, weekly
-    global owner_auth, member_profiles, ROOM_ORIGIN, REQUIRE_OWNER, jams, UPDATE_DRAIN_UNTIL, RADIO_PLAYERS, music_profiles
+    global owner_auth, member_profiles, ROOM_ORIGIN, REQUIRE_OWNER, jams, UPDATE_DRAIN_UNTIL, RADIO_PLAYERS, music_profiles, radar
     jams = JamDirectory()
     REQUIRE_OWNER = os.environ.get("LISTENING_ROOM_REQUIRE_OWNER") == "1"
     CONFIG = (AppConfig.from_environment(REPO_ROOT) if config_path is None
@@ -4440,6 +4478,7 @@ def init(config_path=None):
     metadata = ExternalMetadata(lambda: RequestsStore(host_database(DB, STATE)))
     artist_connections = ArtistConnections(metadata)
     weekly = weekly_discovery.WeeklyDiscovery(metadata, artist_connections)
+    radar = release_radar.ReleaseRadar(metadata, artist_connections)
     music_profiles = MusicProfiles(artist_connections)
     updater = Updater(REPO_ROOT)
     jobs = Jobs(queue=JobQueue(host_database(DB, STATE)), worker_running=worker_running,

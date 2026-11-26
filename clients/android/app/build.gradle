@@ -1,5 +1,6 @@
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import groovy.json.JsonOutput
 
 plugins {
     id 'com.android.application'
@@ -12,8 +13,8 @@ android {
         applicationId 'music.listening.room'
         minSdk 26
         targetSdk 35
-        versionCode 10518
-        versionName '1.5.18'
+        versionCode 20000
+        versionName '2.0.0'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -38,12 +39,48 @@ abstract class CopyLauncherIcon extends DefaultTask {
     }
 }
 
+abstract class GenerateRoomPalettes extends DefaultTask {
+    @InputFile
+    @PathSensitive(PathSensitivity.NONE)
+    abstract RegularFileProperty getStylesheet()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDirectory()
+
+    @TaskAction
+    void generatePalettes() {
+        def palettes = [:]
+        def rules = stylesheet.get().asFile.getText('UTF-8') =~ /\[data-palette="([a-z-]+)"\]\s*\{([^}]+)\}/
+        rules.each { rule ->
+            def tokens = [:]
+            (rule[2] =~ /--([a-z0-9-]+):\s*(#[0-9a-fA-F]{6})\s*;/).each { token ->
+                tokens[token[1]] = token[2]
+            }
+            palettes[rule[1]] = tokens
+        }
+        def keys = ['text', 'panel', 'card', 'tint', 'muted', 'accent', 'accent-ink',
+                    'on-accent', 'line-strong', 'control-edge', 'accent-tint']
+        ['sea-glass', 'night', 'paper'].each { theme ->
+            if (!palettes[theme]?.keySet()?.containsAll(keys)) {
+                throw new GradleException("Missing native room palette colors for ${theme}.")
+            }
+        }
+        def asset = outputDirectory.file('room-palettes.json').get().asFile
+        asset.parentFile.mkdirs()
+        asset.setText(JsonOutput.toJson(palettes), 'UTF-8')
+    }
+}
+
 androidComponents {
     onVariants(selector().all()) { variant ->
         def icon = tasks.register("copy${variant.name.capitalize()}LauncherIcon", CopyLauncherIcon) {
             artwork.set(rootProject.layout.projectDirectory.file('../../frontend/react/public/assets/icons/icon-512.png'))
         }
         variant.sources.res.addGeneratedSourceDirectory(icon) { it.outputDirectory }
+        def palettes = tasks.register("generate${variant.name.capitalize()}RoomPalettes", GenerateRoomPalettes) {
+            stylesheet.set(rootProject.layout.projectDirectory.file('../../frontend/react/src/room-palettes.css'))
+        }
+        variant.sources.assets.addGeneratedSourceDirectory(palettes) { it.outputDirectory }
     }
 }
 

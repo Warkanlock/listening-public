@@ -26,6 +26,7 @@ IMAGE = re.compile(r"[a-z0-9][a-z0-9.:/_-]+@sha256:[0-9a-f]{64}")
 TOKEN = re.compile(r"[0-9a-f]{16,64}")
 FILENAME = re.compile(r"[^/\\\x00-\x1f]{1,255}")
 CAPABILITIES = {"search", "fetch"}
+PACKAGE_FIELDS = ("id", "version", "image", "capabilities", "server_versions", "sources", "settings")
 LIMIT = 256 * 1024
 RESERVE = 20 * 1024 ** 3
 MAX_AUDIO = 512 * 1024 ** 2
@@ -47,6 +48,20 @@ def declares_sources(engine):
 def supports_release(engine, release):
     versions = engine.get("server_versions")
     return isinstance(versions, list) and release in versions
+
+
+def package_metadata(engine):
+    """The signed package fields an owner approves, without mutable runtime state."""
+    return {key: engine[key] for key in PACKAGE_FIELDS if key in engine}
+
+
+def update_approval(installed, proposed):
+    payload = json.dumps([installed, proposed], sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def update_conflict(code):
+    return {"ok": False, "code": code, "retryable": False}
 
 
 def verify_catalog(path, public_key, architecture, version):
@@ -384,7 +399,7 @@ class Fleet:
         if action == "status":
             installed = list(self.engines.values())
             running = self.running_containers() if any(engine["enabled"] for engine in installed) else frozenset()
-            return {"ok": True, "health_check": True, "engines": [
+            return {"ok": True, "health_check": True, "reviewed_updates": True, "engines": [
                 {**engine, "retry_at": self.retry_at(engine["id"]), "configured_settings": engine_settings.saved_keys(
                     self.state / engine["id"] / "credentials", engine.get("settings", [])),
                  "ready": engine["enabled"] and self.compatible(engine, release)
@@ -399,13 +414,45 @@ class Fleet:
         if action == "health":
             return self.check_health(identity, release, connection)
         with self.lock:
+            if action == "update_preview":
+                return self.preview_update(identity, release, request.get("selection"))
             directory = self.state / identity
             directory.mkdir(mode=0o700, exist_ok=True)
             with (directory / ".operation").open("a") as lease:
                 fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 if action == "configure":
                     return self.configure(identity, request.get("settings"), release)
-                return self.change(identity, action, connection, release)
+                return self.change(identity, action, connection, release,
+                                   approval=request.get("approval"), selection=request.get("selection"))
+
+    def preview_update(self, identity, release, selection, *, candidate=None):
+        current = self.engines.get(identity)
+        candidate = candidate if candidate is not None else self.available(release).get(identity)
+        if current is None or candidate is None:
+            return update_conflict("extension_update_changed")
+        installed, proposed = package_metadata(current), package_metadata(candidate)
+        if installed == proposed:
+            return update_conflict("extension_update_current")
+        fields = candidate.get("settings", [])
+        previous = {field["key"]: field for field in current.get("settings", [])}
+        saved = set(engine_settings.saved_keys(self.state / identity / "credentials", fields))
+        missing = [field["label"] for field in fields if field["required"] and field["key"] not in saved
+                   and (not previous.get(field["key"], {}).get("required")
+                        or previous[field["key"]]["type"] != field["type"])]
+        pair_incompatible = False
+        if isinstance(selection, dict) and identity in selection.values():
+            namespaces = {}
+            for role in ("search", "fetch"):
+                selected = selection.get(role)
+                engine = (candidate if selected == identity else self.engines.get(selected, {})
+                          if isinstance(selected, str) else {})
+                namespaces[role] = (set(engine["sources"][role]) if role in engine.get("capabilities", [])
+                                    and declares_sources(engine) else set())
+            pair_incompatible = not namespaces["search"] or not namespaces["search"] <= namespaces["fetch"]
+        return {"ok": True, "approval": update_approval(installed, proposed),
+                "installed": installed, "proposed": proposed, "missing_settings": missing,
+                "requires_disable": bool(current["enabled"] and missing),
+                "incompatible_sources": pair_incompatible}
 
     def check_health(self, identity, release, connection):
         if identity not in self.engines:
@@ -437,12 +484,24 @@ class Fleet:
                 self.start(engine)
         return {"ok": True}
 
-    def change(self, identity, action, connection, release):
+    def change(self, identity, action, connection, release, *, approval=None, selection=None):
         current = self.engines.get(identity)
-        if action in ("install", "update"):
+        if action in ("install", "update", "update_reviewed"):
             candidate = self.available(release).get(identity)
+            if action == "update_reviewed":
+                if candidate is None:
+                    return update_conflict("extension_update_changed")
+                preview = self.preview_update(identity, release, selection, candidate=candidate)
+                if not preview["ok"] or preview["approval"] != approval:
+                    return update_conflict("extension_update_changed")
+                if preview["incompatible_sources"]:
+                    return update_conflict("extension_update_sources")
+                if preview["requires_disable"]:
+                    return update_conflict("extension_update_settings")
             if candidate is None:
                 raise ValueError("No compatible package is listed for this host.")
+            if (action == "install") != (current is None):
+                raise ValueError("Choose install for a new engine or update for an installed engine.")
             if current and current["image"] == candidate["image"]:
                 refreshed = {**current, **candidate}
                 if "settings" not in candidate:
@@ -450,8 +509,6 @@ class Fleet:
                 self.engines[identity] = refreshed
                 self.save()
                 return {"ok": True, "engine": refreshed}
-            if (action == "install") != (current is None):
-                raise ValueError("Choose install for a new engine or update for an installed engine.")
             self.docker("pull", candidate["image"], timeout=180)
             self.validate_image(candidate["image"])
             previous = ({key: current[key] for key in (*candidate, "settings") if key in current}
