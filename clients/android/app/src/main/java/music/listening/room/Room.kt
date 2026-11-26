@@ -217,6 +217,8 @@ internal class Room(val origin: String, val id: String, private val token: Strin
     fun get(path: String) = request(path)
     fun requestWeeklySongs(ids: List<String>) =
         request("/api/discover/weekly", JSONObject().put("ids", JSONArray(ids)))
+    fun removeWeeklySong(id: String, week: String, key: String) =
+        request("/api/discover/weekly", JSONObject().put("remove_id", id).put("week", week).put("remove_key", key))
     fun searchCatalog(query: JSONObject, onCall: (Call) -> Unit) =
         request("/api/discovery/search", query, onCall = onCall)
     fun importCatalogSong(item: JSONObject) = request("/api/discovery/import", JSONObject()

@@ -38,6 +38,11 @@ def download_progress(tracks):
 
 
 def with_requests(tracks, store, known, audio_available):
+    return [{**track, "remove_key": removal_key(track, ids)}
+            for track, ids in track_groups(tracks, store, known, audio_available)]
+
+
+def track_groups(tracks, store, known, audio_available):
     """Resolve cached picks against today's request and library state, once per song."""
     picks = [(track["artist"], track["title"], track["id"]) for track in tracks]
     songs_by_recording = {identity: song_key(artist, title) for artist, title, identity in picks}
@@ -48,6 +53,14 @@ def with_requests(tracks, store, known, audio_available):
             aliases[song].append(row)
     checked = {}
     songs = {}
+
+    def group(groups, key, rank, track, ids):
+        previous = groups.get(key)
+        if previous:
+            ids = previous[2] | ids
+            if previous[0] >= rank:
+                rank, track = previous[:2]
+        groups[key] = rank, track, ids
 
     def playable(row):
         if row["status"] != "downloaded" or not row["audio_path"]:
@@ -87,15 +100,19 @@ def with_requests(tracks, store, known, audio_available):
                 request.update(status="missing", request_state="copy_missing")
         in_library = ready or (not chosen and known.contains_song(track))
         rank = not missing, bool(chosen), ready, in_library, bool(direct and row is direct), bool(request)
-        if song not in songs or rank > songs[song][0]:
-            songs[song] = rank, {**track, "request": request, "in_library": in_library}
+        group(songs, song, rank, {**track, "request": request, "in_library": in_library}, {track["id"]})
     result = {}
-    for rank, track in songs.values():
+    for rank, track, ids in songs.values():
         request = track["request"]
         key = ("request", request["id"]) if request else ("pick", track["id"])
-        if key not in result or rank > result[key][0]:
-            result[key] = rank, track
-    return [track for _, track in result.values()]
+        group(result, key, rank, track, ids)
+    return [(track, ids) for _, track, ids in result.values()]
+
+
+def removal_key(track, ids):
+    visible = track["request"] or track
+    recording = visible["musicbrainz_id"] or song_key(visible["artist"], visible["title"])
+    return hashlib.sha256(json.dumps([sorted(ids), recording]).encode()).hexdigest()
 
 
 def known_songs(catalog, downloaded):
@@ -159,6 +176,13 @@ class WeeklyDiscovery:
     def saved(self, cache, room, week):
         row = cache.cache_get(self._key(room, week))
         return json.loads(row["body"]) if row else None
+
+    def removed(self, cache, room, week):
+        row = cache.cache_get(self._key(room, week) + ":removed")
+        return set(json.loads(row["body"])) if row else set()
+
+    def save_removals(self, cache, room, week, ids):
+        cache.cache_put(self._key(room, week) + ":removed", json.dumps(sorted(ids)), self._now())
 
     def status(self, cache, requests, room, catalog, events):
         week = self.week()

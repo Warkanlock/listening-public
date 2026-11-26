@@ -9,6 +9,7 @@ import { useStore } from "../store";
 
 type WeeklyTrack = {
   id: string;
+  remove_key?: string;
   title: string;
   artist: string;
   depth: number;
@@ -46,11 +47,13 @@ export function WeeklyDiscovery() {
   const [revision, setRevision] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [sending, setSending] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const requestStatus = store.requestRows.map(row => `${row.id}/${row.status}`).join(",");
 
   useEffect(() => {
+    if (removing) return;
     const abort = new AbortController();
     let timer: number | undefined;
     async function refresh() {
@@ -75,7 +78,7 @@ export function WeeklyDiscovery() {
       abort.abort();
       window.clearTimeout(timer);
     };
-  }, [revision, requestStatus]);
+  }, [revision, requestStatus, removing]);
 
   const tracks = playlist?.tracks ?? [];
   const requestIds = tracks.flatMap(track => {
@@ -93,7 +96,7 @@ export function WeeklyDiscovery() {
   }
 
   async function download(ids: string[]) {
-    if (sending || !ids.length) return;
+    if (sending || removing || !ids.length) return;
     setSending(true);
     setNotice("");
     try {
@@ -110,6 +113,24 @@ export function WeeklyDiscovery() {
     }
   }
 
+  async function remove(track: WeeklyTrack) {
+    if (!playlist || !track.remove_key || sending || removing) return;
+    setRemoving(true);
+    setNotice("");
+    try {
+      const result = await postJson<WeeklyPlaylist>(route, {
+        remove_id: track.id, week: playlist.week, remove_key: track.remove_key,
+      });
+      setPlaylist(result);
+      setError("");
+      setNotice("Song removed from this week’s playlist.");
+    } catch (failure) {
+      setNotice(failure instanceof Error ? failure.message : "Song couldn’t be removed. Try again.");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   const state = playlist?.state;
   return (
     <section className="weekly-discovery" aria-label="Weekly Discovery playlist view">
@@ -121,9 +142,9 @@ export function WeeklyDiscovery() {
         </div>
         {(nextReview || requestIds.length > 0 || (playlist?.can_request && downloads.length > 0)) && (
           <div className="weekly-discovery-actions">
-            {requestIds.length > 0 && <RoomAction primary icon="play"
+            {requestIds.length > 0 && <RoomAction primary icon="play" disabled={removing}
               onClick={() => void store.sendSession("play_requests", { request_ids: requestIds })}>Play downloaded songs</RoomAction>}
-            {playlist?.can_request && downloads.length > 0 && <RoomAction icon="download" disabled={sending}
+            {playlist?.can_request && downloads.length > 0 && <RoomAction icon="download" disabled={sending || removing}
               onClick={() => void download(downloads.map(track => track.id))}>
               {sending ? "Queuing…" : "Download playlist"}
             </RoomAction>}
@@ -142,7 +163,7 @@ export function WeeklyDiscovery() {
         : state === "waiting" ? <p>Listen to a few songs to get your first playlist.</p>
         : state === "unavailable" ? <p role="status">Music discovery is temporarily unavailable.{" "}
           <RoomAction onClick={() => setRevision(value => value + 1)}>Try again</RoomAction></p>
-        : !tracks.length ? <p>No new songs matched your listening this week.</p> : null}
+        : !tracks.length ? <p>This week’s playlist is empty.</p> : null}
       {playlist && !playlist.can_request && downloads.length > 0 && <p>Downloads are unavailable in this room.</p>}
       {tracks.length > 0 && <>
         <ol className="weekly-discovery-tracks" aria-label="Weekly Discovery playlist">
@@ -174,9 +195,11 @@ export function WeeklyDiscovery() {
                     ? `Review copies for ${track.title}` : `Choose format for ${track.title}`}
                     onClick={() => reviewCopies(track)} />
                   : playlist?.can_request && needsCopy(track) && !track.request ? <RoomIconButton icon="download"
-                    disabled={sending} label={`Download ${track.title}`}
+                    disabled={sending || removing} label={`Download ${track.title}`}
                     onClick={() => void download([track.id])} />
                   : null}
+                {track.remove_key && <RoomIconButton icon="close" disabled={sending || removing}
+                  label={`Remove ${row?.title ?? track.title} from Weekly Discovery`} onClick={() => void remove(track)} />}
               </div>
             </li>;
           })}
