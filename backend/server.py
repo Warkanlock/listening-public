@@ -2473,10 +2473,11 @@ class Handler(BaseHTTPRequestHandler):
                         return self.error_json("Reload the current weekly playlist before requesting tracks.",
                                                HTTPStatus.CONFLICT)
                     known = metadata.discovery_index(catalog)
-                    downloaded = discovery_trail.LibraryRecordings(store.downloaded_audio(custom_only=True))
-                    queued = store.queue_weekly([track for track in tracks
-                                                 if track["id"] in ids and not known.contains_song(track)
-                                                 and not downloaded.contains_song(track)])
+                    selected = {track["id"] for track in tracks
+                                if track["id"] in ids and not known.contains_song(track)}
+                    media = MEDIA.store()
+                    queued = store.queue_weekly(tracks, selected_ids=selected,
+                                                audio_available=lambda path: stored_audio_available(path, LIBRARY, media))
                 if queued:
                     start_worker("requests", force=True)
                 return self.json_response({"queued": queued, "existing": len(ids) - queued})
@@ -2488,33 +2489,9 @@ class Handler(BaseHTTPRequestHandler):
                 library, media = LIBRARY, MEDIA.store()
                 snapshot = weekly.status(cache, store, str(ROOT), current, play_events)
             tracks = snapshot["tracks"]
-            result = []
-            if tracks:
-                by_recording = [(track["artist"], track["title"], track["id"]) for track in tracks]
-                legacy = [key[:2] for key in by_recording]
-                rows = store.for_picks([*by_recording, *legacy], include_audio_path=True)
-                known = metadata.discovery_index(current)
-                downloaded = discovery_trail.LibraryRecordings(store.downloaded_audio(custom_only=True))
-                for track, key in zip(tracks, by_recording):
-                    row = rows.get(key) or rows.get(key[:2])
-                    request = {field: row[field] for field in (
-                        "id", "status", "request_state", "format_revision", "requested_format",
-                        "title", "artist", "musicbrainz_id", "version")} if row else None
-                    if row:
-                        request.update({field: row[field] for field in ("phase", "retry_at") if row[field]})
-                        if row.get("download_percent") is not None:
-                            request["download_percent"] = row["download_percent"]
-                        if row.get("copy_review"):
-                            request["copy_review"] = True
-                    if row and row["status"] == "downloaded":
-                        if not stored_audio_available(row["audio_path"], library, media):
-                            request["status"] = "missing"
-                            request["request_state"] = "copy_missing"
-                        else:
-                            request["audio"] = f"/api/audio/custom/{row['id']}"
-                    result.append({**track, "request": request, "in_library": (
-                        known.contains_song(track) or downloaded.contains_song(track)
-                    )})
+            result = weekly_discovery.with_requests(
+                tracks, store, metadata.discovery_index(current),
+                lambda path: stored_audio_available(path, library, media)) if tracks else []
             return self.json_response({**snapshot, "tracks": result,
                                        "download_progress": weekly_discovery.download_progress(result),
                                        "can_request": bool(tracks) and download_ready()})

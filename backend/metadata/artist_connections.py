@@ -2,8 +2,9 @@
 
 import re
 import threading
-import unicodedata
 import urllib.error
+
+from system.normalize import credit_key
 
 
 MBID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -36,12 +37,6 @@ def items(value):
 
 def clean(value, limit=180):
     return value.strip()[:limit] if isinstance(value, str) else ""
-
-
-def credit_key(value):
-    normalized = unicodedata.normalize("NFKC", clean(value)).casefold()
-    return " ".join("".join(char if char.isalnum() or unicodedata.category(char).startswith("M")
-                            else " " for char in normalized).split())
 
 
 def valid_id(value):
