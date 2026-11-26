@@ -293,6 +293,9 @@ internal class Room(val origin: String, val id: String, private val token: Strin
         return reply.status in 200..299 || reply.status == 404
     }
     fun session() = request("/api/session", output = id)
+    fun setFavorite(song: FavoriteSong, favorite: Boolean) =
+        request("/api/favorites", JSONObject().put(song.field, song.key).put("favorite", favorite))
+            .getBoolean("favorite")
     fun insights() = request("/api/insights", output = id)
     fun action(op: String, fields: JSONObject = JSONObject()): JSONObject =
         request("/api/session", fields.put("op", op).put("device_id", id), output = id)
