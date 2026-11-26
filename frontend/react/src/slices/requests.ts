@@ -1,7 +1,15 @@
-import { api, postJson, type DownloadOutcome, type DownloadOutcomePayload, type RecentDownload, type RequestRow, type RequestSong } from "../api";
+import { api, ApiError, postJson, type DownloadOutcome, type DownloadOutcomePayload, type RecentDownload, type RequestRow, type RequestSong } from "../api";
 import { notify, notifyDownloadUpdates } from "../toasts";
 import { canChooseFormat, requestStage, requestStageLabel } from "../requestState";
 import { errorMessage, type SliceHost } from "./host";
+
+type TrayRequest = Pick<RequestRow, "id" | "title" | "artist" | "status" | "request_state"> &
+  Partial<Pick<RequestRow, "copy_review" | "message" | "format_revision" | "phase" | "retry_at" | "download_percent">>;
+
+export type DownloadTray = {
+  source: "updates" | "requests" | "weekly";
+  rows: readonly TrayRequest[];
+};
 
 const requestsSignature = (rows: RequestRow[]) =>
   JSON.stringify(
@@ -35,7 +43,7 @@ export class RequestsSlice {
   requestRows: RequestRow[] = [];
   recentDownloads: RecentDownload[] = [];
   formatPicker: RequestRow | null = null;
-  downloadTray: DownloadOutcome[] | null = null;
+  downloadTray: DownloadTray | null = null;
   requestsLoaded = false;
   requestsError: string | null = null;
   private renderedRequestsSignature: string | null = null;
@@ -103,10 +111,12 @@ export class RequestsSlice {
       ? `${latest.title} · ${latest.status === "downloaded" ? "Ready to play" : requestStageLabel(latest)}`
       : [ready && `${ready} ready to play`, missing && `${missing} no copy found`,
         review && `${review} ${review === 1 ? "needs" : "need"} review`].filter(Boolean).join(" · ");
-    notifyDownloadUpdates(summary, () => {
-      this.downloadTray = fresh;
-      this.host.bump();
-    });
+    notifyDownloadUpdates(summary, () => this.openDownloadTray({ source: "updates", rows: fresh }));
+  }
+
+  openDownloadTray(tray: DownloadTray) {
+    this.downloadTray = tray;
+    this.host.bump();
   }
 
   closeDownloadTray() {
@@ -125,6 +135,10 @@ export class RequestsSlice {
     this.readRevision++;
     this.requestRows = existing ? this.requestRows.map(request => request.id === row.id ? row : request)
       : [row, ...this.requestRows];
+    if (this.downloadTray?.rows.some(request => request.id === row.id)) {
+      this.downloadTray = { ...this.downloadTray,
+        rows: this.downloadTray.rows.map(request => request.id === row.id ? row : request) };
+    }
     this.resetRequestsSignature();
     this.host.bump();
   }
@@ -160,19 +174,25 @@ export class RequestsSlice {
     }
   }
 
-  async retryRequest(id: number, searchTitle?: string, revision?: number) {
+  async retryRequest(id: number, searchTitle?: string, revision?: number,
+    options?: { restoreMissing: boolean; onError?: (message: string) => void }) {
     try {
       const result = await postJson<{ status: string; request?: RequestRow }>("/api/requests/retry", {
         request_id: id,
         search_title: searchTitle,
         format_revision: revision,
+        restore_missing: options?.restoreMissing || undefined,
       });
       if (result.request) this.applyRequest(result.request);
       notify(result.status);
       await this.loadRequests();
       return true;
     } catch (error) {
-      notify(errorMessage(error, "Retry failed"));
+      if (options?.onError) {
+        options.onError(error instanceof ApiError ? error.message : "Couldn’t retry the request. Try again.");
+      } else {
+        notify(errorMessage(error, "Retry failed"));
+      }
       return false;
     }
   }

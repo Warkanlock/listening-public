@@ -60,3 +60,5 @@ export const canChooseFormat = (state: RequestState) =>
   ["choose_format", "choose_copy", "copy_unavailable", "no_matches", "search_failed", "verification_failed"].includes(state);
 export const canChangeRecording = (state: RequestState) => canChooseFormat(state) ||
   ["queued_search", "queued_copy", "retry_search", "retry_copy"].includes(state);
+export const requestNeedsAttention = (state: RequestState) => canChooseFormat(state) || state === "copy_missing";
+export const requestAttentionLabel = (count: number) => `${count} ${count === 1 ? "needs" : "need"} attention`;

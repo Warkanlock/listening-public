@@ -398,7 +398,7 @@ function Shell({ role }: { role: RoomRole }) {
           <ToastAction aria-haspopup="dialog">{toast.action.label}<RoomIcon name="chevronRight" /></ToastAction>
         </Toast> : <Toast><ToastTitle /></Toast>}
       </ToastRegion>
-      {downloadTray ? <DownloadUpdatesTray outcomes={downloadTray}>{picker}</DownloadUpdatesTray> : picker}
+      {downloadTray ? <DownloadUpdatesTray tray={downloadTray}>{picker}</DownloadUpdatesTray> : picker}
       <ShortcutsDialog />
       <AnnouncementsDialog />
       <SongDialog />

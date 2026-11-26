@@ -30,10 +30,16 @@ def download_progress(tracks):
         if request and (not track.get("in_library") or request.get("audio") or request["status"] == "missing"):
             attempts[request["id"]] = request
     total = len(attempts)
-    downloaded = sum(request["status"] == "downloaded" and bool(request.get("audio")) for request in attempts.values())
-    pending = sum(request["status"] in ("queued", "searching", "waiting_space") for request in attempts.values())
+    downloaded, pending, attention = 0, 0, []
+    for identity, request in attempts.items():
+        if request["status"] == "downloaded" and request.get("audio"):
+            downloaded += 1
+        elif request["status"] in ("queued", "searching", "waiting_space"):
+            pending += 1
+        else:
+            attention.append(identity)
     return {"total": total, "downloaded": downloaded, "pending": pending,
-            "needs_attention": total - downloaded - pending,
+            "needs_attention": len(attention), "attention_ids": attention,
             "percent": downloaded * 100 // total if total else 0}
 
 

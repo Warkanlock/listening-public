@@ -601,15 +601,27 @@ class RequestsStore:
         return self._run(work)
 
     @staticmethod
-    def _queue_retry(conn, request_id, search_title):
+    def _queue_retry(conn, request_id, search_title, *, missing=False):
         return bool(conn.execute(
             "UPDATE requests SET search_title=?, status='queued', message='', selected_copy_key=NULL, "
             "aac_revision=CASE WHEN aac_revision=format_revision THEN format_revision+1 END, "
             "broad_revision=CASE WHEN broad_revision=format_revision THEN format_revision+1 END, "
             "phase='', retry_count=0, retry_at=0, retry_priority=0, resolved_at=NULL, "
+            "audio_path=CASE WHEN ? THEN '' ELSE audio_path END, "
             "updated_at=CURRENT_TIMESTAMP, format_revision=format_revision+1 "
-            "WHERE id=? AND status IN ('not_found','error','rejected')",
-            (search_title, request_id)).rowcount)
+            "WHERE id=? AND (status IN ('not_found','error','rejected') OR (? AND status='downloaded'))",
+            (search_title, missing, request_id, missing)).rowcount)
+
+    def retry_missing(self, request_id, revision, audio_path):
+        """Requeue the still-current request whose playable file the caller found missing."""
+        def work(conn):
+            row = self._lock_request(conn, request_id)
+            if row["status"] != "downloaded" or row["format_revision"] != revision or row["audio_path"] != audio_path:
+                return False
+            if self._active(conn, row["track_index"], row["artist"], row["title"], row["musicbrainz_id"], excluding=request_id):
+                raise ValueError("Another request already exists for this song. Open it in Requests.")
+            return self._queue_retry(conn, request_id, row["search_title"], missing=True)
+        return self._run(work)
 
     def reserved_tracks(self, first, last):
         """Catalog indices whose downloads are governed by an individual format choice."""
@@ -698,7 +710,7 @@ class RequestsStore:
                 (*statuses, COPY_REVIEW_MESSAGE))
 
     @staticmethod
-    def _active(conn, index, artist="", title="", musicbrainz_id=""):
+    def _active(conn, index, artist="", title="", musicbrainz_id="", *, excluding=None):
         statuses = ACTIVE_STATUSES
         if index is None:
             condition, params = RequestsStore._pick_condition(artist, title, musicbrainz_id)
@@ -708,8 +720,8 @@ class RequestsStore:
             params = (index, index)
         active, values = RequestsStore._active_filter(statuses)
         return conn.execute(
-            f"SELECT * FROM requests WHERE {condition} AND {active} ORDER BY id DESC LIMIT 1",
-            (*params, *values)).fetchone()
+            f"SELECT * FROM requests WHERE {condition} AND {active} AND id IS NOT ? ORDER BY id DESC LIMIT 1",
+            (*params, *values, excluding)).fetchone()
 
     @staticmethod
     def _weekly_requests(conn):

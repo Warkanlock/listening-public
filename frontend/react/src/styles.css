@@ -392,6 +392,7 @@ button:disabled, .primary-action:disabled, .quiet-button:disabled { opacity: .52
 .request-details span { display: block; overflow: hidden; margin-top: var(--space-2); color: var(--quiet); font-size: var(--font-md); text-overflow: ellipsis; white-space: nowrap; }
 .request-item .request-details span { white-space: normal; overflow-wrap: anywhere; }
 .request-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
+.requests-toolbar-icons { flex: none; flex-wrap: nowrap; }
 @media (max-width: 680px) {
   .requests-view { --request-inset: var(--space-6); }
   .request-item { flex-wrap: wrap; gap: var(--space-3); }
@@ -1438,6 +1439,7 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .download-updates-song { display: grid; flex: 1 1 8rem; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
 .download-updates-song small { color: var(--muted); }
 .download-updates-song .request-status { justify-self: start; }
+.download-updates-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .shortcuts-dialog [data-slot="dialog-title"] { margin: var(--space-1) 0; font-size: var(--font-5xl); letter-spacing: var(--tracking-tight); font-weight: var(--weight-bold); }
 .shortcuts-dialog > [data-slot="dialog-description"] { margin: 0 0 var(--space-9); color: var(--quiet); font-size: var(--font-md); }
 
@@ -1991,6 +1993,8 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .weekly-discovery-progress { margin-block-start: var(--space-8); }
 .weekly-discovery-progress progress { display: block; width: 100%; accent-color: var(--accent); }
 .weekly-discovery-progress p { color: var(--muted); margin-block: var(--space-3) 0; }
+.weekly-progress-caption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-6); margin-block-start: var(--space-4); }
+.weekly-progress-caption p { margin: 0; }
 .weekly-discovery-tracks { margin: var(--space-7) 0; padding: 0; list-style: none; border-block-start: 1px solid var(--line); }
 .weekly-discovery-tracks li {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-5);

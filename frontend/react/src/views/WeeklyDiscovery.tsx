@@ -4,6 +4,7 @@ import { RoomAction } from "../components/RoomControls";
 import { RoomIconButton } from "../components/RoomIcon";
 import { RequestStatus, RetryRequestButton } from "../components/RequestStatus";
 import { canChangeRecording, canChooseFormat, needsCopyChoice, requestStage } from "../requestState";
+import { RequestAttentionButton } from "../components/RequestAttentionButton";
 import { RecordingVersions } from "../components/RecordingVersions";
 import { useStore } from "../store";
 
@@ -24,7 +25,7 @@ type WeeklyPlaylist = {
   state: "waiting" | "building" | "ready" | "unavailable";
   tracks: WeeklyTrack[];
   can_request: boolean;
-  download_progress?: { total: number; downloaded: number; pending: number; needs_attention: number; percent: number };
+  download_progress?: { total: number; downloaded: number; pending: number; attention_ids?: number[]; percent: number };
 };
 
 const route = "/api/discover/weekly";
@@ -88,7 +89,14 @@ export function WeeklyDiscovery() {
   const downloads = tracks.filter(needsCopy);
   const edition = playlist?.week && new Date(playlist.week + "T00:00:00");
   const progress = playlist?.download_progress;
-  const nextReview = tracks.find(track => !track.in_library && track.request && needsCopyChoice(requestStage(track.request)));
+  const attentionIds = progress?.attention_ids;
+  const forAttention = tracks.flatMap(track => {
+    const row = requestRow(track);
+    if (!row) return [];
+    const needsAttention = attentionIds ? attentionIds.includes(row.id)
+      : (!track.in_library || row.status === "missing") && ready(row) === null && !BUSY_STATUSES.includes(row.status);
+    return needsAttention ? [row] : [];
+  });
 
   function reviewCopies(track: WeeklyTrack) {
     const request = requestRow(track);
@@ -140,7 +148,7 @@ export function WeeklyDiscovery() {
             {edition.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
           </time></p>}
         </div>
-        {(nextReview || requestIds.length > 0 || (playlist?.can_request && downloads.length > 0)) && (
+        {(requestIds.length > 0 || (playlist?.can_request && downloads.length > 0)) && (
           <div className="weekly-discovery-actions">
             {requestIds.length > 0 && <RoomAction primary icon="play" disabled={removing}
               onClick={() => void store.sendSession("play_requests", { request_ids: requestIds })}>Play downloaded songs</RoomAction>}
@@ -148,15 +156,16 @@ export function WeeklyDiscovery() {
               onClick={() => void download(downloads.map(track => track.id))}>
               {sending ? "Queuing…" : "Download playlist"}
             </RoomAction>}
-            {nextReview && <RoomAction icon="catalogs" onClick={() => reviewCopies(nextReview)}>Review copies</RoomAction>}
           </div>
         )}
       </header>
       {notice && <p role="status">{notice}</p>}
       {progress && progress.total > 0 && <div className="weekly-discovery-progress">
         <progress aria-label="Playlist downloads" max={100} value={progress.percent} />
-        <p>{progress.downloaded} of {progress.total} downloaded · {progress.percent}%
-          {progress.needs_attention > 0 && ` · ${progress.needs_attention} ${progress.needs_attention === 1 ? "needs" : "need"} attention`}</p>
+        <div className="weekly-progress-caption">
+          <p>{progress.downloaded} of {progress.total} downloaded · {progress.percent}%</p>
+          <RequestAttentionButton weeklyRows={forAttention} />
+        </div>
       </div>}
       {error ? <p role="status">{error} <RoomAction onClick={() => setRevision(value => value + 1)}>Try again</RoomAction></p>
         : !state || state === "building" ? <p role="status">Building this week’s playlist…</p>
