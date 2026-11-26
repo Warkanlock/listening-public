@@ -482,6 +482,14 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 [data-slot="toast-region"] { position: fixed; right: var(--space-10); bottom: calc(var(--player-height) + 11px); z-index: 50; display: grid; gap: var(--space-4); justify-items: end; pointer-events: none; }
 [data-slot="toast"] { max-width: min(380px, calc(100vw - 30px)); padding: var(--space-5) var(--space-8); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: var(--panel); color: var(--text); font-size: var(--font-md); box-shadow: var(--shadow-toast); transition: opacity .17s, transform .17s; }
 [data-slot="toast"][data-starting-style] { opacity: 0; transform: translateY(8px); }
+[data-slot="toast"].download-updates-toast { padding: 0; pointer-events: auto; }
+.download-updates-toast button {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-6);
+  min-height: 44px; width: 100%; padding: var(--space-5) var(--space-8); border: 0;
+  border-radius: var(--radius-lg); background: transparent; color: var(--accent-ink); text-align: start; cursor: pointer;
+}
+.download-updates-toast button:hover { background: var(--hover); }
+.download-updates-toast .room-icon { flex: none; }
 
 .queue-panel { position: fixed; top: 8px; right: 8px; bottom: var(--player-height); z-index: 35; width: min(355px, calc(100vw - 16px)); padding: var(--space-9) var(--space-9); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--panel-tint); box-shadow: var(--shadow-panel); overflow: auto; }
 .queue-header { display: flex; justify-content: space-between; align-items: start; }
@@ -1412,6 +1420,24 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
    Height stays fit-content under each dialog's own max-height. */
 [data-slot="dialog-content"], [data-slot="alert-dialog-content"] { inset: 0; margin: auto; height: fit-content; }
 [data-slot="dialog-backdrop"], [data-slot="alert-dialog-backdrop"] { backdrop-filter: blur(3px); }
+.download-updates-tray[data-slot="dialog-content"] {
+  inset: 0 0 0 auto; margin: 0; width: min(100%, 28rem); height: 100dvh; max-height: none;
+  display: flex; flex-direction: column; padding: var(--space-9); background: var(--panel);
+  border-inline-start: 1px solid var(--line-strong); box-shadow: var(--shadow-panel);
+}
+.download-updates-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
+.download-updates-head h2 { margin: 0; font-size: var(--font-dialog); }
+.download-updates-groups { overflow: auto; min-height: 0; margin-block-start: var(--space-7); }
+.download-updates-groups section + section { margin-block-start: var(--space-8); }
+.download-updates-groups h3 { margin: 0 0 var(--space-3); font-size: var(--font-lg); }
+.download-updates-groups ul { margin: 0; padding: 0; list-style: none; }
+.download-updates-groups li {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4);
+  padding-block: var(--space-5); border-block-start: 1px solid var(--line);
+}
+.download-updates-song { display: grid; flex: 1 1 8rem; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.download-updates-song small { color: var(--muted); }
+.download-updates-song .request-status { justify-self: start; }
 .shortcuts-dialog [data-slot="dialog-title"] { margin: var(--space-1) 0; font-size: var(--font-5xl); letter-spacing: var(--tracking-tight); font-weight: var(--weight-bold); }
 .shortcuts-dialog > [data-slot="dialog-description"] { margin: 0 0 var(--space-9); color: var(--quiet); font-size: var(--font-md); }
 
@@ -1962,6 +1988,7 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .weekly-discovery-header { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: var(--space-6); }
 .weekly-discovery-header p { margin: 0; color: var(--muted); max-width: 54ch; }
 .weekly-discovery-actions { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.weekly-discovery-progress { margin-block-start: var(--space-8); }
 .weekly-discovery-progress progress { display: block; width: 100%; accent-color: var(--accent); }
 .weekly-discovery-progress p { color: var(--muted); margin-block: var(--space-3) 0; }
 .weekly-discovery-tracks { margin: var(--space-7) 0; padding: 0; list-style: none; border-block-start: 1px solid var(--line); }

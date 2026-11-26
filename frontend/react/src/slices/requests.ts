@@ -1,5 +1,5 @@
-import { api, postJson, type DownloadOutcome, type RecentDownload, type RequestRow, type RequestSong } from "../api";
-import { notify } from "../toasts";
+import { api, postJson, type DownloadOutcome, type DownloadOutcomePayload, type RecentDownload, type RequestRow, type RequestSong } from "../api";
+import { notify, notifyDownloadUpdates } from "../toasts";
 import { canChooseFormat, requestStage, requestStageLabel } from "../requestState";
 import { errorMessage, type SliceHost } from "./host";
 
@@ -35,6 +35,7 @@ export class RequestsSlice {
   requestRows: RequestRow[] = [];
   recentDownloads: RecentDownload[] = [];
   formatPicker: RequestRow | null = null;
+  downloadTray: DownloadOutcome[] | null = null;
   requestsLoaded = false;
   requestsError: string | null = null;
   private renderedRequestsSignature: string | null = null;
@@ -59,7 +60,7 @@ export class RequestsSlice {
   async loadRequests() {
     const revision = ++this.readRevision;
     try {
-      const result = await api<{ requests: RequestRow[]; downloads?: RecentDownload[]; outcomes?: DownloadOutcome[] }>("/api/requests");
+      const result = await api<{ requests: RequestRow[]; downloads?: RecentDownload[]; outcomes?: DownloadOutcomePayload[] }>("/api/requests");
       if (revision !== this.readRevision) return true;
       this.requestRows = result.requests;
       this.recentDownloads = result.downloads ?? [];
@@ -81,21 +82,36 @@ export class RequestsSlice {
     }
   }
 
-  private announceOutcomes(outcomes: DownloadOutcome[]) {
+  private announceOutcomes(outcomes: DownloadOutcomePayload[]) {
     const storageKey = "listening-download-outcomes-v1";
     try { this.seenOutcomes = localStorage.getItem(storageKey)?.split("\n") ?? this.seenOutcomes; } catch { /* Storage is optional. */ }
     const previous = this.seenOutcomes;
     this.seenOutcomes = [...new Set([...outcomes.map(row => row.key), ...(previous ?? [])])].slice(0, 96);
     try { localStorage.setItem(storageKey, this.seenOutcomes.join("\n")); } catch { /* Storage is optional. */ }
     if (previous === null) return;
-    const fresh = outcomes.filter(row => !previous.includes(row.key));
-    const latest = fresh[0];
-    if (fresh.length > 1) {
-      const ready = fresh.filter(row => row.status === "downloaded").length;
-      const missing = fresh.filter(row => requestStage(row) === "no_matches").length;
-      const review = fresh.length - ready - missing;
-      notify([ready && `${ready} ready to play`, missing && `${missing} no copy found`, review && `${review} need review`].filter(Boolean).join(" · "));
-    } else if (latest) notify(`${latest.title} · ${latest.status === "downloaded" ? "Ready to play" : requestStageLabel(latest)}`);
+    const fresh = outcomes.flatMap(row => {
+      if (previous.includes(row.key)) return [];
+      const id = row.id ?? Number(row.key.split("/", 1)[0]);
+      return Number.isSafeInteger(id) && id > 0 ? [{ ...row, id, artist: row.artist ?? "" }] : [];
+    });
+    if (!fresh.length) return;
+    const [latest] = fresh;
+    const ready = fresh.filter(row => row.status === "downloaded").length;
+    const missing = fresh.filter(row => requestStage(row) === "no_matches").length;
+    const review = fresh.length - ready - missing;
+    const summary = fresh.length === 1
+      ? `${latest.title} · ${latest.status === "downloaded" ? "Ready to play" : requestStageLabel(latest)}`
+      : [ready && `${ready} ready to play`, missing && `${missing} no copy found`,
+        review && `${review} ${review === 1 ? "needs" : "need"} review`].filter(Boolean).join(" · ");
+    notifyDownloadUpdates(summary, () => {
+      this.downloadTray = fresh;
+      this.host.bump();
+    });
+  }
+
+  closeDownloadTray() {
+    this.downloadTray = null;
+    this.host.bump();
   }
 
   chooseFormat(row: RequestRow | null) {
