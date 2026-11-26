@@ -2363,10 +2363,13 @@ def verify_discovery_trail(page, screenshot):
         total = len(weekly_tracks)
         route.fulfill(json={"week": "2026-11-23", "state": "ready", "can_request": True,
                             "download_progress": {"total": total, "downloaded": 1, "pending": 0,
-                                                  "needs_attention": total - 1, "percent": 100 // total},
+                                                  "needs_attention": total - 1, "attention_ids": [902] if total == 2 else [],
+                                                  "percent": 100 // total},
                             "tracks": weekly_tracks})
 
     page.route("**/api/discover/weekly", weekly_playlist)
+    page.route("**/api/requests?id=902", lambda route: route.fulfill(json={"requests": [
+        {**weekly_tracks[1]["request"], "title": "Recording to review", "artist": "Fixture Ensemble"}]}))
     page.route("**/api/requests/copies", lambda route: route.fulfill(json={"matches": [
         {"key": "a" * 32, "label": "Possible copy.mp3", "format": "mp3", "recommended": False}]}))
     page.route("**/api/discover/*/*", branch)
@@ -2413,19 +2416,25 @@ def verify_discovery_trail(page, screenshot):
         page.get_by_role("heading", name="Weekly Discovery").wait_for()
         page.get_by_text("Weekly edition track", exact=True).wait_for()
         assert page.get_by_role("progressbar", name="Playlist downloads").get_attribute("value") == "50"
-        assert page.get_by_text("1 of 2 downloaded · 50% · 1 needs attention").is_visible()
+        assert page.get_by_text("1 of 2 downloaded · 50%", exact=True).is_visible()
         assert page.get_by_role("button", name="Review copies for Recording to review").is_visible()
         assert not page.get_by_role("button", name="Other recordings: Recording to review").count()
-        page.get_by_role("button", name="Review copies", exact=True).click()
+        attention = page.get_by_role("button", name="1 needs attention", exact=True)
+        attention.press("Enter")
+        tray = page.get_by_role("dialog", name="Weekly Discovery needs attention")
+        assert not tray.get_by_text("Weekly edition track", exact=True).count()
+        tray.get_by_role("button", name="Review copies Recording to review").click()
         copies = page.get_by_role("dialog", name="Choose a copy")
         copies.get_by_role("button", name=re.compile("Possible copy")).wait_for()
         copies.get_by_role("button", name="Change format").click()
         page.get_by_role("button", name="Later", exact=True).click()
+        tray.get_by_role("button", name="Close attention list").click()
         hold_weekly_refresh = True
         page.get_by_role("button", name="Remove Recording to review from Weekly Discovery").click()
         page.get_by_text("Song removed from this week’s playlist.").wait_for()
         page.get_by_text("Recording to review", exact=True).wait_for(state="detached")
         assert page.get_by_role("progressbar", name="Playlist downloads").get_attribute("value") == "100"
+        assert not attention.is_visible()
         assert page.get_by_role("button", name="Play Weekly edition track").is_visible()
         hold_weekly_refresh = False
         for read in held_weekly_reads:
@@ -2511,6 +2520,7 @@ def verify_discovery_trail(page, screenshot):
         page.unroute("**/api/discover")
         page.unroute("**/api/discover/releases")
         page.unroute("**/api/discover/weekly")
+        page.unroute("**/api/requests?id=902")
         page.unroute("**/api/requests/copies")
         page.unroute("**/api/requests", radar_copy)
         page.unroute(f"**/api/music-profile/release-group/{release_group}")
@@ -3381,8 +3391,11 @@ def run_browser(server, output):
                 refresh_requests = page.get_by_role("button", name="Refresh requests", exact=True)
                 for width, height in ((1440, 900), (320, 740), (390, 844)):
                     page.set_viewport_size({"width": width, "height": height})
-                    left, right = extensions.bounding_box(), refresh_requests.bounding_box()
-                    assert left and right and left["x"] + left["width"] <= right["x"] and abs(left["y"] - right["y"]) < 1
+                    page.wait_for_function("""() => {
+                      const left = document.querySelector('[aria-label="View extensions"]')?.getBoundingClientRect();
+                      const right = document.querySelector('[aria-label="Refresh requests"]')?.getBoundingClientRect();
+                      return left?.width && right?.width && left.right <= right.left && Math.abs(left.top - right.top) < 1;
+                    }""", timeout=5000)
                 extensions.click()
                 page.get_by_role("dialog", name="Extensions", exact=True).get_by_role("button", name="Close extensions").click()
                 page.set_viewport_size({"width": 1440, "height": 900})
@@ -3469,6 +3482,11 @@ def run_browser(server, output):
                     try:
                         status_route = "**/api/requests?id=10000"
                         page.route(status_route, lambda route: route.fulfill(json={"requests": [progress_row]}))
+                        page.get_by_role("button", name=re.compile(r"^\d+ needs? attention$")).click()
+                        attention_tray = page.get_by_role("dialog", name="Requests needing attention")
+                        attention_tray.get_by_role("button", name="Review copies Transfer fixture").wait_for()
+                        assert not attention_tray.get_by_role("region", name="Ready to play").count()
+                        attention_tray.get_by_role("button", name="Close attention list").click()
                         notify_downloads = True
                         refresh_requests.click()
                         toast = page.get_by_role("button", name="1 ready to play · 1 needs review")
@@ -3575,7 +3593,8 @@ def run_browser(server, output):
                 item.detail = "Transfer and verification, selected-copy recovery, and recording changes on the same request"
                 shot(item, "13-requests.png")
             except Exception as error:
-                item.detail = str(error)
+                from traceback import format_exc
+                item.detail = str(error) or format_exc(limit=1)
             finally:
                 page.set_viewport_size({"width": 1440, "height": 900})
                 close_any_dialog()

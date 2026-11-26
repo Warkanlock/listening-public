@@ -266,9 +266,11 @@ internal class Room(val origin: String, val id: String, private val token: Strin
         copyRequestFields(row, format).apply { if (copyKey != null) put("copy_key", copyKey) })
     fun browseCopies(row: JSONObject, format: String, fresh: Boolean = false) =
         request("/api/requests/copies", copyRequestFields(row, format).put("fresh", fresh))
-    fun retryCopy(row: JSONObject) = request("/api/requests/retry", JSONObject().put("request_id", row.getLong("id")).apply {
-        if (row.has("format_revision")) put("format_revision", row.getLong("format_revision"))
-    })
+    fun retryCopy(row: JSONObject, restoreMissing: Boolean = false) =
+        request("/api/requests/retry", JSONObject().put("request_id", row.getLong("id")).apply {
+            if (row.has("format_revision")) put("format_revision", row.getLong("format_revision"))
+            if (restoreMissing) put("restore_missing", true)
+        })
     fun recordingVersions(item: JSONObject): List<JSONObject> {
         val id = item.optString("musicbrainz_id").ifBlank { item.optString("id") }
         val query = "${item.optString("artist").take(70)} - ${item.optString("title")}".take(160)
