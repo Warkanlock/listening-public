@@ -1,12 +1,3 @@
-export type PatternResult = { kind: "matches"; indexes: number[] } | { kind: "invalid" };
-
-function validResult(data: unknown): data is PatternResult {
-  if (!data || typeof data !== "object" || !("kind" in data)) return false;
-  if (data.kind === "invalid") return true;
-  return data.kind === "matches" && "indexes" in data && Array.isArray(data.indexes) &&
-    data.indexes.every(index => Number.isInteger(index) && index >= 0);
-}
-
 function normalize(text: string) {
   return text.toLowerCase().normalize("NFKD").replace(/\p{Mark}/gu, "");
 }
@@ -33,78 +24,29 @@ function near(term: string, word: string) {
 }
 
 export function enableFeatureSearch() {
-  const form = document.querySelector<HTMLElement>(".about-feature-search");
+  const controls = document.querySelector<HTMLElement>(".about-feature-search");
   const input = document.querySelector<HTMLInputElement>("#feature-query");
-  const pattern = document.querySelector<HTMLInputElement>("#feature-pattern");
   const status = document.querySelector<HTMLElement>("#feature-status");
   const features = Array.from(document.querySelectorAll<HTMLDetailsElement>("#feature-results [data-feature]"));
-  if (!form || !input || !pattern || !status || !features.length) return;
+  if (!controls || !input || !status || !features.length) return;
 
   const entries = features.map(feature => {
     const text = [feature.querySelector("summary")?.textContent, feature.querySelector("p")?.textContent,
       feature.dataset.keywords].filter(Boolean).join(" ");
-    return { text, words: normalize(text).match(/[\p{Letter}\p{Number}]+/gu) ?? [] };
+    const words = normalize(text).match(/[\p{Letter}\p{Number}]+/gu) ?? [];
+    return { feature, words };
   });
-  let worker: Worker | undefined;
-  let deadline: number | undefined;
-  function finish() {
-    worker?.terminate();
-    worker = undefined;
-    window.clearTimeout(deadline);
-  }
-  const display = (matches: number[]) => {
-    features.forEach((feature, index) => { feature.hidden = !matches.includes(index); });
-    status.textContent = matches.length === 0 ? "No features match. Try another search."
-      : `${matches.length} ${matches.length === 1 ? "feature" : "features"}`;
-  };
   const search = () => {
-    finish();
-    const query = pattern.checked ? input.value : input.value.trim();
-    input.removeAttribute("aria-invalid");
-    const reportError = (message: string, invalid = false) => {
-      finish();
-      if (invalid) input.setAttribute("aria-invalid", "true");
-      features.forEach(feature => { feature.hidden = true; });
-      status.textContent = message;
-    };
-    if (query.length > 160) {
-      reportError("Use 160 characters or fewer.", true);
-      return;
+    const terms = normalize(input.value).match(/[\p{Letter}\p{Number}]+/gu) ?? [];
+    let hasMatches = false;
+    for (const { feature, words } of entries) {
+      const matches = terms.every(term => words.some(word => near(term, word)));
+      feature.hidden = !matches;
+      hasMatches ||= matches;
     }
-    if (!query || !pattern.checked) {
-      const terms = normalize(query).match(/[\p{Letter}\p{Number}]+/gu) ?? [];
-      display(entries.flatMap(({ words }, index) =>
-        terms.every(term => words.some(word => near(term, word))) ? [index] : []));
-      return;
-    }
-
-    try {
-      const request = new Worker(new URL("./feature-pattern.worker.ts", import.meta.url), { type: "module" });
-      worker = request;
-      status.textContent = "Searching…";
-      request.onmessage = ({ data }: MessageEvent<unknown>) => {
-        if (worker !== request) return;
-        if (!validResult(data)) {
-          reportError("Pattern search is unavailable. Try text search.");
-          return;
-        }
-        if (data.kind === "invalid") reportError("Check your regular expression.", true);
-        else {
-          finish();
-          display(data.indexes);
-        }
-      };
-      request.onerror = () => { if (worker === request) reportError("Pattern search is unavailable. Try text search."); };
-      deadline = window.setTimeout(() => {
-        if (worker === request) reportError("That pattern took too long. Try a simpler expression.", true);
-      }, 600);
-      request.postMessage({ query, texts: entries.map(entry => entry.text) });
-    } catch {
-      reportError("Pattern search is unavailable. Try text search.");
-    }
+    status.textContent = hasMatches ? "" : "No features match. Try another search.";
   };
   input.addEventListener("input", search);
-  pattern.addEventListener("change", search);
-  form.hidden = false;
+  controls.hidden = false;
   search();
 }

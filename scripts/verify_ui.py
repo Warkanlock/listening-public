@@ -670,7 +670,6 @@ def verify_landing(browser, base, output, errors, warnings):
         worker = response.read()
         assert b"/assets/first-light-" not in worker, "The player precaches the tour recording or artwork"
         assert b"/assets/about-showcase/" not in worker, "The player precaches the About screenshots"
-        assert b"/assets/feature-pattern.worker-" not in worker, "The player precaches the About search worker"
         assert b"about/index.html" not in worker, "The player precaches the gated feature tour"
     desktop = browser.new_page(viewport={"width": 1440, "height": 900}, service_workers="block")
     mobile = browser.new_page(viewport={"width": 390, "height": 844}, has_touch=True,
@@ -687,7 +686,7 @@ def verify_landing(browser, base, output, errors, warnings):
             sleeve = page.locator(".about-sleeve")
             assert sleeve.locator("img").evaluate("img => img.complete && img.naturalWidth > 0")
             assert page.get_by_role("link", name="Explore listening features").get_attribute("href") == "#showcase"
-            assert page.get_by_role("navigation").get_by_role("link", name="Features").is_visible()
+            assert page.get_by_role("navigation").get_by_role("link", name="Features").get_attribute("href") == "#showcase"
             logo = page.get_by_role("link", name="Listening Room", exact=True).first.locator("img")
             assert logo.evaluate("img => img.complete && img.naturalWidth > 0")
             hero_library = page.get_by_role("img", name="Library and queue in Listening Room")
@@ -718,12 +717,15 @@ def verify_landing(browser, base, output, errors, warnings):
                             animations="disabled")
             screens = page.get_by_role("region", name="Find your next listen.")
             assert screens.get_by_role("heading", level=3).all_text_contents() == [
-                "Mood Map", "Library Radio", "Activity mixes", "Deep Dive", "Weekly Discovery", "Camping mode"]
-            first_screen = screens.get_by_role("img", name="Library Radio in Listening")
-            assert first_screen.bounding_box()["width"] <= (390 if page == mobile else 560)
+                "Mood Map", "Camping mode", "Weekly Discovery", "Deep Dive", "Library Radio", "Activity mixes"]
+            assert screens.get_by_role("link", name="Search all features").get_attribute("href") == "#features"
+            mood_map = screens.get_by_role("img", name="Mood Map with a mix", exact=False)
+            radio = screens.get_by_role("img", name="Library Radio in Listening")
+            if page == desktop:
+                assert mood_map.bounding_box()["width"] > radio.bounding_box()["width"]
             screens.get_by_text("See more screens", exact=True).click()
             room_images = screens.get_by_role("img").all()
-            assert len(room_images) == 17
+            assert len(room_images) == 15
             for picture in room_images:
                 picture.scroll_into_view_if_needed()
                 picture.evaluate("image => image.decode()")
@@ -731,6 +733,18 @@ def verify_landing(browser, base, output, errors, warnings):
                     && image.naturalHeight === Number(image.getAttribute('height'))""")
                 assert picture.get_attribute("src") == picture.locator("..").get_attribute("href")
             screens.get_by_text("See more screens", exact=True).click()
+            listening = page.get_by_role("region", name="Listen here. Pick up elsewhere.")
+            assert listening.get_by_role("heading", level=3).all_text_contents() == [
+                "Listen on this device", "Pair devices on your network"]
+            for picture in listening.get_by_role("img").all():
+                picture.scroll_into_view_if_needed()
+                picture.evaluate("image => image.decode()")
+                assert picture.evaluate("image => image.naturalWidth === Number(image.getAttribute('width'))")
+                assert picture.get_attribute("src") == picture.locator("..").get_attribute("href")
+            listening.get_by_role("link", name="Listen in a browser").click()
+            install.get_by_role("tabpanel", name="Browser", exact=True).get_by_role("heading", name="Browser on any computer").wait_for()
+            listening.get_by_role("link", name="Connect a device", exact=True).click()
+            assert page.evaluate("location.hash") == "#connect"
             showcase = page.get_by_role("region", name="Listening on e-ink.")
             showcase.scroll_into_view_if_needed()
             images = showcase.get_by_role("img").all()
@@ -764,22 +778,26 @@ def verify_landing(browser, base, output, errors, warnings):
             page.get_by_role("button", name="Pack preview mix").click()
             assert "Saved trip preview" in page.locator(".about-result").inner_text()
             features = page.get_by_role("region", name="Find a feature.")
-            query = features.get_by_role("searchbox", name="Search supported features")
+            query = features.get_by_role("searchbox", name="Search features")
+            entries = features.locator("[data-feature]")
+            visible_entries = entries.filter(visible=True)
+            status = features.get_by_role("status")
+            assert visible_entries.count() == entries.count()
+            assert features.get_by_role("checkbox").count() == 0
+            assert status.text_content() == ""
             query.fill("campign")
-            features.get_by_text("1 feature", exact=True).wait_for()
+            assert visible_entries.count() == 1
+            assert status.text_content() == ""
             features.get_by_text("Offline listening and Camping mode", exact=True).click()
             assert features.get_by_text("Buffer upcoming tracks", exact=False).is_visible()
-            features.get_by_role("checkbox", name="Regex").check()
-            query.fill(r"crossfade|sync(?:ed)? lyrics")
-            features.get_by_text("2 features", exact=True).wait_for()
+            query.fill("crossfade")
             assert features.get_by_text("Playback and queue", exact=True).is_visible()
-            assert features.get_by_text("Synced lyrics", exact=True).is_visible()
-            query.fill("(")
-            features.get_by_text("Check your regular expression.", exact=True).wait_for()
             query.fill("qwertyuiop")
-            features.get_by_text("No features match. Try another search.", exact=True).wait_for()
+            assert visible_entries.count() == 0
+            assert status.text_content() == "No features match. Try another search."
             query.fill("")
-            features.get_by_text("16 features", exact=True).wait_for()
+            assert visible_entries.count() == entries.count()
+            assert status.text_content() == ""
 
             mac = install.get_by_role("tab", name="Mac", exact=True)
             mac.press("ArrowRight")
@@ -1388,7 +1406,11 @@ def verify_hiking(browser, server, output, errors, warnings):
         landscape = desktop.locator(".hike-landscape")
         landscape.wait_for()
         assert landscape.get_attribute("aria-hidden") == "true"
-        assert desktop.get_by_role("button", name="Make mixes").is_visible()
+        queue = desktop.get_by_role("button", name="Close queue")
+        if queue.is_visible():
+            queue.click()
+        desktop.get_by_role("button", name="Make mixes").click()
+        desktop.get_by_text("4 songs across", exact=False).wait_for()
         desktop.screenshot(path=str(output / "29-camping-mode-desktop.png"))
     with browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True) as context:
         phone = context.new_page()
@@ -2831,7 +2853,7 @@ def run_browser(server, output):
             try:
                 verify_landing(browser, server.base, output, errors, warnings)
                 item.ok = True
-                item.detail = "Both routes, local artwork, keyboard and touch mood selection, reduced motion"
+                item.detail = "Both routes, feature screenshots, device setup links, and keyboard and touch previews"
             except Exception as error:
                 item.detail = str(error)
 
