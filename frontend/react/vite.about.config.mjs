@@ -1,11 +1,16 @@
-import { cp, rename } from "node:fs/promises";
+import { cp } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const root = new URL("./", import.meta.url);
 const output = new URL("landing-dist/", root);
-const tourUrl = "https://listening-room-tour.vercel.app/";
+const tourUrl = new URL(process.env.LISTENING_LANDING_URL || "https://listening-room-tour.vercel.app/");
+if (!["http:", "https:"].includes(tourUrl.protocol) || tourUrl.username || tourUrl.password ||
+    tourUrl.search || tourUrl.hash) {
+  throw new Error("LISTENING_LANDING_URL must be a public HTTP(S) URL with no credentials, query, or fragment.");
+}
+if (!tourUrl.pathname.endsWith("/")) tourUrl.pathname += "/";
 const socialImage = "listening-room-social.jpg";
 const socialPreview = {
   title: "Listening Room",
@@ -14,10 +19,10 @@ const socialPreview = {
   "image:alt": "Listening Room logo beside a screenshot of the music library and playback queue.",
 };
 const socialTags = [
-  { tag: "link", injectTo: "head", attrs: { rel: "canonical", href: tourUrl } },
+  { tag: "link", injectTo: "head", attrs: { rel: "canonical", href: tourUrl.href } },
   ...Object.entries({
     type: "website",
-    url: tourUrl,
+    url: tourUrl.href,
     ...socialPreview,
     "image:type": "image/jpeg",
     "image:width": "1200",
@@ -29,6 +34,7 @@ const socialTags = [
 
 export default defineConfig({
   root: fileURLToPath(root),
+  base: tourUrl.pathname,
   publicDir: false,
   plugins: [
     react(),
@@ -47,7 +53,7 @@ export default defineConfig({
         },
       },
       async closeBundle() {
-        await rename(new URL("about/index.html", output), new URL("index.html", output));
+        await cp(new URL("about/index.html", output), new URL("index.html", output));
         await cp(new URL("public/assets/about-showcase/room/", root), new URL("assets/about-showcase/room/", output), { recursive: true });
         for (const screenshot of ["owned-music.webp", "connect-a-device.webp"]) {
           await cp(new URL(`public/assets/about-showcase/onboarding/${screenshot}`, root),
