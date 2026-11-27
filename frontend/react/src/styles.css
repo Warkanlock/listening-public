@@ -1118,18 +1118,7 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .import-conflict p { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: 0; }
 .import-conflict-actions { margin: 0; }
 
-.spotify-card { display: grid; align-content: start; gap: var(--space-6); }
-.spotify-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-7); }
-.spotify-card-heading p { margin-bottom: 0; }
-.settings-panel .spotify-card-heading { display: block; }
-.settings-panel .spotify-card-heading p { margin: var(--space-1) 0 var(--space-5); }
-.spotify-card .metadata-badge { flex: none; }
-.spotify-client-label { display: grid; gap: var(--space-3); color: var(--text); font-size: var(--font-sm); font-weight: var(--weight-medium); }
-.spotify-client-label input { width: 100%; height: 36px; padding: 0 var(--space-5); border: 1px solid var(--input-line); border-radius: var(--radius-lg); background: var(--card); color: var(--text); font: var(--font-md) var(--font-mono); }
-.spotify-client-label input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .spotify-redirect { display: block; padding: var(--space-5) var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--tint-soft); color: var(--accent-ink); font: var(--font-sm)/1.5 var(--font-mono); overflow-wrap: anywhere; user-select: all; }
-.spotify-card a { color: var(--accent); text-underline-offset: 2px; }
-.spotify-card .settings-actions { margin-top: 0; }
 
 .lan-link { min-height: 44px; padding: var(--space-5); border: 1px solid var(--input-line); border-radius: var(--radius-lg); background: var(--card); color: var(--accent-ink); font-size: var(--font-sm); overflow-wrap: anywhere; user-select: all; }
 .process-log { max-height: 210px; min-height: 80px; overflow: auto; padding: var(--space-6); border-radius: var(--radius-lg); background: var(--log-bg); color: var(--log-text); font: var(--font-xs)/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -1644,13 +1633,6 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
   .row-action .track-more, .track-row .row-action .favorite-button { min-width: 44px; }
 }
 
-.spotify-playlists { display: grid; gap: .85rem; }
-.spotify-playlists > button { justify-self: start; }
-.spotify-playlists label { display: grid; gap: .3rem; }
-.spotify-playlists input, .spotify-playlists select {
-  max-width: 100%; padding: .55rem .7rem; color: var(--text); background: var(--card);
-  border: 1px solid var(--line-soft); border-radius: var(--radius-sm); font: inherit;
-}
 
 /* Keep the room's existing layout once the connection is available. */
 .room-content:not([hidden]) { display: contents; }

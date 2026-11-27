@@ -1,7 +1,8 @@
 import { ExtensionsContent } from "./Extensions";
 import { useAppearance } from "../appearance";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import "./settings/room-settings.css";
+import "./settings/settings-lists.css";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/react/tabs";
 import {
   api,
@@ -12,6 +13,7 @@ import {
   type SettingsBody,
 } from "../api";
 import { useStore } from "../store";
+import { RoomIcon, type RoomIconName } from "../components/RoomIcon";
 import { notify } from "../toasts";
 import { EMPTY_FORM, errorText, type FormState } from "./settings/shared";
 import { ClientInstallers } from "./settings/ClientInstallers";
@@ -25,12 +27,63 @@ import { SetupPanel } from "./settings/SetupPanel";
 import { SourcesPanel } from "./settings/SourcesPanel";
 import { StoragePanel } from "./settings/StoragePanel";
 
+const wideSettings = "(min-width: 900px)";
+
+function subscribeToSettingsWidth(notify: () => void) {
+  const query = matchMedia(wideSettings);
+  query.addEventListener("change", notify);
+  return () => query.removeEventListener("change", notify);
+}
+
+type SettingsSection = { key: string; name: string; icon: RoomIconName; panel: ReactNode };
+
+function SettingsSections({ sections, active, onOpenTab }: {
+  sections: SettingsSection[];
+  active: string;
+  onOpenTab: (tab: string) => void;
+}) {
+  const wide = useSyncExternalStore(subscribeToSettingsWidth, () => matchMedia(wideSettings).matches);
+  const index = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const list = index.current;
+    const selected = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!list || !selected) return;
+    const frame = list.getBoundingClientRect();
+    const item = selected.getBoundingClientRect();
+    if (wide) {
+      if (item.top < frame.top) list.scrollTop -= frame.top - item.top;
+      if (item.bottom > frame.bottom) list.scrollTop += item.bottom - frame.bottom;
+    } else {
+      if (item.left < frame.left) list.scrollLeft -= frame.left - item.left;
+      if (item.right > frame.right) list.scrollLeft += item.right - frame.right;
+    }
+  }, [active, wide]);
+
+  return (
+    <Tabs data-settings-layout value={active} orientation={wide ? "vertical" : "horizontal"}
+      onValueChange={value => { if (value) onOpenTab(value); }}>
+      <TabsList ref={index} className="settings-tabs" aria-label="Settings sections">
+        {sections.map(({ key, name, icon }) => <TabsTab key={key} value={key}>
+          <RoomIcon name={icon} /><span>{name}</span>
+        </TabsTab>)}
+      </TabsList>
+      {sections.map(({ key, panel }) => (
+        <TabsPanel key={key} value={key} className="settings-panel"
+          keepMounted={key !== "storage" && key !== "clients" && key !== "extensions"}>
+          {panel}
+        </TabsPanel>
+      ))}
+    </Tabs>
+  );
+}
+
 export function Settings() {
   const store = useStore();
   if (store.member) {
     return <div className="view" data-view="settings">
       <header className="listening-view-head"><h1>Settings</h1></header>
-      <AppearancePanel />
+      <div className="settings-panel"><AppearancePanel /></div>
     </div>;
   }
   return <RoomSettings />;
@@ -138,23 +191,26 @@ function RoomSettings() {
       </div>
     );
   }
-  const sections = [
+  const sections: SettingsSection[] = [
     ...(host ? [
-      { key: "setup", name: "Room setup", panel: <SetupPanel settings={settings} onOpenTab={openTab} /> },
-      { key: "sources", name: "Sources", panel: <SourcesPanel settings={settings}
+      { key: "setup", icon: "settings", name: "Room setup", panel: <SetupPanel settings={settings} onOpenTab={openTab} /> },
+      { key: "sources", icon: "library", name: "Sources", panel: <SourcesPanel settings={settings}
         discovered={discovered} discoveryDone={discoveryDone} scanError={scanError}
         scanStatus={scanStatus} discoverLocal={discoverLocal} /> },
-      { key: "downloads", name: "Downloads", panel: <DownloadsPanel settings={settings} form={form}
+      { key: "downloads", icon: "download", name: "Downloads", panel: <DownloadsPanel settings={settings} form={form}
         setForm={setForm} onSave={onSave} onOpenExtensions={() => openTab("extensions")} /> },
-      { key: "spotify", name: "Spotify", panel: <ConnectionsPanel settings={settings} form={form} setForm={setForm} /> },
-      { key: "storage", name: "Storage", panel: <StoragePanel settings={settings} form={form} setForm={setForm} onSave={onSave} /> },
-    ] : []),
-    ...(appearance ? [{ key: "appearance", name: "Appearance", panel: <AppearancePanel /> }] : []),
-    { key: "extensions", name: "Extensions", panel: <ExtensionsContent /> },
-    { key: "playback", name: "Playback", panel: <PlaybackPanel /> },
-    { key: "radio", name: "Radio", panel: <RadioPanel /> },
-    { key: "devices", name: "Devices", panel: <DevicesPanel settings={settings} /> },
-    { key: "clients", name: "Connect a device", panel: <ClientInstallers onPair={() => openTab("devices")} /> },
+      { key: "spotify", icon: "music", name: "Spotify", panel: <ConnectionsPanel settings={settings} form={form} setForm={setForm} /> },
+      { key: "storage", icon: "jobs", name: "Storage", panel: <StoragePanel settings={settings} form={form} setForm={setForm} onSave={onSave} /> },
+    ] satisfies SettingsSection[] : []),
+    ...(appearance ? [{ key: "appearance", icon: "moods", name: "Appearance", panel: <AppearancePanel /> }] satisfies SettingsSection[] : []),
+    { key: "extensions", icon: "extensions", name: "Extensions", panel: <>
+      <header className="settings-section-title"><div><h2>Extensions</h2><p>Manage download sources and radio providers.</p></div></header>
+      <ExtensionsContent />
+    </> },
+    { key: "playback", icon: "listen", name: "Playback", panel: <PlaybackPanel /> },
+    { key: "radio", icon: "radio", name: "Radio", panel: <RadioPanel /> },
+    { key: "devices", icon: "outputs", name: "Devices", panel: <DevicesPanel settings={settings} /> },
+    { key: "clients", icon: "devices", name: "Connect a device", panel: <ClientInstallers onPair={() => openTab("devices")} /> },
   ];
   const active = sections.some(section => section.key === store.settingsTab)
     ? store.settingsTab
@@ -163,16 +219,7 @@ function RoomSettings() {
   return (
     <div className="view" data-view="settings">
       <header className="listening-view-head"><h1>Settings</h1></header>
-      <Tabs value={active} onValueChange={value => { if (value) openTab(value); }}>
-        <TabsList className="settings-tabs" aria-label="Settings sections">
-          {sections.map(({ key, name }) => <TabsTab key={key} value={key}>{name}</TabsTab>)}
-        </TabsList>
-        {sections.map(({ key, panel }) => (
-          <TabsPanel key={key} value={key} className="settings-panel" keepMounted={key !== "storage" && key !== "clients" && key !== "extensions"}>
-            {panel}
-          </TabsPanel>
-        ))}
-      </Tabs>
+      <SettingsSections sections={sections} active={active} onOpenTab={openTab} />
     </div>
   );
 }

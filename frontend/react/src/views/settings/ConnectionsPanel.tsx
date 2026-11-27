@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Button } from "@ui-sdk/react/button";
 import { Field, FieldLabel } from "@ui-sdk/react/field";
 import { Input } from "@ui-sdk/react/input";
+import { RoomAction } from "../../components/RoomControls";
+import { RoomIcon } from "../../components/RoomIcon";
 import {
   isHost,
   postJson,
@@ -13,19 +14,6 @@ import { useStore } from "../../store";
 import { SpotifyPlaylists } from "./SpotifyPlaylists";
 import { notify } from "../../toasts";
 import { errorText, type FormState } from "./shared";
-
-function spotifyStatusText(spotify: SpotifyStatus, host: boolean): string {
-  if (!host) return "Connect on the server computer.";
-  if (spotify.running)
-    return `${spotify.stage || "Syncing Spotify…"} · ${readable(spotify.saved_total)} liked ${spotify.saved_total === 1 ? "song" : "songs"} last recorded`;
-  if (spotify.connected) {
-    const last = spotify.last_success
-      ? `Last synced ${new Date(spotify.last_success * 1000).toLocaleString()}`
-      : "Not synced yet";
-    return `Connected as ${spotify.account || "Spotify account"} · ${last} · ${readable(spotify.saved_total)} liked ${spotify.saved_total === 1 ? "song" : "songs"} · ${readable(spotify.playlist_count)} ${spotify.playlist_count === 1 ? "playlist" : "playlists"}${spotify.last_error ? ` · ${spotify.last_error}` : ""}`;
-  }
-  return spotify.last_error || "Enter a Client ID, then connect your Spotify account.";
-}
 
 export function ConnectionsPanel({
   settings,
@@ -86,93 +74,117 @@ export function ConnectionsPanel({
     }
   };
 
+  const connected = !!spotify?.connected;
+  const running = !!spotify?.running;
+  const lastSync = spotify?.last_success ? new Date(spotify.last_success * 1000) : null;
+  const syncMinutes = Math.round((spotify?.interval_seconds || 900) / 60);
+
   return (
     <>
       <div className="settings-section-title">
         <div>
           <h2>Spotify</h2>
-          <p>
-            Sync liked songs and playlists you own or collaborate on.
-          </p>
+          <p>Sync liked songs and playlists you own or collaborate on.</p>
+        </div>
+      </div>
+      <section className="settings-card" data-settings-lists="account" aria-labelledby="spotify-account-heading">
+        <div data-settings-list-head>
+          <div>
+            <h3 id="spotify-account-heading">Account connection</h3>
+            <p>Listening Room checks Spotify every {syncMinutes} minutes.</p>
+          </div>
+          <span
+            className="status-pill"
+            data-spotify-status={running ? "syncing" : connected ? "connected" : undefined}
+            role="status"
+          >
+            {running ? "Syncing" : connected ? "Connected" : spotify ? "Disconnected" : "Checking connection…"}
+          </span>
         </div>
 
-      </div>
-      <div className="settings-card spotify-card">
-        <div className="spotify-card-heading">
-          <div>
-            <h3>Account connection</h3>
-            <p>Listening Room checks Spotify every 15 minutes.</p>
-          </div>
+        {connected && spotify ? (
+          <dl data-spotify-stats>
+            <div>
+              <dt>Spotify account</dt>
+              <dd>{spotify.account || "Connected account"}</dd>
+            </div>
+            <div>
+              <dt>Liked songs</dt>
+              <dd>{readable(spotify.saved_total)}</dd>
+            </div>
+            <div>
+              <dt>Playlists</dt>
+              <dd>{readable(spotify.playlist_count)}</dd>
+            </div>
+            <div>
+              <dt>Last synced</dt>
+              <dd>{lastSync ? <time dateTime={lastSync.toISOString()}>{lastSync.toLocaleString(undefined, {
+                dateStyle: "medium", timeStyle: "short",
+              })}</time> : "Waiting for first sync"}</dd>
+            </div>
+          </dl>
+        ) : spotify && (
+          <p data-settings-list-message>
+            {!host ? "Connect on the server computer." : "Enter your Spotify Client ID below to connect."}
+          </p>
+        )}
+        {running && spotify?.stage && <p data-settings-list-message role="status">{spotify.stage}</p>}
+        {spotify?.last_error && <p data-settings-list-message role="alert">{spotify.last_error}</p>}
+
+        <div data-settings-list-actions data-spotify-account-actions>
+          {connected ? (
+            <>
+              <RoomAction primary icon="refresh" disabled={!host || running} onClick={syncNow}>
+                {running ? "Syncing…" : "Sync now"}
+              </RoomAction>
+              <RoomAction disabled={!host} onClick={connect}>Reconnect</RoomAction>
+              <RoomAction data-spotify-disconnect disabled={!host} onClick={disconnect}>Disconnect</RoomAction>
+            </>
+          ) : (
+            <RoomAction primary disabled={!host || !spotify} onClick={connect}>Connect Spotify</RoomAction>
+          )}
         </div>
-        <div className="settings-note" role="status" aria-live="polite">
-          {spotify ? spotifyStatusText(spotify, host) : "Checking connection…"}
-        </div>
-        <div className="settings-actions">
-          <Button
-            className="primary-action"
-            type="button"
-            disabled={!host}
-            onClick={() => void connect()}
-          >
-            {spotify?.connected ? "Reconnect" : "Connect Spotify"}
-          </Button>
-          <button
-            className="quiet-button"
-            type="button"
-            disabled={!host || !spotify?.connected || !!spotify?.running}
-            onClick={() => void syncNow()}
-          >
-            Sync now
-          </button>
-          <button
-            className="quiet-button"
-            type="button"
-            disabled={!host || !spotify?.connected}
-            onClick={() => void disconnect()}
-          >
-            Disconnect
-          </button>
-        </div>
+
         <details
-          className="settings-details"
+          data-settings-list-disclosure="developer"
           open={devOpen}
           onToggle={(event) => setDevOpen(event.currentTarget.open)}
         >
-          <summary>Developer app setup</summary>
-          <Field name="spotify_client_id" className="spotify-client-label">
-            <FieldLabel>Spotify Client ID</FieldLabel>
-            <Input
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={32}
-              placeholder="32-character Client ID"
-              value={form.clientId}
-              onValueChange={(value) =>
-                setForm((previous) => ({ ...previous, clientId: value }))
-              }
-            />
-          </Field>
-          <p>
-            Create a Web API app in the{" "}
-            <a
-              href="https://developer.spotify.com/dashboard"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Spotify Developer Dashboard
-            </a>{" "}
-            and register this redirect URI.
-          </p>
-          <code className="spotify-redirect">
-            {settings?.spotify_redirect_uri ?? ""}
-          </code>
-          <p>
-            Your tokens stay on this computer. Development apps require an
-            eligible account and allowlisted users.
-          </p>
+          <summary><span>Developer app setup</span><RoomIcon name="chevronDown" /></summary>
+          <div data-settings-list-content>
+            <p>
+              Create a Web API app in the{" "}
+              <a
+                href="https://developer.spotify.com/dashboard"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Spotify Developer Dashboard
+              </a>{" "}
+              and register the redirect URI.
+            </p>
+            <dl data-spotify-redirect>
+              <dt>Redirect URI</dt>
+              <dd><code className="spotify-redirect">{settings?.spotify_redirect_uri ?? ""}</code></dd>
+            </dl>
+            <Field name="spotify_client_id" data-settings-list-field>
+              <FieldLabel>Spotify Client ID</FieldLabel>
+              <Input
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={32}
+                placeholder="32-character Client ID"
+                value={form.clientId}
+                onValueChange={(value) =>
+                  setForm((previous) => ({ ...previous, clientId: value }))
+                }
+              />
+            </Field>
+            <p>Your tokens stay on this computer. Development apps require an eligible account and allowlisted users.</p>
+          </div>
         </details>
-      </div>
-      {host && spotify?.connected && <SpotifyPlaylists syncTime={spotify.last_success} running={!!spotify.running} />}
+      </section>
+      {host && spotify?.connected && <SpotifyPlaylists syncTime={spotify.last_success} running={running} />}
     </>
   );
 }
