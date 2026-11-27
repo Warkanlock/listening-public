@@ -10,8 +10,5 @@
   "rewrites": [
     { "source": "/about", "destination": "/index.html" },
     { "source": "/about/", "destination": "/index.html" }
-  ],
-  "headers": [
-    { "source": "/(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }] }
   ]
 }
