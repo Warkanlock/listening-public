@@ -123,15 +123,11 @@ class PlayEventsStore:
         """
         connection = self._connect()
         try:
-            last_played = dict(connection.execute(
-                "SELECT record_key, MAX(ts) FROM play_events "
-                "WHERE kind = 'started' AND record_key IS NOT NULL "
-                "GROUP BY record_key"))
-            completed = dict(connection.execute(
-                "SELECT record_key, COUNT(*) FROM play_events "
-                "WHERE kind = 'completed' AND record_key IS NOT NULL "
-                "GROUP BY record_key"))
-            return {key: (last_played.get(key), completed.get(key, 0))
-                    for key in set(last_played) | set(completed)}
+            rows = connection.execute(
+                "SELECT record_key, MAX(CASE WHEN kind = 'started' THEN ts END), "
+                "COUNT(CASE WHEN kind = 'completed' THEN 1 END) FROM play_events "
+                "WHERE kind IN ('started', 'completed') AND record_key IS NOT NULL "
+                "GROUP BY record_key")
+            return {key: (last_played, completed) for key, last_played, completed in rows}
         finally:
             connection.close()

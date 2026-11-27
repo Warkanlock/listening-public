@@ -1551,6 +1551,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_request(self, code="-", size="-"):
         path = getattr(self, "path", "").partition("?")[0]
+        if any(fragment in path for fragment in ("lr_sub_", "apiKey=", "token=")):
+            return
         if path.startswith(("/rest/", "/api/room", "/api/status", "/api/session",
                             "/api/insights", "/api/activity", "/api/spotify/callback")):
             return

@@ -71,7 +71,7 @@ Use a catalog with this structure. Replace the image digest with the published i
 }
 ```
 
-Sign the exact file bytes. Keep the private key on the signing machine. Attach `catalog.json` and `catalog.sig` to the plugin repository's release and distribute the public key separately.
+Sign the exact file bytes. Keep the private key on the signing machine. Publish `catalog.json` and `catalog.sig` together on your HTTPS host or release. Distribute the public key separately.
 
 ```sh
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out catalog-private.pem

@@ -177,8 +177,8 @@ def _verify(db, *, allow_file_landing=False):
         # snapshot must independently resolve every playable reference.
         file_filter = f"AND r.{column} LIKE 'blob:%'" if allow_file_landing else ""
         if db.execute(f"SELECT 1 FROM {table} r WHERE {condition} {file_filter} AND NOT EXISTS "
-                      f"(SELECT 1 FROM audio a WHERE a.hash = CASE WHEN substr(r.{column}, 1, 5) = 'blob:' "
-                      f"THEN substr(r.{column}, 6) END AND 'blob:' || a.hash = r.{column}) LIMIT 1").fetchone():
+                      f"(SELECT 1 FROM audio a WHERE a.hash = substr(r.{column}, 6) "
+                      f"AND 'blob:' || a.hash = r.{column}) LIMIT 1").fetchone():
             raise ValueError("Snapshot contains an unresolved playable track")
 
 
