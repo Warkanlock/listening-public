@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
 import java.io.IOException
@@ -42,18 +41,11 @@ class CardSaveActivity : Activity() {
         super.onCreate(state)
         ui.theme.applyWindow(this, ui.paper)
         val frame = ui.screen()
-        frame.addView(ui.row(8).apply {
-            addView(ui.iconButton("Back", Mark.BACK, outlined = false) { finish() },
-                LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-            addView(ui.heading(if (camping) "Camping mode" else "Save for offline", 23f))
-        })
-        val layout = ui.column(8)
-        frame.addView(ScrollView(this).apply {
-            if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
-            addView(layout)
-        },
-            LinearLayout.LayoutParams(-1, 0, 1f))
-        val instructions = if (camping) "Choose how many songs to take with you."
+        frame.addView(ui.header(ui.heading(if (camping) "Camping mode" else "Save for offline", 23f),
+            ui.iconButton("Back", Mark.BACK, outlined = false) { finish() }))
+        val layout = ui.column(6)
+        frame.addView(ui.scroll(layout), LinearLayout.LayoutParams(-1, 0, 1f))
+        val instructions = if (camping) "Choose a song count to preview mixes you can save for your trip."
             else "Connect on home Wi-Fi to choose a playlist to save."
         status = ui.label(instructions, 15f, ui.secondary).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -128,7 +120,8 @@ class CardSaveActivity : Activity() {
         }) { rows ->
             find.text = "Refresh playlists"
             val choices = (0 until rows.length()).map { RoomPlaylist(rows.getJSONObject(it)) }
-            status.text = if (choices.isEmpty()) "No playlists in this room yet." else "Choose a playlist to save."
+            status.text = if (choices.isEmpty()) "No playlists to save yet. Try Camping mode to make a mix."
+                else "Choose a playlist to save."
             format.visibility = if (choices.isEmpty()) View.GONE else View.VISIBLE
             val style = SongDetailsStyle(ui)
             for (choice in choices) {
@@ -172,7 +165,7 @@ class CardSaveActivity : Activity() {
         }) { preview ->
             val canSave = preview.songCount > 0
             trip = preview.takeIf { canSave }
-            status.text = if (canSave) preview.summary else "No ready songs in this room."
+            status.text = if (canSave) preview.summary else "No playable songs to pack. Download or import music in the room first."
             for ((mix, tracks) in preview.mixes) {
                 list.addView(ui.row(10).apply {
                     minimumHeight = ui.dp(48)

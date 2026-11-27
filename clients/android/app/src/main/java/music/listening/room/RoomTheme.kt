@@ -21,10 +21,12 @@ internal enum class RoomTheme(val key: String, val label: String) {
         activity.setTheme(if (this == NIGHT) android.R.style.Theme_Material_NoActionBar
             else android.R.style.Theme_Material_Light_NoActionBar)
         activity.window.statusBarColor = background
+        activity.window.navigationBarColor = if (this == E_INK) background else Color.BLACK
         val decor = activity.window.decorView
-        val flags = decor.systemUiVisibility
-        decor.systemUiVisibility = if (this == NIGHT) flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-            else flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        val lightStatus = if (this == NIGHT) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        val lightNavigation = if (this == E_INK) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0
+        val appearance = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        decor.systemUiVisibility = (decor.systemUiVisibility and appearance.inv()) or lightStatus or lightNavigation
     }
 
     companion object {

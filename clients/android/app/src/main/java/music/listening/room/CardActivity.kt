@@ -71,9 +71,10 @@ class CardActivity : Activity() {
 
         override fun getView(position: Int, reused: View?, parent: ViewGroup): View {
             val row = (reused as? TextView) ?: ui.label("", 17f).apply {
-                minHeight = ui.dp(54)
+                minHeight = ui.dp(if (ui.eInk) 48 else 54)
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6))
+                val vertical = ui.dp(if (ui.eInk) 4 else 6)
+                setPadding(ui.dp(8), vertical, ui.dp(8), vertical)
                 maxLines = 2
                 ellipsize = TextUtils.TruncateAt.END
             }
@@ -114,11 +115,7 @@ class CardActivity : Activity() {
             if (folders.isEmpty()) returnToRoom() else onBackPressed()
         }
         roomShortcut = ui.iconButton("Back to room", Mark.ROOM, outlined = false, action = ::returnToRoom)
-        body.addView(ui.row(8).apply {
-            addView(up, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-            addView(heading, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(roomShortcut, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-        })
+        body.addView(ui.header(heading, up, roomShortcut))
         folder = ui.button("Change folder") { chooseFolder() }
         body.addView(ui.row(8).apply {
             addView(folder, LinearLayout.LayoutParams(0, -2, 1f))
@@ -301,6 +298,7 @@ class CardActivity : Activity() {
         up.tooltipText = back
         roomShortcut.visibility = if (parent == null) View.GONE else View.VISIBLE
         folder.text = if (root == null) "Choose Music folder" else "Change folder"
+        folder.isSelected = root == null
         if (root == null) {
             showStatus("Select a Music folder on your phone or microSD card.")
             return
@@ -334,7 +332,7 @@ class CardActivity : Activity() {
                     updateList(entries)
                     completeResumeQueue()
                     controls()
-                    showStatus(if (entries.isEmpty()) "No music in this folder yet." else "")
+                    showStatus(if (entries.isEmpty()) "No music here yet. Add audio files or choose another folder." else "")
                 }.onFailure {
                     listedFolder = null
                     songs = emptyList()
