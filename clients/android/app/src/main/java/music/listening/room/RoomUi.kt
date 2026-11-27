@@ -201,6 +201,30 @@ internal class RoomUi(private val context: Context) {
         setPadding(dp(14), dp(4), dp(12), dp(4))
     }
 
+    data class NavigationTab(val title: String, val selected: Boolean, val open: () -> Unit)
+
+    fun navigation(tabs: List<NavigationTab>) = column().apply {
+        addView(line())
+        addView(row().apply {
+            tabs.forEach { tab ->
+                addView(button(tab.title, action = tab.open).apply {
+                    gravity = Gravity.CENTER
+                    background = StateListDrawable().apply {
+                        addState(intArrayOf(android.R.attr.state_focused), surface(fog, ink))
+                        addState(intArrayOf(android.R.attr.state_pressed), surface(fog, null))
+                        addState(intArrayOf(), surface(paper, null))
+                    }
+                    setTextColor(ink)
+                    setPadding(0, 0, 0, 0)
+                    textSize = 14f
+                    typeface = if (tab.selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                    if (tab.selected) paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
+                    isSelected = tab.selected
+                }, LinearLayout.LayoutParams(0, dp(48), 1f))
+            }
+        })
+    }
+
     fun tab(name: String, glyph: Mark, selected: Boolean, action: () -> Unit) =
         button(name, action = action).apply {
             if (eInk) {

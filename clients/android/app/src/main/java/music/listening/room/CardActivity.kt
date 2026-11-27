@@ -8,7 +8,10 @@ import android.os.Bundle
 import android.os.CancellationSignal
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
+import android.text.TextUtils
+import android.view.Gravity
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.Button
@@ -54,14 +57,11 @@ class CardActivity : Activity() {
     private lateinit var heading: TextView
     private lateinit var status: TextView
     private lateinit var list: ListView
-    private lateinit var previous: ImageButton
-    private lateinit var play: ImageButton
-    private lateinit var next: ImageButton
+    private lateinit var playingBar: NowPlayingBar
+    private lateinit var start: Button
     private lateinit var up: ImageButton
     private lateinit var roomShortcut: ImageButton
     private lateinit var folder: Button
-    private lateinit var songTitle: TextView
-    private lateinit var songArtist: TextView
 
     private val adapter = object : BaseAdapter() {
         var entries = emptyList<CardEntry>()
@@ -72,17 +72,25 @@ class CardActivity : Activity() {
         override fun getView(position: Int, reused: View?, parent: ViewGroup): View {
             val row = (reused as? TextView) ?: ui.label("", 17f).apply {
                 minHeight = ui.dp(54)
-                gravity = android.view.Gravity.CENTER_VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
                 setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6))
                 maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
             }
             val entry = entries[position]
-            row.setCompoundDrawablesRelative(if (entry.folder) ui.mark(Mark.FOLDER, 20) else null, null,
-                if (entry.folder) ui.mark(Mark.BROWSE, 16) else null, null)
+            val mark = when {
+                entry.folder -> ui.mark(Mark.FOLDER, 20)
+                entry.playlist -> ui.mark(Mark.ALBUM, 20)
+                else -> null
+            }
+            row.setCompoundDrawablesRelative(mark, null, if (entry.folder) ui.mark(Mark.BROWSE, 16) else null, null)
             row.compoundDrawablePadding = ui.dp(10)
-            row.ellipsize = android.text.TextUtils.TruncateAt.END
             row.text = entry.title
-            row.contentDescription = if (entry.folder) "${entry.title}, folder" else null
+            row.contentDescription = when {
+                entry.folder -> "${entry.title}, folder"
+                entry.playlist -> "${entry.title}, playlist"
+                else -> null
+            }
             return row
         }
     }
@@ -100,18 +108,18 @@ class CardActivity : Activity() {
         val body = ui.screen()
         heading = ui.heading("Device files", 23f).apply {
             maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            ellipsize = TextUtils.TruncateAt.END
         }
-        up = ui.iconButton("Back to room", Mark.BACK) {
+        up = ui.iconButton("Back to room", Mark.BACK, outlined = false) {
             if (folders.isEmpty()) returnToRoom() else onBackPressed()
         }
-        roomShortcut = ui.iconButton("Back to room", Mark.ROOM, action = ::returnToRoom)
+        roomShortcut = ui.iconButton("Back to room", Mark.ROOM, outlined = false, action = ::returnToRoom)
         body.addView(ui.row(8).apply {
             addView(up, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
             addView(heading, LinearLayout.LayoutParams(0, -2, 1f))
             addView(roomShortcut, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
         })
-        folder = ui.button("Folder") { chooseFolder() }
+        folder = ui.button("Change folder") { chooseFolder() }
         body.addView(ui.row(8).apply {
             addView(folder, LinearLayout.LayoutParams(0, -2, 1f))
             addView(ui.button("Save for offline") {
@@ -124,6 +132,10 @@ class CardActivity : Activity() {
         }
         body.addView(status)
         list = ListView(this).apply {
+            if (ui.eInk) {
+                overScrollMode = View.OVER_SCROLL_NEVER
+                setFriction(ViewConfiguration.getScrollFriction() * 3)
+            }
             divider = android.graphics.drawable.ColorDrawable(ui.rule)
             dividerHeight = ui.dp(1)
             adapter = this@CardActivity.adapter
@@ -144,15 +156,16 @@ class CardActivity : Activity() {
             }
         }
         body.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
-        body.addView(ui.line())
-        songTitle = ui.button("", action = ::showNowPlaying).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-        songArtist = ui.label("", 14f, ui.secondary)
-        body.addView(songTitle)
-        body.addView(songArtist)
-        previous = ui.iconButton("Previous track", Mark.PREVIOUS) { controller?.seekToPrevious() }
-        play = ui.iconButton("Play", Mark.PLAY, true, action = ::playOrResume)
-        next = ui.iconButton("Next track", Mark.NEXT) { controller?.seekToNext() }
-        body.addView(ui.transport(previous, play, next))
+        playingBar = NowPlayingBar(this, ui, ::showNowPlaying) {
+            if (!loadingPlaylist && pendingPlay == null) playOrResume()
+        }
+        body.addView(playingBar)
+        start = ui.button("Play folder", true, action = ::playOrResume).apply {
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            visibility = View.GONE
+        }
+        body.addView(start)
         setContentView(body)
     }
 
@@ -287,9 +300,9 @@ class CardActivity : Activity() {
         up.contentDescription = back
         up.tooltipText = back
         roomShortcut.visibility = if (parent == null) View.GONE else View.VISIBLE
-        folder.text = if (root == null) "Choose Music folder" else "Folder"
+        folder.text = if (root == null) "Choose Music folder" else "Change folder"
         if (root == null) {
-            showStatus("Select the Music folder on your microSD card.")
+            showStatus("Select a Music folder on your phone or microSD card.")
             return
         }
         val parentId = parent?.id ?: DocumentsContract.getTreeDocumentId(root)
@@ -486,23 +499,17 @@ class CardActivity : Activity() {
         val title = metadata?.title?.toString()
             ?: item?.mediaId?.let(Uri::parse)?.takeIf { it.scheme == "content" }?.let(CardBookmark::documentTitle)
             ?: bookmark?.title.orEmpty()
-        if (songTitle.text != title) songTitle.text = title
-        songTitle.visibility = if (title.isEmpty()) View.GONE else View.VISIBLE
-        songTitle.isEnabled = item != null
-        songTitle.contentDescription = "Open now playing: $title"
-        val artist = metadata?.artist?.toString().orEmpty()
-        if (songArtist.text != artist) songArtist.text = artist
-        songArtist.visibility = if (artist.isEmpty()) View.GONE else View.VISIBLE
-        val action = when {
-            loadingPlaylist || pendingPlay != null -> "Starting…"
-            player?.playWhenReady == true -> "Pause"
-            item == null && bookmark != null -> "Resume"
-            else -> "Play"
+        val transport = if (player?.playWhenReady == true) PlaybackTransport.Pause else PlaybackTransport.Play
+        playingBar.render(if (item == null) "" else title, metadata?.artist?.toString().orEmpty(), transport)
+        val starting = loadingPlaylist || pendingPlay != null
+        val label = when {
+            starting -> "Starting…"
+            bookmark != null -> "Resume · ${bookmark?.title.orEmpty()}"
+            else -> "Play folder"
         }
-        ui.playbackIcon(play, action, showPause = action == "Pause")
-        play.isEnabled = !loadingPlaylist && pendingPlay == null && (item != null || bookmark != null || songs.isNotEmpty())
-        previous.isEnabled = item != null && player?.isCurrentMediaItemSeekable == true
-        next.isEnabled = player?.hasNextMediaItem() == true
+        if (!TextUtils.equals(start.text, label)) start.text = label
+        start.visibility = if (item == null && (starting || bookmark != null || songs.isNotEmpty())) View.VISIBLE else View.GONE
+        start.isEnabled = !starting
     }
 
     private fun showNowPlaying() {
@@ -546,7 +553,10 @@ class CardActivity : Activity() {
         }
         render()
         player.addListener(updates)
-        val body = if (ui.eInk) layout else ScrollView(this).apply { addView(layout) }
+        val body = ScrollView(this).apply {
+            if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
+            addView(layout)
+        }
         SongDetailsStyle(ui).dialog(this, "Now playing", body,
             closeLabel = "Close player").apply {
             setOnDismissListener { player.removeListener(updates) }

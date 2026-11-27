@@ -22,11 +22,19 @@ private fun JSONObject.retryTime(): String? {
 /** Installed sources belong to the room. Only its owner manages them. */
 internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) {
     val ui = RoomUi(this)
+    SongDetailsStyle(ui).dialog(this, "Extensions", roomExtensionsPanel(room, ui), backLabel = backLabel).show()
+}
+
+internal fun Activity.roomExtensionsPanel(room: Room, ui: RoomUi): View {
     val style = SongDetailsStyle(ui)
     val content = style.column()
-    val dialog = style.dialog(this, "Extensions", ScrollView(this).apply { addView(content) }, backLabel = backLabel)
+    val panel = ScrollView(this).apply {
+        if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
+        addView(content)
+    }
     val status = ui.column().apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
     val health = ui.column().apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
+    val checkButton = ui.button("Run health check") {}
     var pending: MetadataRequest? = null
     var checking: MetadataRequest? = null
     fun refresh() {
@@ -38,7 +46,7 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
         request.future = metadataRequests.submit {
             val response = runCatching { room.metadata("/api/extensions/sources", request::bind) }
             runOnUiThread {
-                if (!dialog.isShowing || isDestroyed || pending !== request) return@runOnUiThread
+                if (!panel.isAttachedToWindow || isDestroyed || pending !== request) return@runOnUiThread
                 pending = null
                 status.removeAllViews()
                 response.onSuccess { sources ->
@@ -91,7 +99,6 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
         }
     }
     with(ui) {
-        val checkButton = iconButton("Run extensions health check", Mark.CHECK) {}
         checkButton.setOnClickListener {
             checkButton.isEnabled = false
             val request = MetadataRequest()
@@ -101,7 +108,7 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
             request.future = metadataRequests.submit {
                 val result = runCatching { room.extensionHealth(request::bind).getJSONArray("checks") }
                 runOnUiThread {
-                    if (!dialog.isShowing || isDestroyed || checking !== request) return@runOnUiThread
+                    if (!panel.isAttachedToWindow || isDestroyed || checking !== request) return@runOnUiThread
                     checking = null
                     checkButton.isEnabled = true
                     health.removeAllViews()
@@ -125,27 +132,34 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
                 }
             }
         }
-        content.section(row(8).apply {
-            addView(heading("Extensions health check", 19f), LinearLayout.LayoutParams(0, -2, 1f))
-            addView(checkButton)
-        })
-        health.addView(label("Check the sources Find copy uses.", color = secondary))
-        content.section(health)
-        content.section(line())
         content.addView(row(8).apply {
-            addView(heading("Song downloads", 19f), LinearLayout.LayoutParams(0, -2, 1f))
-            addView(iconButton("Refresh extensions", Mark.REFRESH) { refresh() })
+            addView(heading("Download sources", 19f), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconButton("Refresh extensions", Mark.REFRESH, outlined = false) { refresh() })
         })
-        content.addView(status)
+        content.section(status)
+        content.section(line())
+        content.section(checkButton)
+        content.section(health)
         content.section(button("Open room extensions in browser") {
             try {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(room.origin + "/#extensions")))
             } catch (_: ActivityNotFoundException) {
-                Toast.makeText(this@showRoomExtensions, "Open ${room.origin}/#extensions in a browser.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@roomExtensionsPanel, "Open ${room.origin}/#extensions in a browser.", Toast.LENGTH_LONG).show()
             }
         })
     }
-    dialog.setOnDismissListener { pending?.cancel(); checking?.cancel() }
-    dialog.show()
-    refresh()
+    panel.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(view: View) = refresh()
+        override fun onViewDetachedFromWindow(view: View) {
+            pending?.cancel()
+            pending = null
+            if (checking != null) {
+                checking?.cancel()
+                checking = null
+                checkButton.isEnabled = true
+                health.removeAllViews()
+            }
+        }
+    })
+    return panel
 }
