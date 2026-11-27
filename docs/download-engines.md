@@ -16,10 +16,16 @@ Listening can import and play your collection with no engines installed. A searc
      --repository https://github.com/Warkanlock/listening-plugins-public \
      --plugin-release RELEASE_TAG \
      --public-key /srv/listening/catalog-public.pem \
-     --server-version 1.5.1
+     --server-version SERVER_VERSION
    ```
 
-   Use `--repository` for publicly downloadable release assets. Set `RELEASE_TAG` to the release that lists your server version. While a plugin repository is private, use your authenticated GitHub session to download `catalog.json` and `catalog.sig` together, for example with `gh release download RELEASE_TAG --repo Warkanlock/listening-plugins-public --pattern 'catalog.*' --dir /srv/listening`. Replace `--repository` and `--plugin-release` with `--catalog /srv/listening/catalog.json`. Both paths verify the signature against the publisher key you supplied. If the catalog refers to private images, sign Docker in to that registry as the host user running the manager. A previously verified repository catalog can be reused if the host goes offline. The manager checks for a new repository catalog when it starts.
+   Set `SERVER_VERSION` to the version returned by `listening --version`. Set `RELEASE_TAG` to the catalog release that lists this version.
+
+   To use a static HTTPS host, replace `--repository` and `--plugin-release` with `--catalog-url https://plugins.example.org/releases/v1/catalog.json`. Publish `catalog.sig` beside `catalog.json`. Use the final host URL so redirects stay on the same origin.
+
+   If your publisher requires an authenticated download, download both files together. Replace `--repository` and `--plugin-release` with `--catalog /srv/listening/catalog.json`. If the catalog refers to private images, sign Docker in to that registry as the host user running the manager.
+
+   The manager verifies each catalog against the publisher key you supplied. It checks remote sources when it starts and can reuse a previously verified catalog during a connection failure.
 
 4. Set `LISTENING_ENGINE_SOCKET_DIR` and `LISTENING_ENGINE_STAGING_DIR` in the Compose environment. Append `-f packaging/compose.engines.yaml` to the files already used by your room. Keep the same Compose project and persistent mounts. Include the override in the host updater's Compose files. During a planned restart, the server mounts only the socket directory and shared staging, both separate from the engine configuration.
 5. Open **Extensions** in the room and install the engine. Open its **Configure** form and enter any settings it requests. The manager stores values in that plugin's private credentials directory. Older workers can continue reading their credentials files there.
@@ -65,7 +71,7 @@ Use a catalog with this structure. Replace the image digest with the published i
 }
 ```
 
-Sign the exact file bytes. Keep the private key on the signing machine. Attach `catalog.json` and `catalog.sig` to the plugin repository's release and distribute the public key separately.
+Sign the exact file bytes. Keep the private key on the signing machine. Publish `catalog.json` and `catalog.sig` together on your HTTPS host or release. Distribute the public key separately.
 
 ```sh
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out catalog-private.pem

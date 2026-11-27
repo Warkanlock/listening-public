@@ -311,7 +311,7 @@ class FleetStorageTests(unittest.TestCase):
         self.assertEqual(start.call_count, 2)
 
     @unittest.skipUnless(shutil.which("openssl"), "OpenSSL required to sign the fixture catalog")
-    def test_repository_accepts_signed_release_and_reuses_verified_cache_offline(self):
+    def test_remote_catalog_accepts_signed_release_and_reuses_verified_cache_offline(self):
         private_key = self.fleet.state / "private.pem"
         subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048",
                         "-out", private_key], check=True, capture_output=True)
@@ -327,22 +327,29 @@ class FleetStorageTests(unittest.TestCase):
         stage = self.fleet.state / "catalog-stage"
         stage.mkdir()
 
-        def publish():
-            return engine_repository.stage_repository("https://github.com/fixture/listening-plugins", "v1",
-                stage, self.fleet.state, self.fleet.public_key, "arm64", "0.1")
-
-        with mock.patch.object(engine_repository, "download",
-                               side_effect=[self.fleet.catalog.read_bytes(), signature.read_bytes()]) as fetch:
-            staged = publish()
-            self.assertTrue(fetch.call_args_list[0].args[1].endswith("/releases/download/v1/catalog.json"))
-            self.assertEqual(engine_fleet.verify_catalog(staged, self.fleet.public_key, "arm64", "0.1")
-                             ["fixture"]["settings"], entry["settings"])
-        with mock.patch.object(engine_repository, "download", side_effect=TimeoutError):
-            self.assertEqual(publish().read_bytes(), self.fleet.catalog.read_bytes())
-        with mock.patch.object(engine_repository, "download",
-                               side_effect=[self.fleet.catalog.read_bytes(), b"invalid signature"]):
-            with self.assertRaisesRegex(ValueError, "signature"):
-                publish()
+        args = (stage, self.fleet.state, self.fleet.public_key, "arm64", "0.1")
+        sources = (
+            (engine_repository.stage_repository, ("https://github.com/fixture/listening-plugins", "v1"),
+             "https://github.com/fixture/listening-plugins/releases/download/v1/catalog.json"),
+            (engine_repository.stage_catalog_url, ("https://plugins.example/approved/catalog.json",),
+             "https://plugins.example/approved/catalog.json"),
+        )
+        payload = self.fleet.catalog.read_bytes()
+        for stage_catalog, source, url in sources:
+            with self.subTest(url=url):
+                with mock.patch.object(engine_repository, "download",
+                                       side_effect=[payload, signature.read_bytes()]) as fetch:
+                    staged = stage_catalog(*source, *args)
+                    self.assertEqual([call.args[1] for call in fetch.call_args_list],
+                                     [url, url.removesuffix(".json") + ".sig"])
+                    checked = engine_fleet.verify_catalog(staged, self.fleet.public_key, "arm64", "0.1")
+                    self.assertEqual(checked["fixture"]["settings"], entry["settings"])
+                with mock.patch.object(engine_repository, "download", side_effect=TimeoutError):
+                    self.assertEqual(stage_catalog(*source, *args).read_bytes(), payload)
+                with mock.patch.object(engine_repository, "download",
+                                       side_effect=[payload, b"invalid signature"]):
+                    with self.assertRaisesRegex(ValueError, "signature"):
+                        stage_catalog(*source, *args)
 
     def test_signed_image_must_resolve_to_the_correct_linux_architecture(self):
         digest = "registry.example/engine@sha256:" + "a" * 64

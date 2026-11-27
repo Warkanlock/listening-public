@@ -404,7 +404,7 @@ class RequestsStore:
             if row["format_revision"] != revision or row["status"] not in allowed:
                 raise ValueError("This request changed. Reopen it to browse copies.")
             now = time.time()
-            conn.execute("DELETE FROM request_copies WHERE expires > 0 AND expires < ?", (now,))
+            self._prune_copy_previews(conn, now)
             if not (for_review or fresh):
                 existing = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND revision=? "
                                         "AND format=? AND expires>?", (request_id, revision, choice, now)).fetchone()
@@ -419,6 +419,13 @@ class RequestsStore:
                          (request_id, revision, choice, now + lifetime, json.dumps(payload)))
             return self._display_copy_matches(conn, request_id, payload)
         return self._run(work)
+
+    @staticmethod
+    def _prune_copy_previews(conn, now):
+        return conn.execute("DELETE FROM request_copies WHERE expires > 0 AND expires <= ?", (now,)).rowcount
+
+    def prune_copy_previews(self):
+        return self._run(lambda conn: self._prune_copy_previews(conn, time.time()))
 
     def review_matches(self, request_id, choice, revision, recording, selection):
         def work(conn):
@@ -703,17 +710,31 @@ class RequestsStore:
                     read("status='downloaded' AND message!='Already in the library'", 32))
         return self._run(work)
 
-    def by_track(self):
+    def by_track(self, indices=None):
         """The requests-by-track map the catalog read path needs.
 
         When a track has several requests, the newest row wins. A
         stopped replacement also holds its original track out of search.
+        Pass the indices of a catalog page to read only those tracks.
         """
+        if indices is None:
+            where = ("track_index IS NOT NULL OR "
+                     "(status='unavailable' AND original_track_index IS NOT NULL)")
+            params = ()
+        else:
+            indices = tuple(dict.fromkeys(indices))
+            if not indices:
+                return {}
+            marks = ",".join("?" for _ in indices)
+            # A zero index falls back to the original. CASE keeps the fallback index usable.
+            where = (f"(track_index IN ({marks}) AND track_index!=0) OR "
+                     f"(original_track_index IN ({marks}) AND "
+                     "CASE WHEN track_index IS NULL THEN status='unavailable' ELSE track_index=0 END)")
+            params = indices * 2
+
         def work(conn):
             return {row["track_index"] or row["original_track_index"]: decode_request_row(row)
-                    for row in conn.execute("SELECT * FROM requests WHERE track_index IS NOT NULL "
-                                            "OR (status='unavailable' AND original_track_index IS NOT NULL) "
-                                            "ORDER BY id")}
+                    for row in conn.execute(f"SELECT * FROM requests WHERE {where} ORDER BY id", params)}
         return self._run(work)
 
     @staticmethod

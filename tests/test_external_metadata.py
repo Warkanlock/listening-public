@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import sqlite3
 import tempfile
@@ -339,6 +340,62 @@ class CacheTests(MetadataTestCase):
         self.assertEqual(first, {"value": 1})
         self.assertEqual(second, {"value": 1})
         self.assertEqual(len(calls), 1)
+
+    def test_concurrent_cache_misses_share_one_provider_result(self):
+        clients = 5
+        missed = threading.Barrier(clients)
+        lookup = self.store.cache_get
+        callers = threading.local()
+
+        def aligned_lookup(key):
+            row = lookup(key)
+            if not getattr(callers, "looked_up", False):
+                callers.looked_up = True
+                missed.wait(timeout=5)
+            return row
+
+        metadata, transport = self.make_metadata(lambda url: {"value": ["song"]})
+        with mock.patch.object(self.store, "cache_get", side_effect=aligned_lookup):
+            with ThreadPoolExecutor(max_workers=clients) as pool:
+                results = list(pool.map(
+                    lambda _: metadata.cached("key", 60, lambda: metadata.musicbrainz("recording", {})),
+                    range(clients)))
+        self.assertEqual(results, [{"value": ["song"]}] * clients)
+        self.assertEqual(len(transport.calls), 1)
+        results[0]["value"].append("changed")
+        self.assertEqual(results[1:], [{"value": ["song"]}] * (clients - 1))
+        self.assertEqual(metadata.cached("key", 60, lambda: self.fail("cache miss")), {"value": ["song"]})
+
+    def test_provider_failure_allows_a_later_cache_retry(self):
+        metadata, _ = self.make_metadata(lambda url: {})
+
+        def unavailable():
+            raise OSError("provider unavailable")
+
+        with self.assertRaisesRegex(OSError, "provider unavailable"):
+            metadata.cached("key", 60, unavailable)
+        self.assertEqual(metadata.cached("key", 60, lambda: {"ready": True}), {"ready": True})
+
+    def test_concurrent_cache_misses_in_different_databases_stay_private(self):
+        other_store = RequestsStore(Path(self.tmp.name) / "other.sqlite3")
+        local = threading.local()
+        metadata = ExternalMetadata(lambda: local.store)
+        fetching = threading.Barrier(2)
+
+        def load(store, title):
+            local.store = store
+
+            def fetch():
+                fetching.wait(timeout=5)
+                return {"title": title}
+
+            return metadata.cached("key", 60, fetch)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(load, self.store, "First")
+            second = pool.submit(load, other_store, "Second")
+            self.assertEqual(first.result(), {"title": "First"})
+            self.assertEqual(second.result(), {"title": "Second"})
 
     def test_cache_expiry_refetches(self):
         calls = []

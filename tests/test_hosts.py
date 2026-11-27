@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 import unittest
 
-from system.hosts import host_permitted, parse_host
+from system.hosts import configured_origin, host_permitted, parse_host
 
 
 class ParseHostTests(unittest.TestCase):
@@ -21,6 +21,18 @@ class ParseHostTests(unittest.TestCase):
         self.assertEqual(parse_host(None), "")
         self.assertEqual(parse_host(""), "")
         self.assertEqual(parse_host(":8765"), "")
+
+    def test_malformed_authorities_are_invalid(self):
+        for value in ("localhost:", "localhost:music", "localhost:65536", "room.local:0",
+                      "[::1]extra", "[::1", "[localhost]", "room.local/path"):
+            with self.subTest(value=value):
+                self.assertEqual(parse_host(value), "")
+                with self.assertRaises(ValueError):
+                    configured_origin(f"https://{value}")
+
+    def test_origin_normalizes_a_valid_authority(self):
+        self.assertEqual(configured_origin("https://[2001:0db8::1]:443/"), "https://[2001:db8::1]")
+        self.assertEqual(configured_origin("http://Room.Local:8765"), "http://room.local:8765")
 
 
 class HostPermittedTests(unittest.TestCase):

@@ -23,6 +23,7 @@ deterministic per-week seed, catalog exclusion, 12-track cap, and the
 5-minute failure backoff in discover_status.
 """
 
+from concurrent.futures import Future
 import datetime
 import hashlib
 import json
@@ -55,6 +56,10 @@ GENRE_MISS_AGE = 15 * 60
 
 def genre_cache_age(genre):
     return GENRE_CACHE_AGE if genre else GENRE_MISS_AGE
+
+
+def _recording_genre_age(payload):
+    return genre_cache_age(payload.get("genres"))
 
 
 _LRC_TAG = re.compile(r"\[\d+:\d+(?:\.\d+)?\]")
@@ -130,6 +135,8 @@ class ExternalMetadata:
         self._discover_lock = threading.Lock()
         self._discover_building = False
         self._discover_error_until = 0.0
+        self._cache_fetch_lock = threading.Lock()
+        self._cache_fetches = {}
         self._catalog_lookup_lock = threading.Lock()
         self._catalog_lookup_records = None
         self._catalog_lookup = None
@@ -138,23 +145,52 @@ class ExternalMetadata:
 
     # -- cache -------------------------------------------------------------
 
-    def cached(self, key, max_age, fetch):
-        store = self._store_factory()
+    def _fresh_cache(self, store, key, max_age):
         try:
             row = store.cache_get(key)
             if row:
                 age = self._now() - row["saved_at"]
                 result = json.loads(row["body"])
                 if age < (max_age(result) if callable(max_age) else max_age):
-                    return result
+                    return row["body"], result
         except (sqlite3.Error, json.JSONDecodeError):
             pass
-        result = fetch()
+
+    def cached(self, key, max_age, fetch):
+        store = self._store_factory()
+        cached = self._fresh_cache(store, key, max_age)
+        if cached is not None:
+            return cached[1]
+
+        scope = (store.path, key, max_age)
+        with self._cache_fetch_lock:
+            flight = self._cache_fetches.get(scope)
+            leader = flight is None
+            if leader:
+                flight = self._cache_fetches[scope] = Future()
+        if not leader:
+            return json.loads(flight.result())
+
         try:
-            store.cache_put(key, json.dumps(result, ensure_ascii=False, separators=(",", ":")), self._now())
-        except sqlite3.Error:
-            pass
-        return result
+            # An earlier fetch can finish between the first read and registration.
+            cached = self._fresh_cache(store, key, max_age)
+            if cached is not None:
+                payload, result = cached
+            else:
+                result = fetch()
+                payload = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+                try:
+                    store.cache_put(key, payload, self._now())
+                except sqlite3.Error:
+                    pass
+            flight.set_result(payload)
+            return result
+        except BaseException as error:
+            flight.set_exception(error)
+            raise
+        finally:
+            with self._cache_fetch_lock:
+                del self._cache_fetches[scope]
 
     # -- MusicBrainz ---------------------------------------------------------
 
@@ -328,7 +364,7 @@ class ExternalMetadata:
     def recording_details(self, mbid, *, refresh_missing_genres=False):
         if not re.fullmatch(r"[0-9a-f-]{36}", mbid):
             raise ValueError("Invalid MusicBrainz recording")
-        max_age = (lambda payload: genre_cache_age(payload.get("genres"))) if refresh_missing_genres else GENRE_CACHE_AGE
+        max_age = _recording_genre_age if refresh_missing_genres else GENRE_CACHE_AGE
         item = self.cached("recording:" + mbid, max_age,
                            lambda: self.musicbrainz("recording/" + mbid,
                                                     {"inc": "artist-credits+isrcs+releases+genres+recording-rels+work-rels",

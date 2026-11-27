@@ -70,6 +70,22 @@ class PlayEventsStoreTest(unittest.TestCase):
         # recording against an unopenable path is swallowed.
         broken.record("started", "1", 1, "key-1", None, None, None)
 
+    def test_history_uses_starts_for_recency_and_completions_for_counts(self):
+        self.store.record("started", "1", 1, "repeated")
+        self.store.record("completed", "1", 1, "repeated")
+        self.store.record("started", "1", 1, "repeated")
+        self.store.record("skipped", "1", 1, "repeated")
+        self.store.record("completed", "2", 2, "completion-only")
+        self.store.record("started", "3", 3, "start-only")
+        self.store.record("skipped", "4", 4, "skip-only")
+        self.store.record("started", "custom-17", request_id=17)
+
+        self.assertEqual(self.store.history(), {
+            "repeated": (self.store.stats("repeated")[1], 1),
+            "completion-only": (None, 1),
+            "start-only": (self.store.stats("start-only")[1], 0),
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

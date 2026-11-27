@@ -1,4 +1,4 @@
-"""Resolve a GitHub release to a verified local engine catalog."""
+"""Stage a remotely published, signed engine catalog."""
 
 import base64
 import hashlib
@@ -24,6 +24,22 @@ class GitHubAssets(HTTPRedirectHandler):
         return super().redirect_request(request, response, code, message, headers, url)
 
 
+def _https_origin(url):
+    if url.scheme != "https" or not url.hostname or url.username is not None or url.password is not None:
+        raise ValueError("Use an HTTPS catalog URL without embedded credentials.")
+    return url.hostname, 443 if url.port is None else url.port
+
+
+class CatalogAssets(HTTPRedirectHandler):
+    def __init__(self, origin):
+        self.origin = origin
+
+    def redirect_request(self, request, response, code, message, headers, url):
+        if _https_origin(urlsplit(url)) != self.origin:
+            raise ValueError("The engine catalog redirected to another origin.")
+        return super().redirect_request(request, response, code, message, headers, url)
+
+
 def release_assets(repository, tag):
     parsed = urlsplit(repository)
     if (parsed.scheme != "https" or parsed.netloc != "github.com" or not REPOSITORY.fullmatch(parsed.path)
@@ -40,15 +56,27 @@ def download(opener, url):
     with opener.open(request, timeout=10) as response:
         content = response.read(LIMIT + 1)
     if len(content) > LIMIT:
-        raise ValueError("The engine repository asset is too large.")
+        raise ValueError("The engine catalog asset is too large.")
     return content
 
 
 def stage_repository(repository, tag, directory, state, public_key, architecture, version):
     base = release_assets(repository, tag)
+    return _stage_assets(base, build_opener(GitHubAssets()), directory, state, public_key, architecture, version)
+
+
+def stage_catalog_url(url, directory, state, public_key, architecture, version):
+    parsed = urlsplit(url)
+    origin = _https_origin(parsed)
+    if not parsed.path.endswith("/catalog.json") or parsed.query or parsed.fragment:
+        raise ValueError("Enter an HTTPS URL ending in /catalog.json without a query or fragment.")
+    base = parsed.geturl().removesuffix("catalog.json")
+    return _stage_assets(base, build_opener(CatalogAssets(origin)), directory, state, public_key, architecture, version)
+
+
+def _stage_assets(base, opener, directory, state, public_key, architecture, version):
     key = hashlib.sha256(public_key.read_bytes() + base.encode()).hexdigest()
     cache = state / f".repository-{key}.json"
-    opener = build_opener(GitHubAssets())
     try:
         payload, signature = (download(opener, base + name) for name in ("catalog.json", "catalog.sig"))
         from_network = True
