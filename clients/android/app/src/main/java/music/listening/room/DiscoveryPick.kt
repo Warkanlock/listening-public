@@ -3,6 +3,7 @@ package music.listening.room
 import android.app.Activity
 import android.app.Dialog
 import android.content.res.ColorStateList
+import android.graphics.drawable.InsetDrawable
 import android.os.Build
 import android.view.KeyEvent
 import android.view.View
@@ -178,26 +179,35 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
     )
     val ui = RoomUi(this)
     val style = SongDetailsStyle(ui)
-    val content = style.column()
+    val content = ui.column().apply { setPadding(ui.dp(12), ui.dp(9), ui.dp(12), ui.dp(6)) }
     val formatPanel = ui.column()
     val copyPanel = ui.column()
     val recordingsPanel = ui.column(8)
     var saving = false
-    val feedback = ui.label("", 14f, ui.secondary).apply {
+    val feedback = ui.label("", 11f, ui.secondary).apply {
         visibility = View.GONE
         accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
     }
     val openingTitle = if (row.needsCopyReview()) "Choose a copy" else "Choose format"
-    val dialogHeading = ui.heading(openingTitle, 23f)
-    val dialog = style.dialog(this, openingTitle, ScrollView(this).apply { addView(content) },
+    val dialogHeading = ui.heading(openingTitle, 18f)
+    val body = object : ScrollView(this) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val height = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.AT_MOST) {
+                val limit = (MeasureSpec.getSize(heightMeasureSpec) * .76f).toInt()
+                MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST)
+            } else heightMeasureSpec
+            super.onMeasure(widthMeasureSpec, height)
+        }
+    }.apply { addView(content) }
+    val dialog = style.dialog(this, openingTitle, body,
         artist = listOf(row.optString("title"), row.optString("artist")).filter(String::isNotBlank).joinToString(" · "),
-        titleView = dialogHeading, canDismiss = { !saving })
+        titleView = dialogHeading, compact = true, canDismiss = { !saving })
     val choices = RadioGroup(this)
     val ids = options.map { View.generateViewId() }
     for ((index, option) in options.withIndex()) choices.addView(RadioButton(this).apply {
         id = ids[index]
         text = option.second
-        textSize = 16f
+        textSize = 12f
         setTextColor(ui.ink)
         buttonTintList = ColorStateList.valueOf(ui.accent)
         minimumHeight = ui.dp(48)
@@ -258,7 +268,7 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         if (saving) return
         val ticket = ++recordingListing
         recordingsPanel.removeAllViews()
-        recordingsPanel.addView(ui.iconButton("Back to copies", Mark.BACK) { backToCopies() })
+        recordingsPanel.addView(ui.iconButton("Back to copies", Mark.BACK, compact = true) { backToCopies() })
         showPanel("Other recordings", recordingsPanel)
         message("Looking for versions…")
         Thread {
@@ -274,7 +284,7 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
                     }
                 }.onFailure {
                     message("Couldn’t load versions.")
-                    recordingsPanel.addView(ui.iconButton("Try again", Mark.REFRESH) { showRecordings() })
+                    recordingsPanel.addView(ui.iconButton("Try again", Mark.REFRESH, compact = true) { showRecordings() })
                 }
             }
         }.start()
@@ -310,7 +320,12 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
                 for (pair in actions.chunked(2)) {
                     addView(row(6).apply {
                         isBaselineAligned = false
-                        for (action in pair) addView(action, LinearLayout.LayoutParams(0, -1, 1f))
+                        for (action in pair) {
+                            action.textSize = 12f
+                            action.background = InsetDrawable(action.background, 0, dp(5), 0, dp(5))
+                            action.setPadding(dp(6), dp(4), dp(6), dp(4))
+                            addView(action, LinearLayout.LayoutParams(0, -1, 1f))
+                        }
                     }, LinearLayout.LayoutParams(-1, -2))
                 }
             }, gap = 8)
@@ -337,12 +352,13 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
                             ).filter(String::isNotBlank).joinToString(" · ")
                             copyPanel.section(ui.row().apply {
                                 addView(column().apply {
-                                    addView(heading(name, 15f))
-                                    if (detail.isNotEmpty()) addView(label(detail, 13f, secondary))
-                                    if (failure.isNotEmpty()) addView(label(failure, 13f, ink))
+                                    addView(heading(name, 12f))
+                                    if (detail.isNotEmpty()) addView(label(detail, 10f, secondary))
+                                    if (failure.isNotEmpty()) addView(label(failure, 10f, ink))
                                 }, LinearLayout.LayoutParams(0, -2, 1f))
                                 val action = if (failure.isEmpty()) "Download" else "Retry"
-                                addView(iconButton("$action $name", if (failure.isEmpty()) Mark.DOWNLOAD else Mark.REFRESH) {
+                                val mark = if (failure.isEmpty()) Mark.DOWNLOAD else Mark.REFRESH
+                                addView(iconButton("$action $name", mark, compact = true) {
                                     submit("Queueing copy…") { room.confirmFormat(row, format, match.getString("key")) }
                                 })
                             }, gap = 8)
@@ -357,9 +373,9 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
     with(ui) {
         formatPanel.section(choices)
         formatPanel.section(actionStrip(listOf(
-            iconButton("View extensions", Mark.EXTENSIONS) { showRoomExtensions(room, backLabel = "Back to format") },
-            iconButton("Browse copies", Mark.BROWSE) { showCopies() },
-            iconButton("Confirm and search", Mark.SEARCH) {
+            iconButton("View extensions", Mark.EXTENSIONS, compact = true) { showRoomExtensions(room, backLabel = "Back to format") },
+            iconButton("Browse copies", Mark.BROWSE, compact = true) { showCopies() },
+            iconButton("Confirm and search", Mark.SEARCH, compact = true) {
                 val format = selectedFormat()
                 submit("Starting search…") { room.confirmFormat(row, format) }
             },
@@ -369,6 +385,7 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         key == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP && handleBack()
     }
     dialog.show()
+    dialog.window?.setLayout((resources.displayMetrics.widthPixels * .76f).toInt(), -2)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val dispatcher = dialog.onBackInvokedDispatcher
         val callback = OnBackInvokedCallback { if (!handleBack()) dialog.cancel() }

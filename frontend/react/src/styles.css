@@ -530,10 +530,9 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .dialog-close { float: right; }
 
 .playlist-share-dialog {
-  width: min(530px, calc(100vw - 24px));
-  max-height: min(85dvh, 720px);
+  --dialog-width: 424px;
+  max-height: min(68dvh, 576px);
   overflow: auto;
-  padding: var(--space-9);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--panel);
@@ -543,15 +542,13 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .playlist-share-tracks {
   max-height: 42dvh;
   overflow: auto;
-  padding-inline-start: var(--space-10);
+  padding-inline-start: var(--space-9);
   color: var(--muted);
 }
 .playlist-share-tracks li { padding-block: var(--space-2); }
 .playlist-share-dialog .primary-action { text-decoration: none; }
-.playlist-share-dialog [data-slot="dialog-title"], .playlist-share-dialog h3 { margin: 0; }
-.playlist-share-dialog [data-slot="dialog-description"] { margin: var(--space-2) 0 var(--space-7); color: var(--muted); }
-.playlist-share-dialog .format-dialog-header > button { width: 44px; padding: 0; }
-.playlist-share-dialog textarea { display: block; width: 100%; min-height: 7em; margin-top: var(--space-5); }
+.playlist-share-dialog h3 { margin: 0; font-size: var(--font-lg); }
+.playlist-share-dialog textarea { display: block; width: 100%; min-height: 5.5em; margin-top: var(--space-4); font-size: inherit; }
 
 .room-login {
   min-height: 100dvh;
@@ -1502,35 +1499,53 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .lyrics-stage-line.is-current { opacity: 1; font-size: var(--font-lyrics-current); font-weight: var(--weight-heavy); }
 .lyrics-stage-note { margin: 0; font-size: var(--font-lg); opacity: .8; }
 
-.format-dialog { width: min(400px, calc(100vw - 28px)); padding: var(--space-9); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-dialog-md); }
-.format-dialog [data-slot="dialog-title"] { margin: 0; font-size: var(--font-4xl); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
-.format-dialog > [data-slot="dialog-description"] { margin: var(--space-2) 0 var(--space-7); color: var(--muted); overflow-wrap: anywhere; }
+.format-dialog { --dialog-width: 320px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-dialog-md); }
+:is(.format-dialog, .playlist-share-dialog) {
+  --dialog-control-size: 35px;
+  width: min(var(--dialog-width), calc((100vw - 28px) * .8));
+  padding: var(--space-8);
+  font-size: var(--font-md);
+}
+:is(.format-dialog, .playlist-share-dialog) [data-slot="dialog-title"] {
+  margin: 0; font-size: 18px; font-weight: var(--weight-bold); overflow-wrap: anywhere;
+}
+:is(.format-dialog, .playlist-share-dialog) > [data-slot="dialog-description"] {
+  margin: var(--space-1) 0 var(--space-5); color: var(--muted); overflow-wrap: anywhere;
+}
 .format-dialog-header { display: flex; align-items: center; gap: var(--space-4); }
 .format-dialog-header > button { flex: none; }
 :is(.format-dialog, .playlist-share-dialog) > .format-dialog-header { justify-content: space-between; }
-.format-dialog fieldset { margin: var(--space-6) 0; padding: 0; border: 0; }
-.format-dialog legend { margin-bottom: var(--space-3); color: var(--muted); }
-.format-dialog label { display: flex; align-items: center; gap: var(--space-5); min-height: 44px; cursor: pointer; }
+:is(.format-dialog, .playlist-share-dialog) > .format-dialog-header > button {
+  width: var(--dialog-control-size); min-width: var(--dialog-control-size);
+  height: var(--dialog-control-size); min-height: var(--dialog-control-size); padding: 0;
+}
+.format-dialog fieldset { margin: var(--space-5) 0; padding: 0; border: 0; }
+.format-dialog legend { margin-bottom: var(--space-2); color: var(--muted); }
+.format-dialog label { display: flex; align-items: center; gap: var(--space-4); min-height: var(--dialog-control-size); cursor: pointer; }
 .format-dialog input { accent-color: var(--accent); }
 .format-dialog .find-copy-sources { flex-wrap: nowrap; justify-content: space-between; font-size: var(--font-sm); }
 .dialog-actions {
-  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-4);
-  margin-block-start: var(--space-7); padding-block-start: var(--space-6); border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3);
+  margin-block-start: var(--space-5); padding-block-start: var(--space-5); border-top: 1px solid var(--line);
 }
-.dialog-actions > .room-action { min-width: 0; text-align: center; }
-.copy-dialog { width: min(560px, calc(100vw - 28px)); }
+.copy-dialog { --dialog-width: 448px; }
 .copy-dialog > p[role] { margin: 0; }
 .copy-dialog > p[role="status"] { color: var(--muted); }
 .copy-dialog > p[role="alert"] { overflow-wrap: anywhere; }
 .copy-dialog .dialog-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
-.copy-dialog .dialog-actions > .room-action { padding-inline: var(--space-4); }
+.copy-dialog .copy-picker-list .radio-result { min-height: 44px; padding-block: var(--space-4); }
+.copy-dialog .copy-picker-list strong { font-size: var(--font-sm); }
+.copy-dialog .copy-picker-list small { font-size: calc(var(--font-sm) * .8); }
+.copy-dialog .copy-picker-action .room-icon { width: 13px; height: 13px; }
 .copy-dialog [data-stop-search]:enabled { color: var(--danger); }
 @media (max-width: 580px) {
   .copy-dialog .dialog-actions { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 420px) {
-  .format-dialog, .playlist-share-dialog { padding-inline: var(--space-8); }
   .dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (any-pointer: coarse), (max-width: 650px) {
+  :is(.format-dialog, .playlist-share-dialog) { --dialog-control-size: 44px; }
 }
 
 .nav-core, .nav-overflow { display: contents; }
@@ -2831,6 +2846,13 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
   font: inherit; font-size: var(--font-md); font-weight: var(--weight-bold); line-height: 1.25;
 }
 .room-action .room-icon, .room-select .room-icon { width: 17px; height: 17px; }
+.dialog-actions > .room-action:is(.primary-action, .quiet-button) {
+  min-width: 0; min-height: var(--dialog-control-size); gap: var(--space-3);
+  padding: var(--space-3); font-size: calc(var(--font-md) * .8); text-align: center;
+}
+:is(.dialog-actions, .format-dialog-header) > button .room-icon, .dialog-actions .room-action .room-icon {
+  width: 13px; height: 13px; flex: none;
+}
 .room-action[role="checkbox"][aria-checked="true"] { background: var(--accent-tint); border-color: var(--accent); }
 .room-select { display: grid; min-width: 0; gap: var(--space-2); }
 .room-select [data-slot="select-label"], .composer-form label {
@@ -3400,7 +3422,7 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
 .extension-detail-row:not([hidden]) td { padding-block: 0 var(--space-5); }
 .extension-config { display: grid; gap: var(--space-6); padding: var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--card); }
 .extension-config .settings-note { margin: 0; }
-.extension-update-dialog { width: min(480px, calc(100vw - 28px)); }
+.extension-update-dialog { --dialog-width: 384px; }
 .extension-update-changes { margin: var(--space-6) 0; }
 .extension-update-changes > div { padding-block: var(--space-3); border-block-start: 1px solid var(--line); }
 .extension-update-changes dt { font-weight: var(--weight-bold); overflow-wrap: anywhere; }
@@ -3447,7 +3469,7 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
 .extensions-stack .settings-actions .room-icon { width: 17px; height: 17px; }
 .extensions-stack :is(a, button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (pointer: coarse) { .extensions-stack .settings-actions .quiet-button { min-height: 44px; } }
-.format-dialog { max-height: calc(100dvh - 28px); overflow: auto; }
+.format-dialog { max-height: calc((100dvh - 28px) * .8); overflow: auto; }
 
 .activity-mixes {
   display: grid;
