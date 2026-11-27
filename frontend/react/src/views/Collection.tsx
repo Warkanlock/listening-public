@@ -26,7 +26,7 @@ import {
   DESTINATION_DESCRIPTORS,
 } from "../destinations";
 import { notify } from "../toasts";
-import { CoverArt } from "../components/Artwork";
+import { Artwork, CoverArt } from "../components/Artwork";
 import { GenreTagFilter } from "../components/GenreTagFilter";
 import { PlaylistShare } from "../components/PlaylistShare";
 import { PlaylistCards } from "../components/PlaylistCards";
@@ -76,9 +76,14 @@ function Hero() {
   const total = selected?.entries ?? overview?.total;
   return (
     <section className="collection-hero" data-playlist={selected ? true : undefined}>
-      {selected && <div className="playlist-banner-art" aria-hidden="true">
-        <CoverArt cover={selected.cover} fallback={selected.name.trim().slice(0, 1)} />
-      </div>}
+      {selected && <>
+        <div className="playlist-banner-backdrop" aria-hidden="true">
+          <Artwork subject={{ cover: selected.cover, seed: selected.id }} loading="lazy" />
+        </div>
+        <div className="playlist-banner-art" aria-hidden="true">
+          <CoverArt cover={selected.cover} fallback={selected.name.trim().slice(0, 1)} />
+        </div>
+      </>}
       <div className="hero-copy">
         {selected ? <button className="library-back icon-control" title={backLabel} aria-label={backLabel} type="button"
           onClick={() => store.setView(store.playlistFromMyPlaylists ? "private-playlists" : "all")}><RoomIcon name="back" /></button> : null}
