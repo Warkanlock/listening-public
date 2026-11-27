@@ -688,13 +688,27 @@ def verify_landing(browser, base, output, errors, warnings):
             assert sleeve.locator("img").evaluate("img => img.complete && img.naturalWidth > 0")
             assert page.get_by_role("link", name="Explore the player").get_attribute("href") == "#showcase"
             assert page.get_by_role("navigation").get_by_role("link", name="Features").is_visible()
-            assert not re.search(r"\b(?:YouTube|SomaFM|Spotify)\b", page.locator("body").inner_text(), re.I)
+            logo = page.get_by_role("link", name="Listening Room", exact=True).first.locator("img")
+            assert logo.evaluate("img => img.complete && img.naturalWidth > 0")
+            hero_library = page.get_by_role("img", name="Library and queue in Listening Room")
+            hero_library.evaluate("image => image.decode()")
+            assert hero_library.evaluate("image => image.naturalWidth > 0")
+            assert not re.search(r"\b(?:YouTube|SomaFM)\b", page.locator("body").inner_text(), re.I)
+            release = page.get_by_role("region", name="New in Listening Room")
+            release_notes = release.get_by_role("link", name="2.0.6 release notes", exact=True)
+            assert release_notes.get_attribute("href").endswith("/releases/tag/v2.0.6")
+            release_images = release.get_by_role("img").all()
+            assert len(release_images) == 2
+            for picture in release_images:
+                picture.scroll_into_view_if_needed()
+                picture.evaluate("image => image.decode()")
+                assert picture.evaluate("image => image.naturalWidth === 1440 && image.naturalHeight === 900")
             screens = page.get_by_role("region", name="Inside Listening.")
-            first_screen = screens.get_by_role("img", name="Library in Listening")
+            first_screen = screens.get_by_role("img", name="Library Radio in Listening")
             assert first_screen.bounding_box()["width"] <= (390 if page == mobile else 560)
             screens.get_by_text("See more screens", exact=True).click()
             room_images = screens.get_by_role("img").all()
-            assert len(room_images) == 16
+            assert len(room_images) == 15
             for picture in room_images:
                 picture.scroll_into_view_if_needed()
                 picture.evaluate("image => image.decode()")
@@ -3729,6 +3743,8 @@ def run_browser(server, output):
                 stopped_search = page.locator(".request-item", has_text="Search to stop")
                 stopped_search.get_by_role("button", name="Review copies", exact=True).click()
                 stop_picker = page.get_by_role("dialog", name="Choose a copy")
+                stop_picker.get_by_role("button", name="Stop searching", exact=True).wait_for()
+                page.screenshot(path=str(output / "13-copy-review.png"), animations="disabled")
                 with page.expect_response(lambda response: response.url.endswith("/api/requests/stop-search")
                                           and response.ok) as stopped:
                     stop_picker.get_by_role("button", name="Stop searching", exact=True).press("Enter")

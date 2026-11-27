@@ -2175,12 +2175,6 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .about-mast nav a:hover,.about-inline:hover { text-decoration: underline; }
 .about-room-link { border: 1px solid #819b8e; border-radius: 100px; padding-inline: 18px; }
 .about-wordmark { display: inline-flex; align-items: center; min-height: 44px; font-size: 1.8rem; line-height: 1; font-weight: 800; letter-spacing: -.07em; text-decoration: none; }
-.about-wordmark span { color: var(--mint); }
-.about-wordmark i { display: flex; align-items: center; gap: 3px; margin-right: 12px; transform: rotate(-18deg); }
-.about-wordmark b { width: 4px; height: 14px; border-radius: 6px; background: var(--mint); }
-.about-wordmark b:nth-child(2) { height: 22px; }
-.about-wordmark b:nth-child(3) { height: 26px; }
-.about-wordmark b:nth-child(4) { height: 17px; }
 .about-hero { display: grid; grid-template-columns: 1.03fr 1fr; gap: clamp(24px,4vw,66px); align-items: center; padding-block: clamp(54px,7vw,120px) clamp(46px,5.5vw,88px); }
 .about-label,.about-scene-heading small { font: 650 .73rem/1.4 "Figtree Variable",system-ui,sans-serif; letter-spacing: .15em; text-transform: uppercase; }
 .about-lead .about-label { color: var(--mint); }

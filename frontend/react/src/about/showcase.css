@@ -1,3 +1,87 @@
+.about-wordmark {
+  flex-shrink: 0;
+  gap: .65rem;
+  font-size: 1.3rem;
+  letter-spacing: -.045em;
+}
+.about-wordmark img { display: block; }
+.about-opening { background: radial-gradient(ellipse at 76% 45%, #244b44, var(--ocean) 70%); }
+.about-hero-screen { min-width: 0; }
+.about-hero-screen > a {
+  display: block;
+  overflow: hidden;
+  padding: clamp(5px, .65vw, 9px);
+  border: 1px solid #577c70;
+  border-radius: 14px;
+  background: #172f30;
+  box-shadow: 0 24px 45px #0a2726a0;
+}
+.about-hero-screen img { display: block; width: 100%; height: auto; border-radius: 8px; }
+.about-hero-screen figcaption { margin-top: .6rem; text-align: right; }
+.about-latest {
+  display: inline-flex;
+  min-height: 44px;
+  margin-top: .55rem;
+  align-items: center;
+  gap: .45rem;
+  font-size: .9rem;
+  text-decoration-color: #86a89c;
+}
+.about-latest .about-arrow { width: .85rem; height: .85rem; }
+.about-release { padding-block: clamp(44px, 5.8vw, 90px); }
+.about-release-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: .6rem 1.5rem;
+  margin-bottom: clamp(22px, 3vw, 42px);
+}
+.about-release-head h2 { margin: 0; font-size: clamp(2.5rem, 4.6vw, 4.8rem); }
+.about-release-head nav { display: flex; flex-wrap: wrap; gap: 0 1rem; }
+.about-release-head nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: .9rem;
+  font-weight: 700;
+}
+.about-release-grid > article { display: grid; grid-template-rows: auto 1fr auto; gap: .65rem; min-width: 0; }
+.about-release :is(.about-release-grid, .about-release-note) h3 {
+  font-size: clamp(1.3rem, 2vw, 1.7rem);
+  letter-spacing: -.035em;
+}
+.about-release-grid > article > p, .about-release-note p {
+  max-width: 57ch;
+  color: #405851;
+  line-height: 1.55;
+}
+.about-release-grid > article > a { align-self: end; margin-top: .45rem; }
+.about-release-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem 1.5rem;
+  margin-top: clamp(20px, 3vw, 40px);
+  padding: clamp(16px, 2vw, 28px);
+  border: 1px solid var(--light-rule);
+  border-radius: 12px;
+  background: #e9eee5;
+}
+.about-release-note p { margin-top: .35rem; }
+.about-experience .about-deck {
+  width: min(100%, 480px);
+  margin-top: 1.65rem;
+  padding: clamp(12px, 2vw, 23px);
+  border-radius: 12px;
+  background: var(--ocean);
+  color: var(--paper);
+  animation: none;
+}
+.about-experience #tour-preview { align-self: center; min-width: 0; }
+.about-experience :is(.about-preview, .about-switches) { border-radius: 12px 12px 0 0; }
+
 .about-screens {
   background: #f1f4e9;
   border-block: 1px solid var(--light-rule);
@@ -112,4 +196,25 @@
 
 @media (max-width: 700px) {
   .about-screens-lead,.about-screen-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (min-width: 801px) {
+  .about-hero {
+    grid-template-columns: minmax(0, .83fr) minmax(0, 1.17fr);
+    padding-block: clamp(52px, 5.5vw, 90px) clamp(40px, 4.25vw, 67px);
+  }
+}
+
+@media (801px <= width <= 950px) {
+  .about-hero .about-actions { column-gap: .75rem; }
+  .about-hero .about-primary { padding-inline: .95rem; }
+  .about-actions .about-inline { gap: .55rem; }
+}
+
+@media (max-width: 520px) {
+  .about-wordmark { gap: .5rem; font-size: 1.12rem; }
+  .about-wordmark img { width: 30px; height: 30px; }
+  .about-mast nav { gap: .8rem; }
+  .about-mast nav a { font-size: .875rem; }
+  .about-room-link { padding-inline: 11px; }
 }

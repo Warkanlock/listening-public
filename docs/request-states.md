@@ -22,6 +22,9 @@ stateDiagram-v2
     Verifying --> CopyUnavailable : chosen copy fails
     ChooseACopy --> CopyQueued : pick a copy
     CopyUnavailable --> CopyQueued : pick another copy
+    ChooseACopy --> Unavailable : stop searching
+    CopyUnavailable --> Unavailable : stop searching
+    Unavailable --> Queued : retry now
     Verifying --> Ready : verified and playable
 ```
 
@@ -38,8 +41,9 @@ Requests, Deep Dive, and Weekly Discovery use a rounded status chip alongside th
 | Trying a copy | The room is testing an automatically picked candidate. | See transfer percentage when the source reports bytes. |
 | Downloading | The room is transferring the copy you chose. | See transfer percentage when the source reports bytes. |
 | Verifying | The room is checking the recording and audio. | Wait for verification. |
-| Choose a copy | Search returned options that need your review. | Review copies and choose one. |
-| Copy unavailable after selection | The chosen file failed to transfer or pass verification. | Browse copies and choose another. |
+| Choose a copy | Search returned options that need your review. | Open Review copies to choose one or stop searching. |
+| Copy unavailable after selection | The chosen file failed to transfer or pass verification. | Open Review copies to choose another or stop searching. |
+| Unavailable | You stopped the search. The request stays visible and automatic searches skip it. | Retry now to return it to the search queue. |
 | No copy found | Search found no usable copy in the requested format. | Change format or retry. Try MP3 appears after a lossless miss. |
 | Search failed | The source failed or exhausted its retries. | Retry, change format, or edit the search. |
 | Needs review | The download could not be verified. | Change format, edit the search, or review another recording. |
