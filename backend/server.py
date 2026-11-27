@@ -1482,6 +1482,17 @@ EXTENSION_HEALTH_LOCK = threading.Lock()
 EXTENSION_SELECTION_LOCK = threading.Lock()
 MEMBER_POST = {"/api/radio/presence", "/api/session", "/api/favorites", "/api/device", "/api/discovery/search", "/api/jams",
                EXTENSION_HEALTH} | PERSONAL_ROUTES
+OWNER_POST = {"/api/settings", "/api/sources", "/api/import-csv", "/api/import-list", "/api/import-bundle",
+              "/api/process", "/api/jobs", "/api/open-source", "/api/moods", "/api/genre", "/api/devices/revoke",
+              "/api/devices/offline", "/api/devices/playlist-access", "/api/devices/invites", "/api/pairing/rotate",
+              "/api/playlists/merge", "/api/playlist-links", "/api/export", "/api/spotify/playlists",
+              "/api/spotify/connect", "/api/spotify/sync", "/api/spotify/disconnect"}
+POST_ROUTES = MEMBER_POST | OWNER_POST | {
+    weekly_discovery.PATH, "/api/radio/somafm", "/api/extensions", "/api/discovery/sources", "/api/replica/original",
+    "/api/requests", "/api/requests/format", "/api/requests/copies", "/api/requests/stop-search", "/api/requests/retry",
+    "/api/requests/batch", "/api/stations", "/api/sync", "/api/announcements", "/api/playlists/add-song",
+    "/api/discovery/import",
+}
 MEMBER_TRACK_URL = re.compile(r"/api/(audio|metadata|lyrics)/([1-9][0-9]{0,9})")
 PRIVATE_PLAYLIST = re.compile(r"private:([a-f0-9]{32})")
 
@@ -1536,15 +1547,22 @@ def member_summary():
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "ListeningRoom/1.2"
+    timeout = 30
 
-    def log_message(self, format, *args):
-        path = getattr(self, "path", "")
-        request = getattr(self, "requestline", "")
-        if any(fragment in request or fragment in path for fragment in ("/rest/", "lr_sub_", "apiKey=", "token=")):
+    def log_request(self, code="-", size="-"):
+        path = getattr(self, "path", "").partition("?")[0]
+        if path.startswith(("/rest/", "/api/room", "/api/status", "/api/session",
+                            "/api/insights", "/api/activity", "/api/spotify/callback")):
             return
-        if not path.startswith((
-                "/api/room", "/api/status", "/api/session", "/api/insights", "/api/activity", "/api/spotify/callback")):
-            super().log_message(format, *args)
+        method = self.command if self.command in {"GET", "POST", "HEAD"} else "-"
+        code = code.value if isinstance(code, HTTPStatus) else code
+        self.log_message("%s %r %s %s", method, path if path.startswith("/") else "-", code, size)
+
+    def log_error(self, format, *args):
+        if format == "code %d, message %s":
+            self.log_message("HTTP error %d", args[0])
+        else:
+            super().log_error(format, *args)
 
     def _subsonic(self, parsed):
         query = {}
@@ -2061,10 +2079,12 @@ class Handler(BaseHTTPRequestHandler):
         allowed_hosts are served; a missing Host is a tooling case
         allowed from loopback only. Forwarding headers are never
         consulted."""
-        name = parse_host(self.headers.get("Host"))
-        if not name:
+        hosts = self.headers.get_all("Host", [])
+        if not hosts:
             return self._explicit_owner() or not self._client_is_loopback()
-        if self._explicit_owner() and (len(self.headers.get_all("Host", [])) != 1 or not self._request_origin()):
+        if len(hosts) != 1 or not (name := parse_host(hosts[0])):
+            return True
+        if self._explicit_owner() and not self._request_origin():
             return True
         if ROOM_ORIGIN and name == urlparse(ROOM_ORIGIN).hostname:
             return False
@@ -2695,7 +2715,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/activity/explore":
             return self.json_response({"activity": activity_snapshot(), "summary": catalog.summary,
                                        "events": recent_events(STATE),
-                                       "logs": recent_process_lines() if not self._explicit_owner() or self._is_owner() else [],
+                                       "logs": recent_process_lines() if self._is_owner() else [],
                                        "bulk_running": worker_running("downloads"),
                                        "requests_running": worker_running("requests"),
                                        "auto_download": bool(SETTINGS.get("auto_download"))})
@@ -2871,6 +2891,8 @@ class Handler(BaseHTTPRequestHandler):
             device_id = parse_qs(parsed.query).get("device_id", [""])[0]
             if not re.fullmatch(r"[a-zA-Z0-9_-]{8,80}", device_id):
                 return self.error_json("Invalid device ID")
+            if self._auth_tier() == "device" and self._authenticated_device != device_id:
+                return self.error_json("Read announcements from the paired device.", HTTPStatus.FORBIDDEN)
             return self.json_response({"announcements": ANNOUNCEMENTS.for_device(device_id)})
         if path == "/api/jobs":
             with ROOT_LOCK:
@@ -3263,56 +3285,53 @@ class Handler(BaseHTTPRequestHandler):
         profile = self._member_profile() if not account_action else None
         if profile is not None and self.path not in MEMBER_POST:
             return self.error_json("This action is unavailable to household members.", HTTPStatus.FORBIDDEN)
-        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {weekly_discovery.PATH, "/api/radio/presence", "/api/radio/somafm", "/api/extensions", EXTENSION_HEALTH, "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/copies", "/api/requests/stop-search", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
-                             "/api/sync", "/api/import-csv", "/api/import-list", "/api/import-bundle", "/api/device", "/api/devices/revoke", "/api/devices/offline", "/api/devices/invites", "/api/pairing/rotate",
-                             "/api/announcements", "/api/process", "/api/jobs", "/api/open-source", "/api/playlists/merge",
-                             "/api/playlists/add-song", "/api/discovery/import", "/api/devices/playlist-access",
-                             "/api/moods", "/api/genre", "/api/export", "/api/spotify/playlists", "/api/spotify/connect", "/api/spotify/sync", "/api/spotify/disconnect", "/api/playlist-links"}:
+        if not account_action and self.path not in POST_ROUTES:
             return self.error_json("Unknown action", HTTPStatus.NOT_FOUND)
         origins = self.headers.get_all("Origin", [])
         if origins:
-            valid_origin = len(origins) == 1 and origins[0] == self._request_origin()
+            origin = self._request_origin()
+            valid_origin = bool(origin) and origins == [origin]
         else:
             valid_origin = not account_action and (self._auth_tier() == "control"
                             or self._legacy_local_owner())
         if not valid_origin:
             return self.error_json("Invalid origin", HTTPStatus.FORBIDDEN)
+        if self.path in OWNER_POST and not self._is_owner():
+            return self.error_json("Change host settings on the server computer", HTTPStatus.FORBIDDEN)
         if self.path == "/api/replica/original":
             if self.replica_allowed():
                 self.receive_original()
             return
         if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
             return self.error_json("Send JSON")
+        limit = (50 * 1024 * 1024 if self.path == "/api/import-bundle" else
+                 25 * 1024 * 1024 if self.path in {"/api/import-csv", "/api/import-list"} else 16384)
         try:
-            size = int(self.headers.get("Content-Length", "0"))
-            if size < 1 or size > (50 * 1024 * 1024 if self.path == "/api/import-bundle" else
-                                   25 * 1024 * 1024 if self.path in {"/api/import-csv", "/api/import-list"} else 16384):
-                return self.error_json("Invalid request size")
+            size = self._body_size(limit)
+        except ValueError as error:
+            return self.error_json(str(error))
+        try:
             payload = self.rfile.read(size)
+            if len(payload) != size:
+                return self.error_json("Incomplete request body")
             body = json.loads(payload)
-        except (ValueError, json.JSONDecodeError):
+        except (ValueError, RecursionError):
             return self.error_json("Invalid JSON")
-        if self.path in {"/api/session", "/api/my/session"} and isinstance(body, dict):
+        if not isinstance(body, dict):
+            return self.error_json("Send a JSON object.")
+        if self.path in {"/api/session", "/api/my/session"}:
             key = self._traffic_key(self.headers.get("X-Listening-Output"))
             if key is not None:
                 PLAYBACK_TRAFFIC.record(key, received=len(payload))
         if account_action:
             return self._account_action(body)
         if self.path == "/api/jams":
-            if body is None:
-                return self.error_json("Choose a Jam action.")
             return self._jam_request(self.path, {}, body)
         if self.path in {"/api/discovery/sources", "/api/discovery/search"}:
-            if not isinstance(body, dict):
-                return self.error_json("Send a JSON object.")
             return self._public_discovery(self.path, body)
         if self.path in PERSONAL_ROUTES:
-            if not isinstance(body, dict):
-                return self.error_json("Send a JSON object.")
             return self._personal_data(self.path, {}, body)
         if self.path == weekly_discovery.PATH:
-            if not isinstance(body, dict):
-                return self.error_json("Choose weekly discovery tracks.")
             return self._weekly_discovery(body)
         if self.path == "/api/discovery/import":
             if not self._can_add_room_song():
@@ -3627,11 +3646,6 @@ class Handler(BaseHTTPRequestHandler):
                 with ROOT_LOCK:
                     start_worker("requests", force=True)
             return self.json_response({"added": added, "status": "Queued broader searches"})
-        if self.path in {"/api/settings", "/api/sources", "/api/import-csv", "/api/import-list", "/api/import-bundle", "/api/process", "/api/jobs", "/api/open-source",
-                         "/api/moods", "/api/genre", "/api/devices/revoke", "/api/devices/offline", "/api/devices/playlist-access", "/api/devices/invites", "/api/pairing/rotate", "/api/playlists/merge", "/api/playlist-links", "/api/export",
-                         "/api/spotify/playlists", "/api/spotify/connect", "/api/spotify/sync", "/api/spotify/disconnect"}:
-            if not self._is_owner():
-                return self.error_json("Change host settings on the server computer", HTTPStatus.FORBIDDEN)
         if self.path == "/api/playlist-links":
             if any_library_worker_running():
                 return self.error_json("Wait for the active library job before changing playlist links", HTTPStatus.CONFLICT)
@@ -4203,15 +4217,25 @@ class Handler(BaseHTTPRequestHandler):
                         HTTPStatus.FORBIDDEN)
         return False
 
+    def _body_size(self, limit):
+        lengths = self.headers.get_all("Content-Length", [])
+        if ("Transfer-Encoding" in self.headers or len(lengths) != 1
+                or not re.fullmatch(r"[0-9]{1,10}", lengths[0])):
+            raise ValueError("Invalid request size")
+        size = int(lengths[0])
+        if not 0 < size <= limit:
+            raise ValueError("Invalid request size")
+        return size
+
     def receive_original(self):
         key = self.headers.get("X-Audio-Sha256", "")
         suffix = self.headers.get("X-Audio-Suffix", "")
         collection = self.headers.get("X-Listening-Collection", "")
         try:
-            size = int(self.headers.get("Content-Length", "0"))
+            size = self._body_size(offline_replica.MAX_UPLOAD)
             duration = float(self.headers.get("X-Audio-Duration", "0"))
             title = unquote(self.headers.get("X-Audio-Title", "")).strip()
-            if (not 0 < size <= offline_replica.MAX_UPLOAD or not math.isfinite(duration) or duration < 0
+            if (not math.isfinite(duration) or duration < 0
                     or not 0 < len(title) <= 512 or not re.fullmatch(r"[a-f0-9]{64}", key)
                     or suffix not in AUDIO_FORMATS or self.headers.get("Content-Type") != "application/octet-stream"):
                 raise ValueError("Invalid original audio upload")
@@ -4223,7 +4247,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error_json("Server has insufficient space for this original", HTTPStatus.INSUFFICIENT_STORAGE)
             with tempfile.NamedTemporaryFile(dir=scratch, suffix=suffix) as temp:
                 remaining = size
-                self.connection.settimeout(30)
                 while remaining:
                     chunk = self.rfile.read(min(1 << 18, remaining))
                     if not chunk:
