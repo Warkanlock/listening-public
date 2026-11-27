@@ -10,7 +10,8 @@ import org.json.JSONObject
 internal enum class RoomTheme(val key: String, val label: String) {
     SEA_GLASS("sea-glass", "Sea Glass"),
     NIGHT("night", "Night"),
-    PAPER("paper", "Paper");
+    PAPER("paper", "Paper"),
+    E_INK("e-ink", "E Ink");
 
     fun save(context: Context) {
         preferences(context).edit().putString("theme", key).apply()
@@ -32,7 +33,7 @@ internal enum class RoomTheme(val key: String, val label: String) {
         private fun preferences(context: Context) = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
 
         fun load(context: Context): RoomTheme {
-            if (isKompakt) return PAPER
+            if (isKompakt) return E_INK
             val saved = preferences(context).getString("theme", null)
             return entries.firstOrNull { it.key == saved } ?: SEA_GLASS
         }

@@ -108,7 +108,7 @@ internal class PlayerLyrics(
         lines.getOrNull(next)?.second?.let { line ->
             line.setTextColor(ui.accentInk)
             line.isSelected = true
-            scroll.post {
+            if (!ui.eInk) scroll.post {
                 if (dialog.isShowing && content.indexOfChild(line) == active)
                     scroll.smoothScrollTo(0, (content.top + line.top - scroll.height / 2 + line.height / 2).coerceAtLeast(0))
             }
