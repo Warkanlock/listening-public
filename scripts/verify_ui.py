@@ -1796,6 +1796,12 @@ def verify_tablet(browser, server, output):
         backdrop = hero.locator(".playlist-banner-backdrop")
         tablet.locator(".track-row").first.wait_for()
         queue = tablet.get_by_role("complementary", name="Playback queue", exact=True)
+        # Browser emulation has no home-indicator inset.
+        safe_bottom = 28
+        tablet.locator(".app-shell").evaluate(
+            "(shell, inset) => shell.style.setProperty('--tablet-dock-inset', inset + 'px')", safe_bottom)
+        player = tablet.get_by_role("contentinfo", name="Audio player")
+        expand_player = player.get_by_role("button", name="Expand player controls")
         for name, width, height in (("wide", 1280, 744), ("landscape", 1194, 834), ("portrait", 834, 1194)):
             tablet.set_viewport_size({"width": width, "height": height})
             assert queue.count() == 0, "The queue covers the tablet when it opens by default"
@@ -1804,12 +1810,17 @@ def verify_tablet(browser, server, output):
             assert search["x"] + search["width"] <= tools["x"] + 1, name
             assert abs(search["y"] + (search["height"] - tools["height"]) / 2 - tools["y"]) <= 1, name
             assert tools["height"] <= 44, f"{name} toolbar actions wrap"
-            nav = tablet.locator(".sidebar").bounding_box()
-            player = tablet.locator(".player").bounding_box()
-            if not (nav["y"] > height * 0.8 and abs(nav["y"] - player["y"]) < 2
-                    and nav["x"] + nav["width"] <= player["x"] + 1
-                    and player["x"] + player["width"] <= width + 1):
-                raise AssertionError(f"{name} dock is clipped or overlaps: {nav}, {player}")
+            nav = tablet.locator(".sidebar")
+            nav_box, player_box = nav.bounding_box(), player.bounding_box()
+            if not (nav_box["y"] > height * 0.8 and abs(nav_box["y"] - player_box["y"]) <= 1
+                    and abs(nav_box["x"] + nav_box["width"] - player_box["x"]) <= 1
+                    and abs(player_box["x"] + player_box["width"] - width) <= 1):
+                raise AssertionError(f"{name} dock is clipped or overlaps: {nav_box}, {player_box}")
+            for panel in (nav_box, player_box):
+                assert abs(panel["y"] + panel["height"] - height) <= 1, f"{name} dock leaves a bottom gap"
+            for control in (nav.get_by_role("button", name="Menu"), expand_player):
+                button = control.bounding_box()
+                assert button["y"] + button["height"] < height - safe_bottom, f"{name} control enters the inset"
             bounds, art, copy, background = (item.bounding_box() for item in (hero, cover, heading, backdrop))
             assert art["x"] > bounds["x"] + 20 and abs(art["width"] - art["height"]) <= 1, name
             assert copy["x"] >= art["x"] + art["width"] + 12, name
@@ -1823,8 +1834,13 @@ def verify_tablet(browser, server, output):
             if tablet.evaluate("document.querySelector('main').scrollWidth > document.querySelector('main').clientWidth"):
                 raise AssertionError(f"{name} playlist overflows horizontally")
             tablet.screenshot(path=str(output / f"18-tablet-{name}.png"))
-            tablet.get_by_role("button", name="Expand player controls").tap()
-            tablet.get_by_role("button", name="Open queue").tap()
+            expand_player.tap()
+            open_queue = player.get_by_role("button", name="Open queue")
+            open_queue.wait_for()
+            expanded_box, queue_button = player.bounding_box(), open_queue.bounding_box()
+            assert abs(expanded_box["y"] + expanded_box["height"] - height) <= 1, name
+            assert queue_button["y"] + queue_button["height"] < height - safe_bottom, name
+            open_queue.tap()
             tablet.get_by_role("button", name="Close queue").tap()
             tablet.get_by_role("button", name="Collapse player controls").tap()
         tablet.get_by_role("tab", name="Need a copy").tap()
@@ -4160,7 +4176,7 @@ def run_browser(server, output):
             try:
                 verify_tablet(browser, server, output)
                 item.ok = True
-                item.detail = "aligned cover and blurred artwork with a portrait fallback, dock, queue and touch navigation"
+                item.detail = "aligned cover, blurred artwork and fallback, full safe-area dock, queue and touch navigation"
             except Exception as error:
                 item.detail = repr(error)
 
