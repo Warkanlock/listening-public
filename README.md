@@ -21,14 +21,15 @@
 - Save a Camping mix for offline listening. Android can also keep an offline copy of your room library, play files stored on the device, and switch to a high-contrast E Ink theme.
 - Add optional plugins to find and retrieve missing recordings. Listening verifies audio before adding it to your library. Compatible plugins can also share a folder you choose.
 
-## What's new in 2.0.6 and 2.0.5
+## What's new
 
+- **Review copies at a glance.** Copy-review actions line up in a row on desktop and in two columns on web and Android phones.
 - **Stop searching on web and Android.** In **Review copies**, choose **Stop searching** to mark a request **Unavailable** and remove it from automatic searches. The request stays visible. Select **Retry now** to search again.
 - **Find your way around Settings.** Use a sidebar on a computer or scroll the tabs on a phone. Spotify account controls and playlist tools have their own sections. In **Sources → Playlist matches**, open a suggested match to compare recordings before linking playlists.
 - **Manage sharing in Extensions.** Open the plugin that provides sharing to choose a folder and start or stop sharing. [Folder sharing setup](docs/download-engines.md#share-a-folder-through-a-plugin)
 - **Search and update on Android.** Use the dedicated **Search** screen to find songs, artists, and albums. Check for a new APK from **Settings → App updates**. [Android guide](clients/android/README.md)
 
-[2.0.6 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.6) · [2.0.5 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.5)
+[2.0.7 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.7) · [2.0.6 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.6) · [2.0.5 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.5)
 
 ## Your first run
 
