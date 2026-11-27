@@ -3,8 +3,6 @@ package music.listening.room
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.res.ColorStateList
-import android.os.Build
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -24,12 +22,14 @@ internal fun clockTime(seconds: Int): String =
 internal class PlayerPanel(private val activity: Activity, private val ui: RoomUi, private val room: Room,
                            private val action: (String, JSONObject) -> Unit, private val addToPlaylist: ((JSONObject) -> Unit)?,
                            private val saveFavorite: ((FavoriteSong, Boolean, (Boolean?) -> Unit) -> Unit)?,
+                           private val positionOpened: () -> Unit = {},
                            library: () -> Unit) : FrameLayout(activity) {
     private val scroll = if (ui.eInk) null else ScrollView(activity)
-    private val artworkFirst = ui.eInk && !ui.compactPlayerLandscape
     private var current: JSONObject? = null
     private var lyricSheet: PlayerLyrics? = null
     private var positionDialog: AlertDialog? = null
+    val needsLivePosition: Boolean get() = positionDialog != null || lyricSheet != null
+
     private fun showLyrics() {
         val track = current ?: return
         if (track.lyricRef() == null) return
@@ -40,6 +40,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         }) { lyricSheet = null }
         lyricSheet = sheet
         sheet.show(track, seconds, !snapshot.optBoolean("radio_pending"))
+        positionOpened()
     }
     override fun onDetachedFromWindow() {
         lyricSheet?.close()
@@ -61,7 +62,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     private var duration = 0
     private val timeline = ui.column().apply {
         visibility = View.GONE
-        if (ui.eInk && !artworkFirst) setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(12))
+        if (ui.eInk) setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(12))
     }
     private val position = ui.iconButton("Show position", Mark.POSITION, action = ::togglePosition)
 
@@ -81,6 +82,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
             }
             updatePosition()
             dialog.show()
+            positionOpened()
             return
         }
         val open = timeline.visibility != View.VISIBLE
@@ -106,14 +108,11 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         },
     )
     private val details: LinearLayout
-    private val more = ui.iconButton("More playback options", Mark.MORE, outlined = !artworkFirst, action = ::showOptions)
+    private val more = ui.iconButton("More playback options", Mark.MORE, action = ::showOptions)
     private var savingFavorite = false
     private val heart = ui.iconButton("Add to favorites", Mark.HEART, outlined = false, action = ::toggleFavorite)
         .apply { visibility = View.GONE }
-    private val sleeve = RecordSleeve(context, ui, captionAction = more.takeIf { artworkFirst },
-        favoriteAction = heart.takeIf { saveFavorite != null })
-    private val shuffle = ui.iconButton("Shuffle play", Mark.SHUFFLE, outlined = false) { action("shuffle", JSONObject()) }
-    private val queueIcon = ui.iconButton("Queue", Mark.QUEUE, outlined = false, action = ::showQueue)
+    private val sleeve = RecordSleeve(context, ui, favoriteAction = heart.takeIf { saveFavorite != null })
     private val queue = ui.queueButton(::showQueue).apply {
         maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
@@ -178,7 +177,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
                 profileAction(track, "artist")?.let { add(Entry("Artist", open = it)) }
             }
             if (current?.lyricRef() != null) add(Entry("Lyrics", open = ::showLyrics))
-            if (snapshot.has("shuffle") && !artworkFirst) {
+            if (snapshot.has("shuffle")) {
                 val label = if (snapshot.optBoolean("shuffle")) "Turn shuffle off" else "Turn shuffle on"
                 add(Entry(label) { action("shuffle", JSONObject()) })
             }
@@ -199,10 +198,10 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         }
         action(op, JSONObject())
     }
-    private val previous = ui.iconButton("Previous track", Mark.PREVIOUS, outlined = !artworkFirst) {
+    private val previous = ui.iconButton("Previous track", Mark.PREVIOUS) {
         action("previous", JSONObject())
     }
-    private val next = ui.iconButton("Next track", Mark.NEXT, outlined = !artworkFirst) { action("next", JSONObject()) }
+    private val next = ui.iconButton("Next track", Mark.NEXT) { action("next", JSONObject()) }
     private val bar = SeekBar(context).apply {
         contentDescription = "Playback position"
         progressTintList = ColorStateList.valueOf(ui.ink); thumbTintList = ColorStateList.valueOf(ui.ink)
@@ -226,41 +225,26 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         val body = ui.column(8)
         if (scroll == null) {
             setBackgroundColor(ui.paper)
-            addView(body, LayoutParams(-1, if (artworkFirst) -1 else -2))
+            addView(body, LayoutParams(-1, -2))
         } else {
             scroll.addView(body)
             addView(scroll, LayoutParams(-1, -2))
         }
         val controls = ui.column(8).apply {
-            if (artworkFirst) {
-                addView(timeline)
-                addView(ui.row().apply {
-                    for (button in listOf(shuffle, previous, transport, next, queueIcon)) {
-                        val size = ui.dp(if (button === transport) 64 else 48)
-                        addView(FrameLayout(context).apply {
-                            addView(button, LayoutParams(size, size, Gravity.CENTER))
-                        }, LinearLayout.LayoutParams(0, ui.dp(64), 1f))
-                    }
-                })
-            } else {
-                addView(ui.transport(previous, transport, next), LinearLayout.LayoutParams(-1, -2))
-                addView(ui.line())
-                addView(ui.row(6).apply {
-                    addView(queue, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(position, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-                    addView(more, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-                })
-                if (!ui.eInk) addView(timeline)
-            }
+            addView(ui.transport(previous, transport, next), LinearLayout.LayoutParams(-1, -2))
+            addView(ui.line())
+            addView(ui.row(6).apply {
+                addView(queue, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(position, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+                addView(more, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+            })
+            if (!ui.eInk) addView(timeline)
         }
-        details = if (artworkFirst) ui.column(6).apply {
-            addView(sleeve, LinearLayout.LayoutParams(-1, 0, 1f))
-            addView(controls, LinearLayout.LayoutParams(-1, -2))
-        } else ui.playerContent(sleeve, controls)
+        details = ui.playerContent(sleeve, controls)
         details.visibility = View.GONE
         empty.visibility = View.GONE
         body.addView(empty)
-        body.addView(details, LinearLayout.LayoutParams(-1, if (artworkFirst) -1 else -2))
+        body.addView(details, LinearLayout.LayoutParams(-1, -2))
         timeline.addView(bar, LinearLayout.LayoutParams(-1, ui.dp(48)))
         val times = ui.row()
         times.addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f)); times.addView(length)
@@ -315,7 +299,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
 
     private fun updatePosition() {
         val open = timeline.visibility == View.VISIBLE
-        if (!artworkFirst && position.isSelected != open) {
+        if (position.isSelected != open) {
             position.isSelected = open
             val label = if (open) "Hide position" else "Show position"
             position.contentDescription = label
@@ -350,22 +334,13 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         val nextTitle = upcoming?.optJSONObject(0)?.optString("title").orEmpty()
         val queueLabel = if (nextTitle.isBlank()) "Queue" else "Queue\n${nextTitle.lineSequence().first()}"
         queue.updateLabel(queueLabel)
-        if (artworkFirst) {
-            shuffle.visibility = if (snapshot.has("shuffle")) View.VISIBLE else View.INVISIBLE
-            shuffle.isSelected = snapshot.optBoolean("shuffle")
-            val nextLabel = if (nextTitle.isBlank()) null else "Next: $nextTitle"
-            if (Build.VERSION.SDK_INT >= 30 && !TextUtils.equals(queueIcon.stateDescription, nextLabel)) {
-                queueIcon.stateDescription = nextLabel
-            }
-        }
         val ref = snapshot.optString("current_ref")
         sleeve.bind(track, ref, RoomPlayback.artwork(room.id, ref))
         sleeve.linkProfiles(profileAction(track, "artist"), profileAction(track, "album"))
         renderFavorite()
         duration = track.optDouble("duration", 0.0).toInt()
         seconds = snapshot.getDouble("position").toInt()
-        if (artworkFirst) timeline.visibility = if (duration > 0) View.VISIBLE else View.GONE
-        else position.visibility = if (duration > 0) View.VISIBLE else View.GONE
+        position.visibility = if (duration > 0) View.VISIBLE else View.GONE
         if (duration <= 0) {
             positionDialog?.dismiss()
             timeline.visibility = View.GONE

@@ -39,7 +39,7 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
         setPadding(padding, padding, padding, padding)
         background = ui.surface(ui.fog)
         addView(progress(message))
-        for (width in listOf(155, 112, 134)) {
+        for (width in if (ui.eInk) emptyList() else listOf(155, 112, 134)) {
             addView(View(context).apply {
                 background = ui.surface(ui.rule, null)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -95,6 +95,7 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
             setTitle(title)
             setGravity(Gravity.CENTER)
             setBackgroundDrawableResource(android.R.color.transparent)
+            if (ui.eInk) setWindowAnimations(0)
         }
         return dialog
     }
