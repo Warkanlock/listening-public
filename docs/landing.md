@@ -29,4 +29,6 @@ Create a Vercel project for the standalone tour. Connect this repository in the 
 
 The checked-in `frontend/react/vercel.json` builds the tour at `/` and `/about`. The repository links to [the Listening Room tour on Vercel](https://listening-room-tour.vercel.app/). Merge landing changes through a pull request and verify that the production deployment matches the merge commit.
 
-Choose the deployment's visibility in Vercel. For a public tour, check the page and screenshot URLs from a signed-out browser before sharing the link.
+Keep the production domain public in Vercel. Check the production HTML and response headers for indexing directives from a signed-out session. `/` and both `/about` variants should declare the production root as their canonical URL.
+
+The standalone build adds Open Graph and X card metadata. It serves `frontend/react/about/listening-room-social.jpg` at `/listening-room-social.jpg`. When you update the card, check that the live image URL returns a 1200 × 630 JPEG without authentication.
