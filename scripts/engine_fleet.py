@@ -100,6 +100,7 @@ def main():
     source.add_argument("--repository", help="HTTPS GitHub repository with signed catalog release assets")
     parser.add_argument("--plugin-release", help="catalog release tag (defaults to latest)")
     parser.add_argument("--server-version", required=True)
+    parser.add_argument("--share-root", type=Path, help="operator-controlled directory available to sharing extensions")
     args = parser.parse_args()
     if args.plugin_release and not args.repository:
         parser.error("--plugin-release requires --repository")
@@ -118,7 +119,8 @@ def main():
             catalog = (stage_repository(args.repository, args.plugin_release, Path(directory), args.state,
                                         key, arch, args.server_version)
                        if args.repository else args.catalog.resolve())
-            fleet = Fleet(args.state, args.staging, catalog, key, arch, args.server_version)
+            fleet = Fleet(args.state, args.staging, catalog, key, arch, args.server_version,
+                          share_root=args.share_root)
             with Server(str(args.socket), Handler) as server:
                 server.fleet = fleet
                 args.socket.chmod(0o660)

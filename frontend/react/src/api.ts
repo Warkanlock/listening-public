@@ -307,13 +307,16 @@ export interface SpotifyStatus {
 // audio_store setting, the snapshot, and the settings form share.
 export type AudioStoreMode = "files" | "database";
 
+export type ExtensionRole = "search" | "fetch";
+export type ExtensionCapability = ExtensionRole | "share";
+
 export interface ExtensionSources {
   inventory_available: boolean;
   selection: { search?: string; fetch?: string } | null;
   installed: { id: string; version: string; enabled: boolean; ready: boolean; retry_at?: number;
-    capabilities: ("search" | "fetch")[]; sources: Partial<Record<"search" | "fetch", string[]>> }[];
+    capabilities: ExtensionCapability[]; sources: Partial<Record<ExtensionRole, string[]>> }[];
   retry_at?: number;
-  state: "ready" | "legacy" | "unconfigured" | "unavailable" | "cooldown";
+  state: "ready" | "unconfigured" | "unavailable" | "cooldown";
 }
 
 export type ExtensionHealth = {
@@ -334,12 +337,6 @@ export interface Settings {
   frontend_rebuild_needed: boolean;
   music_folder: string;
   playlist_output: string;
-  share_folder: string;
-  share_username: string;
-  sockseek_binary: string;
-  nicotine_binary: string;
-  has_credentials: boolean;
-  has_share_credentials: boolean;
   download_ready: boolean;
   auto_download: boolean;
   bulk_download_format: BulkDownloadFormat;
@@ -356,24 +353,13 @@ export interface Settings {
   onboarding: boolean;
   spotify: SpotifyStatus;
   spotify_redirect_uri: string;
-  dependencies: Record<string, boolean>;
 }
 
-// The one body every settings form posts (vanilla settingsBody()):
-// the three forms share it, so a save from any panel carries the
-// values the panels currently show.
 export interface SettingsBody {
   folder: string;
   lists_folder: string;
   music_folder: string;
   playlist_output: string;
-  sockseek_binary: string;
-  nicotine_binary: string;
-  soulseek_username: string;
-  soulseek_password: string;
-  share_folder: string;
-  share_username: string;
-  share_password: string;
   auto_download: boolean;
   bulk_download_format: BulkDownloadFormat;
   audio_store: AudioStoreMode;
@@ -418,7 +404,6 @@ export interface ProcessSnapshot {
   bulk_running: boolean;
   requests_running: boolean;
   genres_running: boolean;
-  share_running: boolean;
   auto_download: boolean;
   logs: string[];
 }
@@ -489,7 +474,6 @@ export interface DevicesResult {
 
 export interface DiscoverLocal {
   folders: { path: string; name: string; count: number }[];
-  sockseek: string;
 }
 
 export interface BrowseEntry {

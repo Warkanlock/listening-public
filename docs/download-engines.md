@@ -1,4 +1,4 @@
-# Download engines
+# Listening plugins
 
 Listening can import and play your collection with no engines installed. A search engine finds a candidate and a compatible download engine retrieves it into temporary storage. Listening checks the format, title, duration and bitrate, then commits verified recordings to the room library. Use an engine with sources you have permission to download from.
 
@@ -25,7 +25,16 @@ Listening can import and play your collection with no engines installed. A searc
 5. Open **Extensions** in the room and install the engine. Open its **Configure** form and enter any settings it requests. The manager stores values in that plugin's private credentials directory. Older workers can continue reading their credentials files there.
 6. Run the readiness test and enable the engine. Choose which enabled engine handles search and which handles the download. The CLI can install, test, enable, and select engines through `listening extensions --help`. Enter setting values in the room UI. Use the Jobs screen to start background searches or process requests.
 
-Each provider runs in a separate container with constrained memory, CPU and process count. It receives its own staging and credentials. It can make network requests to its sources. Listening retains a 20 GiB reserve and initially processes one download at a time. If the engine becomes unavailable, queued work waits and the room continues to serve the library.
+Each plugin runs in a separate container with constrained memory, CPU and process count. It receives its own staging and credentials. It can make network requests to its sources. Listening retains a 20 GiB reserve and initially processes one download at a time. If the engine becomes unavailable, queued work waits and the room continues to serve the library.
+
+## Share a folder through a plugin
+
+1. Create a dedicated music directory on the Linux Docker host. Give the manager's user read access. Use a Docker Engine that supports non-recursive bind mounts. Keep configuration, staging, and private files outside this directory.
+2. Add `--share-root /absolute/path/to/shared-music` to the manager service and restart the manager. Place the files you intend to share in this directory. To share database-held tracks, use **Settings → Storage → Export library audio** first. The sharing process receives the selected folder as a read-only mount.
+3. Under **Extensions → Listening plugins**, configure an installed plugin with the `share` method. Open its sharing controls. Enter a folder relative to the host's sharing directory or leave the field blank to share that directory.
+4. Select **Start sharing**. Use **Stop sharing** before changing the folder. Disabling, replacing, or removing the plugin also stops sharing. Restart sharing after changing account settings.
+
+Only share files you have permission to distribute.
 
 ## Find the source for a copy
 
@@ -68,14 +77,13 @@ openssl dgst -sha256 -sign catalog-private.pem -out catalog.sig catalog.json
 
 When an update adds required settings, pause affected jobs and disable that engine. Update it from the signed catalog, enter the settings, run the readiness test, then enable it and resume the jobs.
 
-Keep the full Compose image or existing Mac host package through the first upgrade. On supported Linux amd64 hosts, the separately packaged Soulseek/Sockseek worker can reuse a privately staged copy of the existing Sockseek configuration. Install it, test readiness and complete an authorized recording in an isolated room before switching the live room. Record the old job settings and pin the previous image in case you need to roll back.
+Before upgrading a room that used the bundled downloader or sharing client, install the matching plugin and follow its credential migration guide. Test the plugin on a fixture room before switching the live room. Select its download sources to resume queued work. Keep the previous installer or image until you verify the upgrade. Pin older managers to their existing signed catalog until they support the `share` method.
 
 For an old server that predates the updater's idle protocol, schedule one maintenance window. Prepare a recovery point and verify playback and jobs are idle before stopping the service. Stop the updater service, stop just `listening-room` with its existing Compose invocation, and run `scripts/compose_updates.py` on the host with its normal flags and `--from-stopped-room`. The one-time command requires an existing stopped container and the same data mounts. If it fails before starting the update, use the pinned previous image to bring the room back. Restart the updater service after confirming playback, pairings, mixes and job settings. Future updates wait for an idle lease.
 
 
 ## Other integration seams
 
-- The legacy downloader and sharing adapter still have provider-specific settings in the host server. Keep them available for existing rooms until a tested migration replaces the legacy jobs and library exports.
 - Radio has per-device playback behavior and a built-in list of optional sources. A radio plugin would need a playback interface, separate from the verified audio retrieval protocol.
 - Catalog discovery and metadata enrichment use provider-specific adapters and lookups. A discovery plugin would need pagination, recording identifiers, and attribution. It can offer a recording without owning how to retrieve it.
 - Streaming-service playlist sync owns account authorization and playlist reconciliation. That behavior belongs behind its own interface, alongside the portable playlist importer.
@@ -83,6 +91,6 @@ For an old server that predates the updater's idle protocol, schedule one mainte
 
 ### When a source cannot sign in
 
-Find copy keeps requests queued. Extensions shows when the source can try again in your device’s local time. Playback from the library continues. To use another installed source, open **Extensions → Song downloads → Change download sources**. Choose compatible extensions and select **Save sources**. Use the refresh icon beside **Download extensions** to check availability.
+Find copy keeps requests queued. Extensions shows when the source can try again in your device’s local time. Playback from the library continues. To use another installed source, open **Extensions → Song downloads → Change download sources**. Choose compatible extensions and select **Save sources**. Use the refresh icon beside **Listening plugins** to check availability.
 
 See the [plugin protocol](../examples/engines/README.md#temporary-sign-in-failures) for the sign-in response.

@@ -112,7 +112,7 @@ class LifecycleTests(StoreTestCase):
     def test_enqueue_claim_finish_error_then_retry(self):
         request_id = self.enqueue_custom()
         self.store.claim(request_id)
-        self.store.finish(request_id, "error", "Sockseek stopped", "")
+        self.store.finish(request_id, "error", "The download extension stopped", "")
         self.assertEqual(self.store.get(request_id)["status"], "error")
         self.store.retry(request_id, "a broader search")
         row = self.store.get(request_id)

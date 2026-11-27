@@ -6,14 +6,9 @@ import os
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
-
-CHECKOUT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(CHECKOUT / "scripts"))
-from provision_sockseek import DEFAULT_PIN, extract_executable, load_pin
 
 PYTHON_URL = ("https://github.com/astral-sh/python-build-standalone/releases/download/"
               "20261110/cpython-3.12.16%2B20261110-aarch64-apple-darwin-pgo%2Blto-full.tar.zst")
@@ -128,9 +123,6 @@ def add_runtime(resources):
     source = fetch(cache, "ffmpeg-9.0.2.tar.xz", FFMPEG_URL, FFMPEG_SHA)
     opus = fetch(cache, "opus-1.5.2.tar.gz", OPUS_URL, OPUS_SHA)
     ffmpeg = media_tools(cache, source, opus)
-    version, assets = load_pin(DEFAULT_PIN)
-    asset = assets["osx-arm64"]
-    sockseek = fetch(cache, asset["file"], asset["url"], asset["sha256"])
     # Install only the relocatable runtime and its upstream notices. Exclude
     # CPython's test suite and static developer libraries from the disk image.
     prefix = resources / "python"
@@ -142,14 +134,10 @@ def add_runtime(resources):
     tools.mkdir(exist_ok=True)
     for name in ("ffmpeg", "ffprobe"):
         shutil.copy2(ffmpeg / name, tools / name)
-    extract_executable(sockseek, tools / "sockseek")
     notices = resources / "Notices"
     notices.mkdir(exist_ok=True)
     subprocess.run(["/usr/bin/tar", "-xf", python, "-C", notices, "--strip-components", "1",
                     "python/licenses"], check=True)
-    with tarfile.open(sockseek, "r:gz") as archive:
-        with archive.extractfile("LICENSE") as license_file:
-            (notices / "Sockseek-LICENSE").write_bytes(license_file.read())
     shutil.copy2(ffmpeg / "FFmpeg-LICENSE", notices)
     shutil.copy2(source, notices / source.name)
     shutil.copy2(ffmpeg / "Opus-LICENSE", notices)
@@ -159,5 +147,4 @@ def add_runtime(resources):
         f"CPython 3.12.16, python-build-standalone\n{PYTHON_URL}\n"
         "Python and runtime dependency notices are in the licenses directory.\n\n"
         f"FFmpeg 9.0.2 (LGPL). Source and configure options accompany this file.\n{FFMPEG_URL}\n\n"
-        f"Opus 1.5.2 (BSD)\n{OPUS_URL}\n\n"
-        f"Sockseek {version}\n{asset['url']}\n")
+        f"Opus 1.5.2 (BSD)\n{OPUS_URL}\n")

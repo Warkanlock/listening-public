@@ -11,7 +11,6 @@ REPO_URL="${LISTENING_SOURCE_REPO:-}"
 RELEASE_BRANCH="${LISTENING_SOURCE_BRANCH:-main}"
 DEST="${LISTENING_INSTALL_DIR:-$HOME/listening-room}"
 DRY=0
-DOWNLOADS=0
 
 say() { printf '%s\n' "$*"; }
 fail() { printf '%s\n' "$*" >&2; exit 1; }
@@ -20,13 +19,12 @@ would() { say "  would: $*"; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
-    --downloads) DOWNLOADS=1 ;;
     --repo)
       [ "$#" -ge 2 ] || fail "Supply a Git URL after --repo."
       REPO_URL="$2"
       shift ;;
     --help)
-      say "Usage: bootstrap.sh [--repo GIT_URL] [--downloads] [--dry-run]"
+      say "Usage: bootstrap.sh [--repo GIT_URL] [--dry-run]"
       say "Install from the checkout's origin or specify a private Git URL."
       exit 0 ;;
     *) fail "Unknown option: $1" ;;
@@ -123,7 +121,6 @@ else
 fi
 
 set -- setup --client web --non-interactive
-[ "$DOWNLOADS" = 0 ] || set -- "$@" --downloads
 if [ "$DRY" = 1 ]; then
   would "run ./listening $* in $DEST"
 else

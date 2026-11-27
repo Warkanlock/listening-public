@@ -17,7 +17,7 @@ A place a list comes from, such as a watched folder, a linked file, or a synced 
 _Avoid_: origin, feed
 
 **Worker**:
-One of the background processes that do the room's long work: bulk downloads, song requests, genre categorization, sharing, library export, database reclaim, and the one-time library migration.
+One of the background processes that do the room's long work: bulk downloads, song requests, genre categorization, library export, database reclaim, and the one-time library migration.
 _Avoid_: session, tmux session, job
 
 **Job**:

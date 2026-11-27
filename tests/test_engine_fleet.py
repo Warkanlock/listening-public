@@ -40,18 +40,69 @@ class FleetStorageTests(unittest.TestCase):
                  "image": "registry.example/engine@sha256:" + "a" * 64}
         old = {key: value for key, value in entry.items() if key != "sources"}
         foreign = {**entry, "architecture": "ppc64le"}
+        sharing = {**entry, "id": "sharing", "capabilities": ["share"], "sources": {}}
         self.fleet.catalog.write_text(json.dumps({
-            "version": 1, "engines": [{**old, "id": "older"}, foreign, entry],
+            "version": 1, "engines": [{**old, "id": "older"}, foreign, entry, sharing],
         }))
         subprocess.run(["openssl", "dgst", "-sha256", "-sign", private_key, "-out",
                         self.fleet.catalog.with_suffix(".sig"), self.fleet.catalog], check=True, capture_output=True)
         available = self.fleet.manage({"action": "catalog"}, None)["engines"]
-        self.assertEqual([item["id"] for item in available], ["fixture"])
+        self.assertEqual([item["id"] for item in available], ["fixture", "sharing"])
         self.assertEqual(available[0]["sources"], self.engine["sources"])
+        self.assertEqual(available[1]["capabilities"], ["share"])
         self.assertEqual(self.fleet.manage({"action": "catalog", "server_release": "0.2"}, None)["engines"], [])
         self.fleet.catalog.write_text(self.fleet.catalog.read_text().replace('"fixture"', '"altered"'))
         with self.assertRaisesRegex(ValueError, "signature"):
             self.fleet.manage({"action": "catalog"}, None)
+
+    def test_sharing_only_mounts_an_authorized_folder_and_stops_on_disable(self):
+        root = self.fleet.state.parent / "exports"
+        folder = root / "shared, music"
+        folder.mkdir(parents=True)
+        (root / "outside").symlink_to(self.fleet.state, target_is_directory=True)
+        self.fleet.share_root = root
+        self.engine["capabilities"].append("share")
+        self.engine["image"] = "registry.example/engine@sha256:" + "a" * 64
+        running = {}
+
+        def docker(command, *args, **options):
+            if command == "image":
+                return SimpleNamespace(returncode=0, stdout=b"linux/arm64\n")
+            if command == "inspect":
+                return SimpleNamespace(returncode=0 if args[-1] in running else 1, stdout=b"true\n")
+            if command == "ps":
+                output = b"".join(f"running\t{folder}\n".encode() for folder in running.values())
+                return SimpleNamespace(returncode=0, stdout=output)
+            if command == "run":
+                mounted = next(value.partition("=")[2] for value in args
+                               if value.startswith("music.listening.share-folder="))
+                running[args[args.index("--name") + 1]] = mounted
+            if command == "rm":
+                running.pop(args[-1], None)
+            return SimpleNamespace(returncode=0, stdout=b"")
+
+        request = {"action": "share", "engine": "fixture"}
+        with mock.patch.object(self.fleet, "docker", side_effect=docker) as commands, \
+                mock.patch.object(engine_fleet.time, "sleep"):
+            for invalid in ("../fleet", str(folder), "outside"):
+                with self.assertRaisesRegex(ValueError, "inside the sharing root"):
+                    self.fleet.manage({**request, "operation": "start", "folder": invalid}, None)
+            self.assertFalse(running)
+            start = {**request, "operation": "start", "folder": folder.name}
+            self.assertEqual(self.fleet.manage(start, None), {
+                "ok": True, "running": True, "available": True, "folder": folder.name,
+            })
+            self.fleet.manage(start, None)
+            (launch,) = [call.args for call in commands.call_args_list if call.args[0] == "run"]
+            self.assertIn(f'type=bind,"src={folder}",dst=/share,readonly,bind-recursive=disabled', launch)
+            self.assertEqual(launch[-3:], ("/usr/local/bin/listening-engine", self.engine["image"], "--share"))
+            self.fleet.manage({"action": "disable", "engine": "fixture"}, None)
+            self.assertEqual(self.fleet.manage({**request, "operation": "status"}, None), {
+                "ok": True, "running": False, "available": True, "folder": folder.name,
+            })
+            self.assertFalse(running)
+            self.assertTrue(self.fleet.manage(start, None)["running"])
+            self.assertFalse(self.fleet.manage({**request, "operation": "stop", "server_release": "2.0"}, None)["running"])
 
     def test_status_and_acquisition_require_compatibility_with_the_calling_release(self):
         with mock.patch.object(self.fleet, "running_containers", return_value={self.fleet.container("fixture")}), \

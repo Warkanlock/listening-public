@@ -567,6 +567,25 @@ class HostGateTests(ServerFixture, unittest.TestCase):
                                              "Origin": self.lan_origin()})
         self.assertEqual(status, 403)
 
+
+    def test_sharing_dispatches_only_through_owner_extension_settings(self):
+        request = {"action": "share", "engine": "fixture", "operation": "start", "folder": "exports"}
+        manager_reply = {"ok": True, "available": True, "folder": "exports", "running": True,
+                         "ignored": "private worker data"}
+        with mock.patch.object(server, "manager_call", return_value=manager_reply) as manager:
+            status, _, _ = self.request(self.lan_port, "POST", "/api/extensions", body=request,
+                                        headers={"Cookie": self.lan_device_cookie(), "Origin": self.lan_origin()})
+            self.assertEqual(status, 403)
+            manager.assert_not_called()
+            status, _, _ = self.request(self.loop_port, "POST", "/api/process", body={"action": "share_start"})
+            self.assertEqual(status, 400)
+            manager.assert_not_called()
+            status, _, data = self.request(self.loop_port, "POST", "/api/extensions", body=request)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(data), {"available": True, "folder": "exports", "running": True})
+            manager.assert_called_once_with("share", engine="fixture", operation="start",
+                                            folder="exports", timeout=40)
+
     def test_get_settings_redacted_from_lan(self):
         # Plan 010 (A2 S-01), coordinator revision: the paired UI reads
         # both routes, so non-host callers get the payload with every
@@ -578,7 +597,7 @@ class HostGateTests(ServerFixture, unittest.TestCase):
         self.assertEqual(payload["lan_url"], "")
         self.assertEqual(payload["folder"], "")
         self.assertEqual(payload["music_folder"], "")
-        self.assertEqual(payload["sockseek_binary"], "")
+        self.assertEqual(set(payload["dependencies"]), {"ffprobe"})
         self.assertTrue(all(entry["path"] == "" for entry in payload["source_folders"]))
         self.assertIn("list_files", payload)
         self.assertIn("download_ready", payload)
@@ -1241,11 +1260,12 @@ class SettingsRollbackTests(ServerFixture, unittest.TestCase):
         old_root = server.ROOT
         old_folder = server.SETTINGS["folder"]
         new_root = Path(self.tmp.name) / "elsewhere"
-        status, _, data = self.request(
-            self.loop_port, "POST", "/api/settings",
-            body={"folder": str(new_root), "share_password": "secret"})
+        with mock.patch.object(server, "save_settings", side_effect=OSError("fixture write failed")):
+            status, _, data = self.request(
+                self.loop_port, "POST", "/api/settings",
+                body={"folder": str(new_root)})
         self.assertEqual(status, 400)
-        self.assertIn("share folder", json.loads(data)["error"])
+        self.assertEqual(json.loads(data)["error"], "fixture write failed")
         self.assertEqual(server.ROOT, old_root)
         self.assertEqual(server.SETTINGS["folder"], old_folder)
         saved = json.loads(self.config_path.read_text(encoding="utf-8"))
@@ -1711,7 +1731,7 @@ class CatalogFreshnessTests(ServerFixture, unittest.TestCase):
 class OnboardingFlagTests(ServerFixture, unittest.TestCase):
     """Plan 020: onboarding completes when at least one list exists in
     the lists folder; the downloader is not part of the flag, so a
-    bring-your-own-audio room finishes setup without Soulseek. The
+    bring-your-own-audio room finishes setup without a download extension. The
     harness has no config seam for download_ready, so both cases stub
     it with mock.patch.object on the server module (the pattern the
     watchdog tests already use) and run with the downloader down."""

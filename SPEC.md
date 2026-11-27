@@ -28,9 +28,9 @@ first-class inputs, equal to any vendor export.
 A room can use the audio files it already has. For missing recordings,
 it can use optional [download extensions](docs/download-engines.md).
 Search and retrieval are independently selectable when the engines agree
-on candidate sources. The legacy Soulseek/Sockseek adapter remains
-available for existing installations. Every retrieved file passes the
-same audio verification before it enters the library.
+on candidate sources. Every retrieved file passes audio verification
+before it enters the library. An optional plugin can also share files
+from a folder the operator authorizes on the plugin host.
 
 ## The interchange format
 

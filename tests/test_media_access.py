@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
-import hashlib
 import json
 import tempfile
 import zlib
@@ -18,21 +17,16 @@ AUDIO_BYTES = b"fake mp3 audio bytes for plan 061 tests" * 8
 CUSTOM_BYTES = b"a custom request's audio" * 4
 
 
-def sha256(data):
-    return hashlib.sha256(data).hexdigest()
-
-
 class FakeSources:
     """MediaAccess's sources seam, bound to plain data (plan 061
     step 1): the server binds its live globals, tests bind this."""
 
     def __init__(self, coverage=(), records=None, downloaded=(),
-                 requests=None, share_folder=""):
+                 requests=None):
         self._coverage = list(coverage)
         self._records = dict(records or {})
         self._downloaded = list(downloaded)
         self._requests = dict(requests or {})
-        self._share_folder = share_folder
 
     def coverage(self):
         return list(self._coverage)
@@ -46,9 +40,6 @@ class FakeSources:
     def request(self, request_id):
         return self._requests.get(request_id)
 
-    def share_folder(self):
-        return self._share_folder
-
 
 class MediaAccessTestCase(unittest.TestCase):
     def setUp(self):
@@ -58,7 +49,6 @@ class MediaAccessTestCase(unittest.TestCase):
         self.database = self.root / "media.sqlite3"
         self.buffer_dir = self.root / "buffer"
         self.status_path = self.root / "export-status.json"
-        self.share = self.root / "share"
 
     def access(self, sources):
         return MediaAccess(self.database, self.buffer_dir,
@@ -71,8 +61,7 @@ class NoDatabaseTests(MediaAccessTestCase):
 
     def setUp(self):
         super().setUp()
-        self.media = self.access(FakeSources(
-            share_folder=str(self.share)))
+        self.media = self.access(FakeSources())
 
     def test_store_and_serving_are_absent(self):
         self.assertIsNone(self.media.store())
@@ -82,10 +71,8 @@ class NoDatabaseTests(MediaAccessTestCase):
         self.assertIsNone(self.media.facts())
         self.assertIsNone(self.media.dead_bytes())
 
-    def test_no_targets_and_no_share_work(self):
+    def test_no_targets_without_media_database(self):
         self.assertEqual(self.media.targets(), [])
-        self.assertEqual(self.media.materialize_share(), 0)
-        self.assertFalse(self.share.exists())
 
     def test_export_status_is_idle(self):
         self.assertEqual(self.media.export_status(), EXPORT_STATUS_IDLE)
@@ -117,8 +104,7 @@ class WithDatabaseTests(MediaAccessTestCase):
             downloaded=[{"id": 7, "track_index": None,
                          "audio_path": blob_ref(self.custom_key)}],
             requests={7: {"artist": "Custom Artist",
-                          "title": "Custom Song"}},
-            share_folder=str(self.share))
+                          "title": "Custom Song"}})
         self.media = self.access(sources)
 
     def test_store_and_serving_pair(self):
@@ -143,14 +129,6 @@ class WithDatabaseTests(MediaAccessTestCase):
             self.key: "00001 - Artist 1 - Song One.mp3",
             self.custom_key: "custom/7 - Custom Artist - Custom Song.mp3"})
 
-    def test_materialize_share_writes_the_files(self):
-        written = self.media.materialize_share()
-        self.assertEqual(written, 2)
-        song = self.share / "00001 - Artist 1 - Song One.mp3"
-        self.assertEqual(song.read_bytes(), AUDIO_BYTES)
-        self.assertEqual(sha256(song.read_bytes()), self.key)
-        custom = self.share / "custom" / "7 - Custom Artist - Custom Song.mp3"
-        self.assertEqual(custom.read_bytes(), CUSTOM_BYTES)
 
 
 class ExportStatusCodecTests(unittest.TestCase):

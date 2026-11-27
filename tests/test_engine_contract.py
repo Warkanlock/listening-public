@@ -117,7 +117,7 @@ class EngineRunnerTests(WorkspaceTestCase):
     def test_status_requires_both_selected_capabilities(self):
         self.assertTrue(engine_contract.engines_ready({"download_engines": self.selection}))
         self.assertFalse(engine_contract.engines_ready({"download_engines": {"search": "fixture-catalog"}}))
-        self.assertIsNone(engine_contract.engine_selection({}))
+        self.assertEqual(engine_contract.engine_selection({}), {})
         self.assertEqual(engine_contract.engine_selection({"download_engines": None}), {})
         self.assertEqual(self.requests[0]["server_release"], engine_contract.release_version(engine_contract.ROOT))
 
@@ -131,26 +131,26 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual(summary["state"], "ready")
         self.assertTrue(summary["inventory_available"])
         with mock.patch.object(engine_contract, "manager_call", side_effect=engine_contract.EngineError("Offline")):
-            legacy = engine_contract.source_summary({})
-        self.assertEqual(legacy["state"], "legacy")
-        self.assertFalse(legacy["inventory_available"])
+            unselected = engine_contract.source_summary({})
+        self.assertEqual(unselected["state"], "unconfigured")
+        self.assertFalse(unselected["inventory_available"])
         self.assertEqual(summary["selection"], self.selection)
         self.assertEqual(set(summary["installed"][0]), {"id", "version", "capabilities", "enabled", "ready", "sources"})
         self.mode = "incompatible"
         self.assertEqual(engine_contract.source_summary(settings)["state"], "unavailable")
-        self.assertEqual(engine_contract.source_summary({})["state"], "legacy")
+        self.assertEqual(engine_contract.source_summary({})["state"], "unconfigured")
         self.assertEqual(engine_contract.source_summary({"download_engines": {}})["state"], "unconfigured")
 
     def test_health_checks_selected_providers_without_searching_or_transferring(self):
         self.mode = "health-busy"
-        result = engine_contract.extension_health({"download_engines": self.selection}, legacy_ready=False)
+        result = engine_contract.extension_health({"download_engines": self.selection})
         self.assertEqual([check["state"] for check in result["checks"][-2:]], ["ready", "unverified"])
         self.assertEqual([request["action"] for request in self.requests], ["status", "health", "health"])
         self.assertNotIn("sensitive provider text", str(result))
 
     def test_health_never_runs_the_legacy_manager_test_action(self):
         self.mode = "old-manager"
-        result = engine_contract.extension_health({"download_engines": self.selection}, legacy_ready=False)
+        result = engine_contract.extension_health({"download_engines": self.selection})
         self.assertEqual(result["checks"][-1]["state"], "unverified")
         self.assertEqual([request["action"] for request in self.requests], ["status"])
 
@@ -211,6 +211,26 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual(runner.cursor_offset(), 0)
         error = self.retryable_download_error(record)
         self.assertNotIn("sensitive provider text", error)
+
+    def test_room_without_selected_plugins_keeps_its_download_cursor(self):
+        self.write_manifest([self.record(1, "First Light")])
+        (self.root / "settings.json").write_text("{}")
+        self.assertFalse(runner.run_batch(0, 1))
+        self.assertEqual(runner.cursor_offset(), 0)
+        self.assertEqual(self.requests, [])
+
+    def test_bulk_resumes_at_the_first_unfinished_recording(self):
+        self.write_manifest([self.record(1, "First Light"), self.record(2, "Second Light")])
+        self.mode = "second"
+        self.assertFalse(runner.run_batch(0, 2))
+        self.assertEqual(runner.cursor_offset(), 1)
+
+        self.requests.clear()
+        self.mode = "empty"
+        self.assertTrue(runner.run_batch(runner.cursor_offset(), 1))
+        self.assertEqual(runner.cursor_offset(), 2)
+        self.assertEqual([request["recording"]["id"] for request in self.requests
+                          if request["action"] == "search"], ["key-2"])
 
     def test_scoped_retry_preserves_the_job_and_attempted_recording_keys(self):
         records = [self.record(1, "First Light"), self.record(2, "Second Light")]

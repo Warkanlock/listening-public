@@ -5,7 +5,6 @@ import contextlib
 import io
 import json
 import os
-import subprocess
 import tempfile
 import time
 import unittest
@@ -53,7 +52,6 @@ class WorkspaceTestCase(unittest.TestCase):
             mock.patch.object(runner, "PLAYLISTS", self.playlists_dir),
             mock.patch.object(runner, "OUTPUTS", self.outputs),
             mock.patch.object(runner, "SOURCES", self.sources),
-            mock.patch.object(runner, "MASTER", self.state / "master.csv"),
             mock.patch.object(runner, "REQUESTS_DB", self.state / "requests.sqlite3"),
             mock.patch.object(runner, "free_bytes", lambda: 100 * 1024**3),
             # Plan 062: these fixtures characterize the report's
@@ -212,115 +210,6 @@ class PrepareRetirementAndKeyingTests(WorkspaceTestCase):
         issue = payload["issues"][0]
         self.assertEqual(issue["playlist"], "mix.xspf")
         self.assertEqual(issue["line"], 2)
-
-
-class FakeBatchProcess:
-    """A Sockseek stand-in that writes a canned batch log and exits 0."""
-
-    log_text = ""
-    exit_code = 0
-
-    def __init__(self, command, stdout=None, stderr=None):
-        self.returncode = type(self).exit_code
-        if stdout is not None:
-            stdout.write(type(self).log_text)
-            stdout.flush()
-
-    def poll(self):
-        return 0
-
-
-class CursorDisciplineTests(WorkspaceTestCase):
-    """A6 test 6: the cursor advances only on a complete batch log."""
-
-    def setUp(self):
-        super().setUp()
-        self.sockseek = self.root / "sockseek"
-        self.sockseek.write_bytes(b"bin")
-        for patcher in (mock.patch.object(runner, "SOCKSEEK", self.sockseek),
-                        mock.patch.object(runner, "setup_credentials", lambda: None)):
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        self.write_manifest([self.record(i, f"Song {i}") for i in (1, 2, 3)])
-        self.write_cursor(0)
-
-    def run_batch_with_log(self, log_text, exit_code=0):
-        with (mock.patch.object(FakeBatchProcess, "log_text", log_text),
-              mock.patch.object(FakeBatchProcess, "exit_code", exit_code),
-              mock.patch.object(subprocess, "Popen", FakeBatchProcess)):
-            with contextlib.redirect_stdout(io.StringIO()):
-                return runner.run_batch(0, 3)
-
-    def cursor_offset_on_disk(self):
-        return {"next_offset": runner.cursor_offset()}
-
-    def test_run_batch_does_not_advance_cursor_on_incomplete_log(self):
-        self.assertFalse(self.run_batch_with_log("Completed: 1 succeeded, 1 failed\n"))
-        self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 0})
-
-    def test_run_batch_does_not_advance_cursor_without_a_completed_line(self):
-        self.assertFalse(self.run_batch_with_log("searching...\n"))
-        self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 0})
-
-    def test_run_batch_advances_cursor_on_a_complete_log(self):
-        self.assertTrue(self.run_batch_with_log("Completed: 2 succeeded, 1 failed\n"))
-        self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 3})
-
-    def test_run_batch_advances_from_sockseek_song_results(self):
-        self.assertTrue(self.run_batch_with_log(
-            "[002] Job List: running: master\n"
-            "[003] SongJob: succeeded: Song 1\n"
-            "[004] SongJob: failed [No search results]: Song 2\n"
-            "[005] SongJob: succeeded: Song 3\n"
-            "[002] Job List: partial: master\n",
-            exit_code=1,
-        ))
-        self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 3})
-
-    def test_retry_message_and_repeated_job_do_not_complete_batch(self):
-        self.assertFalse(self.run_batch_with_log(
-            "[003] SongJob: succeeded: Song 1\n"
-            "[003] SongJob: succeeded: Song 1\n"
-            "[004] SongJob: failed [All downloads failed]: Song 2\n"
-            "[005] SongJob: download attempt failed: Song 3\n"
-        ))
-        self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 0})
-
-    def test_uses_a_fresh_sockseek_index_after_an_interrupted_batch(self):
-        stale = self.state / "index-00001-00003.csv"
-        stale.write_text("stale")
-        log = "Completed: 3 succeeded, 0 failed\n"
-
-        def process(command, **kwargs):
-            index = Path(command[command.index("--index-path") + 1])
-            self.assertFalse(index.exists())
-            index.write_text("new result")
-            return FakeBatchProcess(command, **kwargs)
-
-        with (mock.patch.object(FakeBatchProcess, "log_text", log),
-              mock.patch.object(subprocess, "Popen", side_effect=process),
-              contextlib.redirect_stdout(io.StringIO())):
-            self.assertTrue(runner.run_batch(0, 3))
-        self.assertEqual(stale.read_text(), "new result")
-        self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 3})
-
-    def test_song_title_cannot_supply_a_completed_summary(self):
-        self.assertFalse(self.run_batch_with_log(
-            "[003] SongJob: succeeded: Completed: 0 succeeded, 3 failed\n"
-            "[error] [cli] Soulseek connection unavailable\n",
-            exit_code=1,
-        ))
-        self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 0})
-
-    def test_completed_no_match_batch_advances_with_the_work_failed_exit(self):
-        self.assertTrue(self.run_batch_with_log("[cli] Completed: 0 succeeded, 3 failed.\n", exit_code=1))
-        self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 3})
-
-    def test_usage_cancellation_and_unexplained_failures_do_not_advance_cursor(self):
-        for code in (1, 2, 130, -15):
-            with self.subTest(code=code):
-                self.assertFalse(self.run_batch_with_log("Completed: 3 succeeded, 0 failed\n", exit_code=code))
-                self.assertEqual(self.cursor_offset_on_disk(), {"next_offset": 0})
 
 
 class ReportBatchingTests(WorkspaceTestCase):
@@ -494,63 +383,8 @@ class DefensiveStateTests(WorkspaceTestCase):
         self.assertEqual(payload["records"], [])
 
     def test_cursor_round_trips_through_the_store(self):
-        # Plan 036: the cursor lives in the state database now; a
-        # completed batch leaves the advanced offset readable back.
-        self.write_manifest([self.record(i, f"Song {i}") for i in (1, 2, 3)])
-        self.write_cursor(0)
-        sockseek = self.root / "sockseek"
-        sockseek.write_bytes(b"bin")
-        FakeBatchProcess.log_text = "Completed: 3 succeeded, 0 failed\n"
-        with mock.patch.object(runner, "SOCKSEEK", sockseek), \
-                mock.patch.object(runner, "setup_credentials", lambda: None), \
-                mock.patch.object(subprocess, "Popen", FakeBatchProcess):
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.assertTrue(runner.run_batch(0, 3))
+        runner.write_cursor(3)
         self.assertEqual(runner.cursor_offset(), 3)
-
-
-class HangingProcess:
-    """A Sockseek process that never exits on its own."""
-
-    instances = []
-
-    def __init__(self, command, stdout=None, stderr=None):
-        self.returncode = None
-        self.signals = []
-        self.polls = 0
-        type(self).instances.append(self)
-
-    def poll(self):
-        self.polls += 1
-        # Give up after many polls so a missing timeout fails, not hangs.
-        return None if self.polls <= 10000 else 0
-
-    def send_signal(self, sig):
-        self.signals.append(sig)
-
-    def wait(self, timeout=None):
-        self.returncode = 0
-        return 0
-
-
-class SockseekTimeoutTests(WorkspaceTestCase):
-    """A2 C-03: a hung request process fails as retryable, queue moves on."""
-
-    def test_a_hung_sockseek_request_fails_as_retryable(self):
-        HangingProcess.instances = []
-        sockseek = self.root / "sockseek"
-        sockseek.write_bytes(b"bin")
-        row = {"id": 1, "artist": "Artist", "title": "Title", "album": "Album",
-               "length": 200, "search_title": ""}
-        with mock.patch.object(runner, "SOCKSEEK", sockseek), \
-                mock.patch.object(runner, "setup_credentials", lambda: None), \
-                mock.patch.object(runner, "focused_download", lambda *args: False), \
-                mock.patch.object(runner, "REQUEST_TIMEOUT", 0, create=True), \
-                mock.patch.object(subprocess, "Popen", HangingProcess), \
-                mock.patch.object(time, "sleep", lambda seconds: None):
-            with self.assertRaisesRegex(runner.EngineTimeout, "timed out"):
-                runner.run_request(row, None)
-        self.assertTrue(HangingProcess.instances[0].signals)
 
 
 class PrepareIndexStabilityTests(WorkspaceTestCase):
@@ -587,7 +421,6 @@ class PrepareIndexStabilityTests(WorkspaceTestCase):
                 runner.prepare()
         payload = runner.catalog_store().read_build()
         self.assertEqual([record["index"] for record in payload["records"]], [1, 3])
-        self.assertFalse((self.state / "master.csv").exists())
 
     def test_prepare_aborts_on_a_duplicated_previous_index(self):
         records = [self.doctored_record(1),

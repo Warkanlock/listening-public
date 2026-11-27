@@ -47,7 +47,6 @@ jobs:
       matrix:
         include:
           - {runner: ubuntu-24.04, arch: amd64, target: core}
-          - {runner: ubuntu-24.04, arch: amd64, target: full}
           - {runner: ubuntu-24.04-arm, arch: arm64, target: core}
     runs-on: ${{ matrix.runner }}
     env:
@@ -59,7 +58,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Free disk for the restore drill
-        if: ${{ matrix.target == 'full' }}
+        if: ${{ matrix.arch == 'amd64' }}
         run: sudo rm -rf /usr/local/lib/android /opt/ghc
       - name: Build the image and generate installation metadata
         run: |
@@ -75,13 +74,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           smoke=(python3 scripts/smoke_compose.py "$RELEASE_IMAGE" --verify-idle)
-          if [[ "$TARGET" == full ]]; then
-            docker run --rm "$RELEASE_IMAGE" /opt/sockseek/sockseek --version
+          if [[ "$ARCH" == amd64 ]]; then
             previous=$(mktemp -d)
             trap 'rm -rf -- "$previous"' EXIT
             previous_commit=$(git rev-parse --verify --end-of-options "$PREVIOUS_RELEASE_REF^{commit}")
             git archive "$previous_commit" | tar -x -C "$previous"
-            docker buildx build --load --platform linux/amd64 -t listening-room:upgrade-fixture "$previous"
+            docker buildx build --load --platform linux/amd64 --target core -t listening-room:upgrade-fixture "$previous"
             smoke+=(--previous-image listening-room:upgrade-fixture)
           else
             smoke+=(--skip-restore)
@@ -101,12 +99,11 @@ jobs:
           done
           mkdir private-install/packaging
           cp -R packaging/compose.import.yaml packaging/compose.clients.yaml packaging/compose.engines.yaml \
-            packaging/compose.updates.yaml packaging/sockseek-pin.json packaging/wireguard private-install/packaging/
-          mkdir -p private-install/scripts private-install/backend/system private-install/examples
-          cp scripts/engine_fleet.py scripts/provision_sockseek.py scripts/update_drain.py scripts/compose_updates.py \
+            packaging/compose.updates.yaml packaging/wireguard private-install/packaging/
+          mkdir -p private-install/scripts private-install/examples
+          cp scripts/engine_fleet.py scripts/update_drain.py scripts/compose_updates.py \
             scripts/compose_update_now.py private-install/scripts/
-          cp backend/system/__init__.py backend/system/{container_updates,engine_fleet,engine_repository,engine_settings,private_files,updater}.py \
-            private-install/backend/system/
+          git archive HEAD backend | tar -x -C private-install
           cp -R examples/engines private-install/examples/
           printf 'LISTENING_IMAGE=%s\n' "$RELEASE_IMAGE" > private-install/release.env
           cd private-install
@@ -169,10 +166,7 @@ jobs:
           }
           load_candidate core amd64 "$VERSION-amd64"
           load_candidate core arm64 "$VERSION-arm64"
-          load_candidate full amd64 "$VERSION-full"
           docker push "$IMAGE:$VERSION-amd64"
           docker push "$IMAGE:$VERSION-arm64"
-          docker push "$IMAGE:$VERSION-full"
           docker buildx imagetools create -t "$IMAGE:$VERSION" "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
           docker buildx imagetools inspect "$IMAGE:$VERSION"
-          docker buildx imagetools inspect "$IMAGE:$VERSION-full"
