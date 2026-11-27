@@ -1,11 +1,12 @@
 package music.listening.room
 
-import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.view.View
 import android.widget.ScrollView
+import androidx.core.content.FileProvider
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -13,12 +14,17 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONException
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 private const val RELEASE_REPO = "Warkanlock/listening-public"
 private const val RELEASES = "https://github.com/$RELEASE_REPO/releases"
 private const val MAX_METADATA_BYTES = 512L * 1024
+internal const val APK_INSTALL_REQUEST = 82
+internal class ApkUpdateProvider : FileProvider()
+
+private val sha256Pattern = Regex("sha256:([0-9a-f]{64})")
 private val releaseClient = OkHttpClient.Builder()
     .callTimeout(12, TimeUnit.SECONDS)
     .followRedirects(false)
@@ -40,7 +46,7 @@ private data class ReleaseVersion(val major: Int, val minor: Int, val patch: Int
 
 private sealed interface ApkUpdate {
     data class Current(val version: String) : ApkUpdate
-    data class Available(val version: String, val url: String) : ApkUpdate
+    data class Available(val apk: ReleaseApk) : ApkUpdate
     data class Unavailable(val message: String) : ApkUpdate
 }
 
@@ -54,18 +60,36 @@ private fun latestApk(release: JSONObject, installed: String): ApkUpdate {
     val filename = "listening-room-$version.apk"
     val url = "$RELEASES/download/$tag/$filename"
     val assets = release.getJSONArray("assets")
-    val hasApk = (0 until assets.length()).any { index ->
-        val asset = assets.getJSONObject(index)
-        asset.optString("name") == filename && asset.optString("state") == "uploaded" &&
-            asset.optString("browser_download_url") == url
+    val asset = (0 until assets.length()).asSequence().map(assets::getJSONObject).firstOrNull {
+        it.optString("name") == filename && it.optString("state") == "uploaded" &&
+            it.optString("browser_download_url") == url
     }
-    if (!hasApk) return ApkUpdate.Unavailable("The latest release doesn't include a Listening APK.")
+        ?: return ApkUpdate.Unavailable("The latest release doesn't include a Listening APK.")
     val current = ReleaseVersion.parse(installed)
         ?: return ApkUpdate.Unavailable("Couldn't compare the installed version with $version.")
-    return if (latest > current) ApkUpdate.Available(version, url) else ApkUpdate.Current(version)
+    if (latest <= current) return ApkUpdate.Current(version)
+    val digest = sha256Pattern.matchEntire(asset.optString("digest"))?.groupValues?.get(1)
+    val size = asset.optLong("size")
+    if (digest == null || size !in 1..MAX_RELEASE_APK_BYTES) {
+        return ApkUpdate.Unavailable("GitHub hasn't provided a verifiable APK for $version.")
+    }
+    return ApkUpdate.Available(ReleaseApk(version, url, digest, size))
 }
 
-internal fun Activity.showApkUpdate() {
+@Suppress("DEPRECATION")
+private fun RoomActivity.openApkInstaller(file: File, onResult: (Boolean) -> Unit) {
+    val apk = FileProvider.getUriForFile(this, "$packageName.apk-updates", file)
+    val install = Intent(Intent.ACTION_INSTALL_PACKAGE)
+        .setDataAndType(apk, "application/vnd.android.package-archive")
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        .putExtra(Intent.EXTRA_RETURN_RESULT, true)
+    val resolver = packageManager.resolveActivity(install, PackageManager.MATCH_DEFAULT_ONLY or PackageManager.MATCH_SYSTEM_ONLY)
+        ?: throw ActivityNotFoundException("Android's package installer is unavailable.")
+    install.setClassName(resolver.activityInfo.packageName, resolver.activityInfo.name)
+    startApkInstall(install, onResult)
+}
+
+internal fun RoomActivity.showApkUpdate() {
     @Suppress("DEPRECATION")
     val installed = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
     val ui = RoomUi(this)
@@ -78,6 +102,8 @@ internal fun Activity.showApkUpdate() {
         visibility = View.GONE
     }
     val dialog = style.dialog(this, "APK updates", ScrollView(this).apply { addView(content) })
+    var transfer: ApkTransfer? = null
+    fun visible() = dialog.isShowing && !isFinishing && !isDestroyed
 
     fun openInBrowser(url: String) {
         try {
@@ -100,19 +126,61 @@ internal fun Activity.showApkUpdate() {
         .header("Accept", "application/vnd.github+json")
         .build()
     val call = releaseClient.newCall(request)
-    dialog.setOnDismissListener { call.cancel() }
+    dialog.setOnDismissListener {
+        call.cancel()
+        transfer?.cancel()
+    }
     dialog.show()
 
+    fun showAvailable(apk: ReleaseApk, error: String? = null) {
+        if (!visible()) return
+        status.removeAllViews()
+        status.addView(ui.label(error ?: "Version ${apk.version} is available."))
+        status.addView(ui.button("Update and install", solid = true) {
+            status.removeAllViews()
+            status.addView(style.progress("Downloading and verifying version ${apk.version}…"))
+            val download = ApkTransfer(applicationContext, apk)
+            transfer = download
+            download.start { result ->
+                runOnUiThread {
+                    if (!visible() || transfer !== download) return@runOnUiThread
+                    transfer = null
+                    result.onSuccess { file ->
+                        fun install() {
+                            status.removeAllViews()
+                            status.addView(ui.label("The update is ready. Confirm installation in Android."))
+                            try {
+                                openApkInstaller(file) { installed ->
+                                    if (installed && visible()) dialog.dismiss()
+                                    else showAvailable(apk, "Installation ended. You can try again.")
+                                }
+                            } catch (_: ActivityNotFoundException) {
+                                showAvailable(apk, "Android's installer is unavailable. Open the release on GitHub.")
+                            } catch (_: SecurityException) {
+                                showAvailable(apk, "Android blocked installation. Check the device's app install settings.")
+                            }
+                        }
+                        if (dialog.window?.decorView?.hasWindowFocus() == true) install()
+                        else {
+                            status.removeAllViews()
+                            status.addView(ui.label("Version ${apk.version} is ready to install."))
+                            status.addView(ui.button("Install update", solid = true, action = ::install))
+                        }
+                    }.onFailure {
+                        showAvailable(apk, it.message ?: "Couldn't download the update. Try again.")
+                    }
+                }
+            }
+        })
+    }
+
     fun render(result: ApkUpdate) = runOnUiThread {
-        if (!dialog.isShowing || isFinishing || isDestroyed) return@runOnUiThread
+        if (!visible()) return@runOnUiThread
         status.removeAllViews()
         with(ui) {
             when (result) {
                 is ApkUpdate.Current -> status.addView(label("No newer APK is available. The latest release is ${result.version}."))
-                is ApkUpdate.Available -> {
-                    status.addView(label("Version ${result.version} is available. Download the APK, then open it to install the update."))
-                    status.addView(button("Download APK", solid = true) { openInBrowser(result.url) })
-                }
+                is ApkUpdate.Available -> showAvailable(result.apk)
                 is ApkUpdate.Unavailable -> status.addView(label(result.message))
             }
         }

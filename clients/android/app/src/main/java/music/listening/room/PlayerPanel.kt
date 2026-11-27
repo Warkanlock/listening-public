@@ -3,6 +3,7 @@ package music.listening.room
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.res.ColorStateList
+import android.text.TextUtils
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -10,7 +11,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
-import android.text.TextUtils
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -18,13 +18,39 @@ import java.util.Locale
 internal fun clockTime(seconds: Int): String =
     String.format(Locale.getDefault(), "%d:%02d", seconds.coerceAtLeast(0) / 60, seconds.coerceAtLeast(0) % 60)
 
+internal fun RoomUi.showPlaybackDevices(activity: Activity, deviceId: String, outputs: JSONArray,
+                                        select: (List<String>) -> Unit) {
+    val entries = (0 until outputs.length()).mapNotNull(outputs::optJSONObject)
+    if (entries.isEmpty()) return
+    val labels = entries.map {
+        it.getString("name") + if (it.getString("id") == deviceId) " (This device)" else ""
+    }.toTypedArray()
+    val checked = BooleanArray(entries.size) { entries[it].optBoolean("selected") }
+    val dialog = AlertDialog.Builder(activity).setTitle("Playback devices")
+        .setMultiChoiceItems(labels, checked) { choice, index, selected ->
+            checked[index] = selected
+            (choice as AlertDialog).getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = checked.any { it }
+        }
+        .setPositiveButton("Use selected devices") { _, _ ->
+            select(entries.filterIndexed { index, _ -> checked[index] }.map { it.getString("id") })
+        }
+        .setNeutralButton("Listen here only") { _, _ -> select(listOf(deviceId)) }
+        .setNegativeButton("Cancel", null).create()
+    if (eInk) dialog.window?.setWindowAnimations(0)
+    dialog.show()
+    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = checked.any { it }
+}
+
 /** Keep the scrubber and controls in place between shared-session updates. */
 internal class PlayerPanel(private val activity: Activity, private val ui: RoomUi, private val room: Room,
                            private val action: (String, JSONObject) -> Unit, private val addToPlaylist: ((JSONObject) -> Unit)?,
                            private val saveFavorite: ((FavoriteSong, Boolean, (Boolean?) -> Unit) -> Unit)?,
                            private val positionOpened: () -> Unit = {},
                            library: () -> Unit) : FrameLayout(activity) {
-    private val scroll = if (ui.eInk) null else ScrollView(activity)
+    private val scroll = ScrollView(activity).apply {
+        overScrollMode = View.OVER_SCROLL_NEVER
+        isVerticalScrollBarEnabled = !ui.eInk
+    }
     private var current: JSONObject? = null
     private var lyricSheet: PlayerLyrics? = null
     private var positionDialog: AlertDialog? = null
@@ -49,14 +75,13 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        if (scroll != null && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
-            // Leave room for the caption, transport and queue on compact screens.
-            sleeve.limitArtworkHeight(MeasureSpec.getSize(heightMeasureSpec) - ui.dp(236))
+        if (!ui.compactPlayerLandscape && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            sleeve.limitArtworkHeight(MeasureSpec.getSize(heightMeasureSpec) - ui.dp(if (ui.eInk) 246 else 304))
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
     private var snapshot = JSONObject()
-    private var playing = false
+    private var playback = PlaybackTransport.Play
     private var dragging = false
     private var seconds = 0
     private var duration = 0
@@ -64,33 +89,25 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         visibility = View.GONE
         if (ui.eInk) setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(12))
     }
-    private val position = ui.iconButton("Show position", Mark.POSITION, action = ::togglePosition)
+    private val position = ui.button("Position", action = ::showPosition).apply {
+        contentDescription = "Show position"
+    }
 
-    private fun togglePosition() {
-        if (ui.eInk) {
-            if (positionDialog != null) return
-            val dialog = SongDetailsStyle(ui).dialog(activity, "Playback position", timeline,
-                closeLabel = "Close position")
-            positionDialog = dialog
-            timeline.visibility = View.VISIBLE
-            dialog.setOnDismissListener {
-                dragging = false
-                positionDialog = null
-                timeline.visibility = View.GONE
-                (timeline.parent as? ViewGroup)?.removeView(timeline)
-                updatePosition()
-            }
-            updatePosition()
-            dialog.show()
-            positionOpened()
-            return
+    private fun showPosition() {
+        if (positionDialog != null) return
+        val dialog = SongDetailsStyle(ui).dialog(activity, "Playback position", timeline,
+            closeLabel = "Close position")
+        positionDialog = dialog
+        timeline.visibility = View.VISIBLE
+        dialog.setOnDismissListener {
+            dragging = false
+            positionDialog = null
+            timeline.visibility = View.GONE
+            (timeline.parent as? ViewGroup)?.removeView(timeline)
         }
-        val open = timeline.visibility != View.VISIBLE
-        timeline.visibility = if (open) View.VISIBLE else View.GONE
         updatePosition()
-        if (open && scroll != null) timeline.post {
-            timeline.requestRectangleOnScreen(android.graphics.Rect(0, 0, timeline.width, timeline.height), true)
-        }
+        dialog.show()
+        positionOpened()
     }
 
     private val emptyHint = ui.label("Choose a song to start playback.")
@@ -108,49 +125,22 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         },
     )
     private val details: LinearLayout
-    private val more = ui.iconButton("More playback options", Mark.MORE, action = ::showOptions)
+    private val more = ui.iconButton("More playback options", Mark.MORE, outlined = false, action = ::showOptions)
     private var savingFavorite = false
-    private val heart = ui.iconButton("Add to favorites", Mark.HEART, outlined = false, action = ::toggleFavorite)
-        .apply { visibility = View.GONE }
-    private val sleeve = RecordSleeve(context, ui, favoriteAction = heart.takeIf { saveFavorite != null })
-    private val queue = ui.queueButton(::showQueue).apply {
-        maxLines = 2
-        ellipsize = TextUtils.TruncateAt.END
-    }
+    private val sleeve = RecordSleeve(context, ui)
+    private val queue = ui.queueButton(::showQueue)
     private val elapsed = ui.label("", 14f, ui.secondary)
     private val length = ui.label("", 14f, ui.secondary)
 
-    private fun toggleFavorite() {
+    private fun setFavorite(song: FavoriteSong, favorite: Boolean) {
         val save = saveFavorite ?: return
-        val track = current ?: return
-        val song = FavoriteSong.from(track) ?: return
-        if (savingFavorite || snapshot.optBoolean("radio")) return
+        if (savingFavorite) return
         savingFavorite = true
-        renderFavorite()
-        save(song, !track.getBoolean("favorite")) { favorite ->
+        save(song, favorite) { saved ->
             current?.takeIf { it.optString("id") == song.ref }?.let {
-                if (favorite != null) it.put("favorite", favorite)
+                if (saved != null) it.put("favorite", saved)
             }
             savingFavorite = false
-            renderFavorite()
-        }
-    }
-
-    private fun renderFavorite() {
-        val track = current ?: return
-        val available = saveFavorite != null && !snapshot.optBoolean("radio") && FavoriteSong.from(track) != null
-        heart.visibility = if (available) View.VISIBLE else View.GONE
-        heart.isEnabled = available && !savingFavorite
-        if (!available) return
-        val favorite = track.getBoolean("favorite")
-        val label = if (favorite) "Remove ${track.optString("title")} from favorites" else "Favorite ${track.optString("title")}"
-        if (!TextUtils.equals(heart.contentDescription, label)) {
-            heart.contentDescription = label
-            heart.tooltipText = label
-        }
-        if (heart.isSelected != favorite) {
-            heart.isSelected = favorite
-            heart.setImageDrawable(ui.mark(if (favorite) Mark.HEART_FILLED else Mark.HEART, 23, ui.accentInk))
         }
     }
 
@@ -171,6 +161,12 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         val options = buildList {
             add(Entry("Song information", open = ::showSongDetails))
             current?.let { track ->
+                val favorite = FavoriteSong.from(track)
+                if (saveFavorite != null && !savingFavorite && !snapshot.optBoolean("radio") && favorite != null) {
+                    val liked = track.optBoolean("favorite")
+                    add(Entry(if (liked) "Remove from favorites" else "Add to favorites",
+                        mark = if (liked) Mark.HEART_FILLED else Mark.HEART) { setFavorite(favorite, !liked) })
+                }
                 if (track.optString("album").isNotBlank()) {
                     profileAction(track, "album")?.let { add(Entry("Album track list", open = it)) }
                 }
@@ -190,21 +186,16 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         ui.choices(activity, "Playback options", options)
     }
     private val transport = ui.iconButton("Play", Mark.PLAY, true) {
-        val op = when {
-            snapshot.optBoolean("radio_pending") -> "radio_resume"
-            controlsRemote() || (playing && (RoomPlayback.following || snapshot.optBoolean("radio"))) -> "pause"
-            playing -> "snapshot"
-            else -> "resume"
-        }
-        action(op, JSONObject())
+        action(playback.operation, JSONObject())
     }
-    private val previous = ui.iconButton("Previous track", Mark.PREVIOUS) {
+    private val previous = ui.iconButton("Previous track", Mark.PREVIOUS, outlined = false) {
         action("previous", JSONObject())
     }
-    private val next = ui.iconButton("Next track", Mark.NEXT) { action("next", JSONObject()) }
+    private val next = ui.iconButton("Next track", Mark.NEXT, outlined = false) { action("next", JSONObject()) }
     private val bar = SeekBar(context).apply {
         contentDescription = "Playback position"
-        progressTintList = ColorStateList.valueOf(ui.ink); thumbTintList = ColorStateList.valueOf(ui.ink)
+        progressTintList = ColorStateList.valueOf(ui.ink)
+        thumbTintList = ColorStateList.valueOf(ui.ink)
         minimumHeight = ui.dp(48)
         setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onStartTrackingTouch(bar: SeekBar) { dragging = true }
@@ -222,23 +213,19 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     }
 
     init {
-        val body = ui.column(8)
-        if (scroll == null) {
-            setBackgroundColor(ui.paper)
-            addView(body, LayoutParams(-1, -2))
-        } else {
-            scroll.addView(body)
-            addView(scroll, LayoutParams(-1, -2))
-        }
-        val controls = ui.column(8).apply {
+        val body = ui.column().apply { setPadding(0, ui.dp(18), 0, ui.dp(12)) }
+        scroll.addView(body)
+        addView(scroll, LayoutParams(-1, -1))
+        val controls = ui.column(10).apply {
+            if (!ui.eInk) addView(timeline)
             addView(ui.transport(previous, transport, next), LinearLayout.LayoutParams(-1, -2))
             addView(ui.line())
             addView(ui.row(6).apply {
-                addView(queue, LinearLayout.LayoutParams(0, -2, 1f))
-                addView(position, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+                addView(queue, LinearLayout.LayoutParams(-2, -2))
+                addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+                if (ui.eInk) addView(position, LinearLayout.LayoutParams(-2, -2))
                 addView(more, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
             })
-            if (!ui.eInk) addView(timeline)
         }
         details = ui.playerContent(sleeve, controls)
         details.visibility = View.GONE
@@ -247,35 +234,18 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         body.addView(details, LinearLayout.LayoutParams(-1, -2))
         timeline.addView(bar, LinearLayout.LayoutParams(-1, ui.dp(48)))
         val times = ui.row()
-        times.addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f)); times.addView(length)
+        times.addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f))
+        times.addView(length)
         timeline.addView(times)
     }
-
-    private fun controlsRemote() = snapshot.optBoolean("session_playing") && snapshot.optBoolean("outputs_explicit") &&
-        !snapshot.optBoolean("output_selected", true)
 
     private fun hasDevices() = (snapshot.optJSONArray("outputs")?.length() ?: 0) > 0
 
     private fun showDevices() {
         val outputs = snapshot.optJSONArray("outputs") ?: return
-        val entries = (0 until outputs.length()).map { outputs.getJSONObject(it) }
-        if (entries.isEmpty()) return
-        val labels = entries.map {
-            it.getString("name") + if (it.getString("id") == room.id) " (This device)" else ""
-        }.toTypedArray()
-        val checked = BooleanArray(entries.size) { entries[it].optBoolean("selected") }
-        fun use(ids: List<String>) = action("outputs", JSONObject().put("devices", JSONArray(ids)))
-        val dialog = AlertDialog.Builder(context).setTitle("Playback devices")
-            .setMultiChoiceItems(labels, checked) { choice, index, selected ->
-                checked[index] = selected
-                (choice as AlertDialog).getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = checked.any { it }
-            }
-            .setPositiveButton("Use selected devices") { _, _ ->
-                use(entries.filterIndexed { index, _ -> checked[index] }.map { it.getString("id") })
-            }
-            .setNeutralButton("Listen here only") { _, _ -> use(listOf(room.id)) }
-            .setNegativeButton("Cancel", null).show()
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = checked.any { it }
+        ui.showPlaybackDevices(activity, room.id, outputs) { ids ->
+            action("outputs", JSONObject().put("devices", JSONArray(ids)))
+        }
     }
 
     private fun showQueue() {
@@ -298,14 +268,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     }
 
     private fun updatePosition() {
-        val open = timeline.visibility == View.VISIBLE
-        if (position.isSelected != open) {
-            position.isSelected = open
-            val label = if (open) "Hide position" else "Show position"
-            position.contentDescription = label
-            position.tooltipText = label
-        }
-        if (!open || dragging) return
+        if (timeline.visibility != View.VISIBLE || dragging) return
         bar.max = duration.coerceAtLeast(1)
         bar.progress = seconds
         elapsed.updateLabel(clockTime(seconds))
@@ -331,30 +294,21 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
             sleeve.clear()
             return
         }
-        val nextTitle = upcoming?.optJSONObject(0)?.optString("title").orEmpty()
-        val queueLabel = if (nextTitle.isBlank()) "Queue" else "Queue\n${nextTitle.lineSequence().first()}"
-        queue.updateLabel(queueLabel)
         val ref = snapshot.optString("current_ref")
         sleeve.bind(track, ref, RoomPlayback.artwork(room.id, ref))
-        sleeve.linkProfiles(profileAction(track, "artist"), profileAction(track, "album"))
-        renderFavorite()
         duration = track.optDouble("duration", 0.0).toInt()
-        seconds = snapshot.getDouble("position").toInt()
+        seconds = snapshot.optDouble("position", 0.0).toInt()
         position.visibility = if (duration > 0) View.VISIBLE else View.GONE
-        if (duration <= 0) {
-            positionDialog?.dismiss()
-            timeline.visibility = View.GONE
-        }
+        if (duration <= 0) positionDialog?.dismiss()
+        if (!ui.eInk) timeline.visibility = if (duration > 0) View.VISIBLE else View.GONE
         updatePosition()
-        playing = snapshot.getBoolean("playing")
-        val pause = controlsRemote() || (playing && (RoomPlayback.following || snapshot.optBoolean("radio")))
-        val label = when {
-            snapshot.optBoolean("radio_external") -> "Play in YouTube"
-            pause -> "Pause"
-            playing && snapshot.has("output_selected") -> "Join audio"
-            else -> "Play"
+        val nextPlayback = PlaybackTransport.forSnapshot(snapshot)
+        if (nextPlayback != playback) {
+            if (nextPlayback.mark != playback.mark) transport.setImageDrawable(ui.mark(nextPlayback.mark, 25, ui.onAccent))
+            playback = nextPlayback
+            transport.contentDescription = playback.label
+            transport.tooltipText = playback.label
         }
-        ui.playbackIcon(transport, label, pause)
         previous.isEnabled = !snapshot.optBoolean("radio_pending") && !snapshot.optBoolean("radio_live")
         next.isEnabled = previous.isEnabled
     }
