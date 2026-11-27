@@ -77,28 +77,42 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
     setError("");
     setBrowse({ kind: "searching", format, fresh });
   };
-  const confirm = async (format: RequestFormat, copyKey?: string) => {
+  const submit = async (action: () => Promise<RequestRow>, success: (updated: RequestRow) => void, errorMessage: string) => {
     if (confirming.current) return;
     confirming.current = true;
     setSaving(true);
     setError("");
     try {
-      const updated = await postJson<RequestRow>("/api/requests/format", {
-        request_id: row.id, requested_format: format, format_revision: row.format_revision,
-        ...(copyKey ? { copy_key: copyKey } : {}),
-      });
+      const updated = await action();
       store.requestsSlice.applyRequest(updated);
       close();
-      if (updated.status === "queued") notify(copyKey ? `Copy queued for ${row.title}` : `Search queued for ${row.title}`);
+      success(updated);
       void store.loadRequests();
       if (store.view === "all" || store.view === "moods") void store.loadTracks(true);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not confirm the format.");
+      setError(error instanceof Error ? error.message : errorMessage);
       confirming.current = false;
       setSaving(false);
       void store.loadRequests();
     }
   };
+  const confirm = (format: RequestFormat, copyKey?: string) => submit(
+    () => postJson<RequestRow>("/api/requests/format", {
+      request_id: row.id, requested_format: format, format_revision: row.format_revision,
+      ...(copyKey ? { copy_key: copyKey } : {}),
+    }),
+    updated => {
+      if (updated.status === "queued") notify(copyKey ? `Copy queued for ${row.title}` : `Search queued for ${row.title}`);
+    },
+    "Could not confirm the format.",
+  );
+  const stopSearch = () => submit(
+    () => postJson<RequestRow>("/api/requests/stop-search", {
+      request_id: row.id, format_revision: row.format_revision,
+    }),
+    () => notify(`Marked ${row.title} unavailable`),
+    "Could not stop the search.",
+  );
   const dismiss = () => {
     if (saving) return;
     if (panel !== "picker") setPanel("picker");
@@ -168,6 +182,9 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
             <RoomAction icon="settings" disabled={saving} onClick={leaveMatches}>Change format</RoomAction>
             <RoomAction icon="refresh" disabled={saving || browse.kind === "searching"}
               onClick={() => showMatches(browse.format, true)}>Search again</RoomAction>
+            {review && !store.member && <RoomAction disabled={saving} onClick={() => void stopSearch()}>
+              Stop searching
+            </RoomAction>}
           </div>
         </> : <>
         <header className="format-dialog-header">

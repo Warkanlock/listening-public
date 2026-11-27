@@ -707,7 +707,7 @@ class RoomActivity : Activity() {
 
     private fun downloadGroup(row: JSONObject) = when (row.optString("request_state")) {
         "ready" -> DownloadGroup.READY
-        "no_matches" -> DownloadGroup.MISSING
+        "no_matches", "unavailable" -> DownloadGroup.MISSING
         "" -> when (row.optString("status")) {
             "downloaded" -> DownloadGroup.READY
             "not_found" -> DownloadGroup.MISSING

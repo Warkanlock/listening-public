@@ -16,7 +16,7 @@ import android.widget.ScrollView
 import org.json.JSONObject
 
 internal val CHANGEABLE_FORMAT = setOf("waiting_format", "not_found", "error", "rejected")
-internal val RETRYABLE_COPY = setOf("queued", "not_found", "error", "rejected")
+internal val RETRYABLE_COPY = setOf("queued", "not_found", "error", "rejected", "unavailable")
 
 internal fun JSONObject.needsCopyReview(): Boolean = when (optString("request_state")) {
     "choose_copy", "copy_unavailable" -> true
@@ -48,6 +48,7 @@ internal fun JSONObject.copyStatusLabel(): String {
         "waiting_space" -> "Waiting for space"
         "ready" -> "Ready"
         "no_matches" -> "No copy found"
+        "unavailable" -> "Unavailable"
         "search_failed" -> "Search failed"
         "verification_failed" -> "Needs review"
         else -> null
@@ -71,6 +72,7 @@ private fun JSONObject.legacyCopyStatusLabel(): String = when (optString("status
     "waiting_space" -> "Waiting for space"
     "waiting_format" -> "Choose format"
     "not_found" -> "No copy found"
+    "unavailable" -> "Unavailable"
     "error" -> "Search failed"
     "rejected" -> if (optBoolean("copy_review")) "Choose a copy" else "Needs review"
     "downloaded" -> "Ready"
@@ -138,7 +140,7 @@ internal fun Activity.showDiscoveryPick(room: Room, item: JSONObject, request: J
                     row?.needsCopyReview() == true -> action("Review copies", Mark.BROWSE) { onRequest(current) }
                     status in CHANGEABLE_FORMAT -> action("Choose format", Mark.SETTINGS) { onRequest(current) }
                     missingDuration -> controls.section(label("A duration is needed to verify a room copy."))
-                    status !in listOf("queued", "searching", "waiting_space", "downloaded") ->
+                    status !in listOf("queued", "searching", "waiting_space", "downloaded", "unavailable") ->
                         action("Find a copy", Mark.DOWNLOAD) { onRequest(current) }
                 }
                 if (retry != null) action("Try MP3", Mark.REFRESH) { onTryMp3(retry) }
@@ -301,6 +303,9 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
                 })
                 add(search)
             }, alignEnd = true))
+            if (row.needsCopyReview()) copyPanel.section(button("Stop searching") {
+                submit("Stopping search…") { room.stopCopySearch(row) }
+            })
             Thread {
                 val result = runCatching { room.browseCopies(row, format, fresh).getJSONArray("matches") }
                 runOnUiThread {
@@ -336,7 +341,7 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
                             copyPanel.section(line(), gap = 4)
                         }
                     }.onFailure { copyMessage = it.message ?: "Could not search for copies." }
-                    if (currentPanel === copyPanel) message(copyMessage)
+                    if (currentPanel === copyPanel && !saving) message(copyMessage)
                 }
             }.start()
         }

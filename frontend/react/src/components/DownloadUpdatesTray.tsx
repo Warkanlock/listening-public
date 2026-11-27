@@ -16,7 +16,7 @@ type TrayAction = "Play" | "Review copies" | "Choose format" | "Change format" |
 function outcomeGroup(row: TrayRequest): typeof groups[number] {
   const state = requestStage(row);
   if (state === "ready") return "Ready to play";
-  if (state === "no_matches") return "No copy found";
+  if (state === "no_matches" || state === "unavailable") return "No copy found";
   return state === "copy_missing" || canChooseFormat(state) ? "Needs review" : "In progress";
 }
 

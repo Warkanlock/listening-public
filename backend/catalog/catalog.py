@@ -316,7 +316,7 @@ class Catalog:
         it, so the rule lives in exactly one place."""
         status = self.coverage.get(index, {}).get("status", "pending")
         request = (request_by_track or {}).get(index)
-        if request and request["status"] in {"waiting_format", "queued", "searching", "waiting_space", "not_found"} and status != "verified":
+        if request and request["status"] in {"waiting_format", "queued", "searching", "waiting_space", "not_found", "unavailable"} and status != "verified":
             status = request["status"]
         return status
 

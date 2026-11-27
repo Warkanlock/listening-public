@@ -3265,7 +3265,7 @@ class Handler(BaseHTTPRequestHandler):
         profile = self._member_profile() if not account_action else None
         if profile is not None and self.path not in MEMBER_POST:
             return self.error_json("This action is unavailable to household members.", HTTPStatus.FORBIDDEN)
-        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {weekly_discovery.PATH, "/api/radio/presence", "/api/radio/somafm", "/api/extensions", EXTENSION_HEALTH, "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/copies", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
+        if not account_action and self.path not in PERSONAL_ROUTES and self.path not in {weekly_discovery.PATH, "/api/radio/presence", "/api/radio/somafm", "/api/extensions", EXTENSION_HEALTH, "/api/jams", "/api/discovery/sources", "/api/discovery/search", "/api/replica/original", "/api/requests", "/api/requests/format", "/api/requests/copies", "/api/requests/stop-search", "/api/requests/retry", "/api/requests/batch", "/api/session", "/api/favorites", "/api/stations", "/api/settings", "/api/sources",
                              "/api/sync", "/api/import-csv", "/api/import-list", "/api/import-bundle", "/api/device", "/api/devices/revoke", "/api/devices/offline", "/api/devices/invites", "/api/pairing/rotate",
                              "/api/announcements", "/api/process", "/api/jobs", "/api/open-source", "/api/playlists/merge",
                              "/api/playlists/add-song", "/api/discovery/import", "/api/devices/playlist-access",
@@ -3550,6 +3550,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error_json(str(error), HTTPStatus.SERVICE_UNAVAILABLE)
             except ValueError as error:
                 return self.error_json(str(error))
+        if self.path == "/api/requests/stop-search":
+            try:
+                request_id = body.get("request_id") if isinstance(body, dict) else None
+                if type(request_id) is not int or not 0 < request_id < 2**63:
+                    raise ValueError("Choose a song request")
+                revision = body.get("format_revision")
+                if type(revision) is not int or not 0 <= revision < 2**63 - 1:
+                    raise ValueError("Invalid request revision")
+                with ROOT_LOCK:
+                    row = requests_store().stop_search(request_id, revision)
+                return self.json_response(row)
+            except ValueError as error:
+                return self.error_json(str(error))
+            except (OSError, sqlite3.Error):
+                return self.error_json("Could not stop the search. Try again shortly.", HTTPStatus.SERVICE_UNAVAILABLE)
         if self.path == "/api/requests/retry":
             try:
                 request_id = body.get("request_id")

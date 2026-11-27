@@ -14,6 +14,7 @@ const labels = {
   choose_copy: "Choose a copy",
   copy_unavailable: "Copy unavailable",
   no_matches: "No copy found",
+  unavailable: "Unavailable",
   search_failed: "Search failed",
   verification_failed: "Needs review",
   waiting_space: "Waiting for space",
@@ -37,6 +38,7 @@ export function requestStage(request: Partial<RequestProgress>): RequestState {
       if (request.phase === "downloading" || request.phase === "verifying") return request.phase;
       return "searching";
     case "not_found": return "no_matches";
+    case "unavailable": return "unavailable";
     case "error": return "search_failed";
     case "rejected": return "verification_failed";
     case "waiting_space": return "waiting_space";
@@ -55,7 +57,7 @@ export function requestStageLabel(request: Partial<RequestProgress>) {
 
 export const needsCopyChoice = (state: RequestState) => state === "choose_copy" || state === "copy_unavailable";
 export const canRetryRequest = (state: RequestState) =>
-  ["queued_search", "queued_copy", "retry_search", "retry_copy", "no_matches", "search_failed", "verification_failed"].includes(state);
+  ["queued_search", "queued_copy", "retry_search", "retry_copy", "no_matches", "unavailable", "search_failed", "verification_failed"].includes(state);
 export const canChooseFormat = (state: RequestState) =>
   ["choose_format", "choose_copy", "copy_unavailable", "no_matches", "search_failed", "verification_failed"].includes(state);
 export const canChangeRecording = (state: RequestState) => canChooseFormat(state) ||
