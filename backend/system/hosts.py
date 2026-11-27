@@ -28,6 +28,10 @@ from urllib.parse import urlsplit
 from system.tailscale import local_identity
 
 
+_DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+_IPV6_AUTHORITY = re.compile(r"\[([^\[\]]+)\](?::([0-9]{1,5}))?")
+
+
 def configured_origin(value=None):
     """An operator-supplied browser origin, independent of incoming headers."""
     if value is None:
@@ -41,46 +45,41 @@ def configured_origin(value=None):
     try:
         url = urlsplit(value)
         port = url.port
-        host = url.hostname
     except ValueError:
         raise error from None
-    if (url.scheme not in {"http", "https"} or not host or url.username is not None
-            or url.netloc.endswith(":") or port == 0 or url.path not in {"", "/"}):
+    host = parse_host(url.netloc)
+    if url.scheme not in {"http", "https"} or not host or url.path not in {"", "/"}:
         raise error
-    if is_ip_literal(host):
-        ip = ipaddress.ip_address(host)
-        authority = f"[{ip}]" if ip.version == 6 else str(ip)
-    elif len(host) <= 253 and all(
-        re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
-        for label in host.rstrip(".").split(".")
-    ):
-        authority = host
-    else:
-        raise error
+    authority = f"[{host}]" if ":" in host else host
     if port is not None and port != {"http": 80, "https": 443}[url.scheme]:
         authority += f":{port}"
     return f"{url.scheme}://{authority}"
 
 
 def parse_host(value):
-    """The bare host in a Host header value: port stripped, IPv6
-    brackets stripped, case folded. "" when the header is missing
-    or carries no host."""
-    candidate = (value or "").strip().casefold()
-    if not candidate:
+    """Return the bare host from an authority or legacy unbracketed IPv6 literal."""
+    candidate = (value or "").strip(" \t").lower()
+    if not candidate.isascii() or "%" in candidate:
         return ""
     if candidate.startswith("["):
-        return candidate[1:].split("]", 1)[0]
-    if candidate.count(":") == 1:
-        return candidate.split(":", 1)[0]
-    if ":" in candidate:
-        # An unbracketed IPv6 literal has no port to strip; anything
-        # else with several colons is not a host this app serves.
+        match = _IPV6_AUTHORITY.fullmatch(candidate)
+        if not match or (match[2] and not 0 < int(match[2]) <= 65535):
+            return ""
         try:
-            return str(ipaddress.ip_address(candidate))
+            return str(ipaddress.IPv6Address(match[1]))
         except ValueError:
             return ""
-    return candidate
+    if candidate.count(":") > 1:
+        try:
+            return str(ipaddress.IPv6Address(candidate))
+        except ValueError:
+            return ""
+    name, separator, port = candidate.partition(":")
+    if separator and (not re.fullmatch(r"[0-9]{1,5}", port) or not 0 < int(port) <= 65535):
+        return ""
+    if len(name) <= 253 and all(_DNS_LABEL.fullmatch(label) for label in name.removesuffix(".").split(".")):
+        return name
+    return ""
 
 
 def is_ip_literal(name):
