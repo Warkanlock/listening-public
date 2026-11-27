@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 import base64
+from contextlib import closing, redirect_stderr
 import csv
 import gzip
 import http.client
@@ -11,6 +12,7 @@ import hmac
 import json
 import os
 import re
+import socket
 import subprocess
 import tempfile
 import threading
@@ -26,6 +28,7 @@ from fixture_environment import isolate_room_environment as setUpModule
 import server
 from catalog.catalog_store import CatalogStore
 from catalog.genres import GenreStore
+from devices.announcements import AnnouncementBoard
 from library.library_protocol import write_xspf
 from system.updater import DIRTY_TREE, NOT_A_CHECKOUT, UpdateError, Updater
 
@@ -143,6 +146,14 @@ class PairingTests(ServerFixture, unittest.TestCase):
         status, headers, _ = self.request(self.lan_port, "GET", "/?token=wrong-token")
         self.assertEqual(status, 401)
         self.assertNotIn("Set-Cookie", headers)
+
+    def test_access_log_omits_query_values(self):
+        logs = io.StringIO()
+        with redirect_stderr(logs):
+            status, _, _ = self.request(self.lan_port, "GET", "/pair?label=fixture-label")
+        self.assertEqual(status, 401)
+        self.assertIn("/pair", logs.getvalue())
+        self.assertNotIn("fixture-label", logs.getvalue())
 
     def test_wifi_discovery_proves_room_identity_without_a_cookie(self):
         device = "9b37bbee-f40a-4c62-b9d0-35de4d71bcc9"
@@ -330,6 +341,26 @@ class DeviceAccessTests(ServerFixture, unittest.TestCase):
                                         body={"id": device, "name": "Phone"}, headers=headers)
             self.assertEqual(status, expected)
         self.assertNotIn("unregistered-device", {item["id"] for item in server.device_snapshot()})
+
+    def test_paired_device_receives_its_own_and_broadcast_announcements(self):
+        first = "announcement-first"
+        second = "announcement-second"
+        _, first_cookie = self.register(first)
+        _, second_cookie = self.register(second)
+        with mock.patch.object(server, "ANNOUNCEMENTS", AnnouncementBoard()):
+            for recipient, message in ((first, "For the first device"), ("", "For everyone")):
+                status, _, _ = self.request(self.loop_port, "POST", "/api/announcements",
+                                            body={"recipient": recipient, "message": message})
+                self.assertEqual(status, 201)
+            for device, cookie, expected in ((first, first_cookie, ["For the first device", "For everyone"]),
+                                             (second, second_cookie, ["For everyone"])):
+                status, _, data = self.request(self.lan_port, "GET", f"/api/announcements?device_id={device}",
+                                               headers={"Cookie": cookie})
+                self.assertEqual(status, 200)
+                self.assertEqual([entry["message"] for entry in json.loads(data)["announcements"]], expected)
+            status, _, _ = self.request(self.lan_port, "GET", f"/api/announcements?device_id={first}",
+                                        headers={"Cookie": second_cookie})
+            self.assertEqual(status, 403)
 
     def test_device_presence_follows_tabs_and_keeps_the_pairing(self):
         device_id = "shared-browser"
@@ -603,12 +634,18 @@ class HostGateTests(ServerFixture, unittest.TestCase):
         self.assertIn("download_ready", payload)
 
     def test_get_process_logs_redacted_from_lan(self):
-        status, _, data = self.request(self.lan_port, "GET", "/api/process",
-                                       headers={"Cookie": self.lan_device_cookie()})
-        self.assertEqual(status, 200)
-        payload = json.loads(data)
-        self.assertEqual(payload["logs"], [])
-        self.assertIn("activity", payload)
+        cookie = self.lan_device_cookie()
+        with mock.patch.object(server, "recent_process_lines", return_value=["Host-only log line"]):
+            for route in ("/api/process", "/api/activity/explore"):
+                with self.subTest(route=route):
+                    status, _, data = self.request(self.lan_port, "GET", route, headers={"Cookie": cookie})
+                    self.assertEqual(status, 200)
+                    payload = json.loads(data)
+                    self.assertEqual(payload["logs"], [])
+                    self.assertIn("activity", payload)
+                    status, _, data = self.request(self.loop_port, "GET", route)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(json.loads(data)["logs"], ["Host-only log line"])
 
     def test_get_settings_ok_from_host(self):
         status, _, data = self.request(self.loop_port, "GET", "/api/settings")
@@ -744,6 +781,17 @@ class LandingAccessTests(ServerFixture, unittest.TestCase):
 
 
 class PostDefenseTests(ServerFixture, unittest.TestCase):
+    def framed_request(self, headers, body=b"{}"):
+        with closing(http.client.HTTPConnection("127.0.0.1", self.loop_port, timeout=10)) as connection:
+            connection.putrequest("POST", "/api/device")
+            connection.putheader("Content-Type", "application/json")
+            for name, value in headers:
+                connection.putheader(name, value)
+            connection.endheaders(body)
+            connection.sock.shutdown(socket.SHUT_WR)
+            response = connection.getresponse()
+            return response.status, json.load(response)
+
     def test_cross_origin_origin_is_refused(self):
         status, _, data = self.request(
             self.loop_port, "POST", "/api/session", body={},
@@ -789,6 +837,21 @@ class PostDefenseTests(ServerFixture, unittest.TestCase):
             headers={"Content-Type": "application/json"})
         self.assertEqual(status, 400)
         self.assertIn("Invalid JSON", json.loads(data)["error"])
+
+    def test_request_requires_one_fixed_length(self):
+        for headers in ([], [("Content-Length", "2")] * 2, [("Content-Length", "+2")],
+                        [("Transfer-Encoding", "chunked")],
+                        [("Content-Length", "2"), ("Transfer-Encoding", "chunked")]):
+            with self.subTest(headers=headers):
+                self.assertEqual(self.framed_request(headers), (400, {"error": "Invalid request size"}))
+
+    def test_request_requires_the_full_declared_body(self):
+        status, data = self.framed_request([("Content-Length", "3")])
+        self.assertEqual((status, data["error"]), (400, "Incomplete request body"))
+
+    def test_json_routes_require_an_object(self):
+        status, data = self.framed_request([("Content-Length", "2")], body=b"[]")
+        self.assertEqual((status, data["error"]), (400, "Send a JSON object."))
 
     def test_unknown_action_is_404(self):
         status, _, data = self.request(self.loop_port, "POST", "/api/bogus", body={})
@@ -901,6 +964,20 @@ class HostValidationTests(ServerFixture, unittest.TestCase):
         # From loopback the same request is local tooling: allowed.
         status, _, _ = self.request_without_host(self.loop_port, "/api/overview")
         self.assertEqual(status, 200)
+
+    def test_malformed_host_is_refused_from_loopback(self):
+        for value in ("", "localhost:music"):
+            with self.subTest(host=value):
+                status, _, _ = self.request(self.loop_port, "GET", "/api/overview", headers={"Host": value})
+                self.assertEqual(status, 400)
+
+    def test_duplicate_host_is_refused_from_loopback(self):
+        with closing(http.client.HTTPConnection("127.0.0.1", self.loop_port, timeout=10)) as connection:
+            connection.putrequest("GET", "/api/overview", skip_host=True)
+            connection.putheader("Host", "localhost")
+            connection.putheader("Host", "localhost")
+            connection.endheaders()
+            self.assertEqual(connection.getresponse().status, 400)
 
     def test_pairing_link_host_passes_validation(self):
         # The plan 024 integration assertion: browse Settings as the
