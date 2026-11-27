@@ -9,9 +9,7 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.os.Build
 import android.text.TextUtils
-import android.view.GestureDetector
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.animation.DecelerateInterpolator
@@ -21,13 +19,12 @@ import android.widget.LinearLayout
 import org.json.JSONObject
 
 /** Cover artwork and track details shared by room and device-file playback. */
-internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAction: View? = null,
+internal class RecordSleeve(context: Context, private val ui: RoomUi,
                             favoriteAction: View? = null) : FrameLayout(context) {
     private var picture: Bitmap? = null
     private var viewer: Dialog? = null
     private val monochrome = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
-    private val artworkFirst = captionAction != null
-    private val fallback = ui.mark(Mark.ALBUM, if (ui.eInk && !artworkFirst) 54 else 96)
+    private val fallback = ui.mark(Mark.ALBUM, if (ui.eInk) 54 else 96)
     private val art = ImageView(context).apply {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         scaleType = ImageView.ScaleType.CENTER
@@ -51,23 +48,11 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAct
             marginEnd = ui.dp(6)
         })
         setOnClickListener { showCover() }
-        if (artworkFirst) {
-            val target = this
-            val taps = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-                override fun onDown(event: MotionEvent) = true
-                override fun onSingleTapUp(event: MotionEvent) = target.performClick()
-            })
-            setOnTouchListener { view, event ->
-                if (!view.isClickable) return@setOnTouchListener false
-                taps.onTouchEvent(event)
-                true
-            }
-        }
         isClickable = false
         isFocusable = false
     }
     private val title = ui.heading("", if (ui.eInk) 25f else 29f).apply {
-        maxLines = if (artworkFirst) 1 else 2
+        maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
     }
     private val artist = ui.label("", if (ui.eInk) 16f else 17f).apply {
@@ -89,43 +74,27 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAct
         val metadata = ui.column(1).apply {
             addView(title)
             addView(artist)
-            if (!artworkFirst) addView(album)
+            addView(album)
         }
-        val actions = listOfNotNull(favoriteAction, captionAction)
-        val caption = if (actions.isEmpty()) metadata else ui.row(8).apply {
+        val caption = if (favoriteAction == null) metadata else ui.row(8).apply {
             addView(metadata, LinearLayout.LayoutParams(0, -2, 1f))
-            for (action in actions) addView(action, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+            addView(favoriteAction, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
         }
-        if (captionAction != null) {
-            val stage = object : FrameLayout(context) {
-                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                    val side = minOf(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec))
-                    cover.layoutParams.width = side
-                    cover.layoutParams.height = side
-                    super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-                }
-            }.apply { addView(cover, LayoutParams(0, 0, Gravity.CENTER)) }
-            addView(ui.column(6).apply {
-                addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
-                addView(caption, LinearLayout.LayoutParams(-1, -2))
-            }, LayoutParams(-1, -1))
-        } else {
-            val sleeve = if (ui.eInk) {
-                ui.row(14).apply {
-                    val size = ui.dp(104)
-                    addView(cover, LinearLayout.LayoutParams(size, size))
-                    addView(caption, LinearLayout.LayoutParams(0, -2, 1f))
-                }
-            } else {
-                ui.column(10).apply {
-                    addView(cover, LinearLayout.LayoutParams(preferredSize, preferredSize).apply {
-                        gravity = Gravity.CENTER_HORIZONTAL
-                    })
-                    addView(caption)
-                }
+        val sleeve = if (ui.eInk) {
+            ui.row(14).apply {
+                val size = ui.dp(104)
+                addView(cover, LinearLayout.LayoutParams(size, size))
+                addView(caption, LinearLayout.LayoutParams(0, -2, 1f))
             }
-            addView(sleeve, LayoutParams(-1, -2))
+        } else {
+            ui.column(10).apply {
+                addView(cover, LinearLayout.LayoutParams(preferredSize, preferredSize).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                })
+                addView(caption)
+            }
         }
+        addView(sleeve, LayoutParams(-1, -2))
     }
 
     fun limitArtworkHeight(maxHeight: Int) {
@@ -155,7 +124,7 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi, captionAct
                 art.animate().alpha(1f).setDuration(220).setInterpolator(DecelerateInterpolator()).start()
             }
         }
-        expand.visibility = if (image == null || artworkFirst) View.GONE else View.VISIBLE
+        expand.visibility = if (image == null) View.GONE else View.VISIBLE
         cover.isClickable = image != null
         cover.isFocusable = image != null
         describeCover()

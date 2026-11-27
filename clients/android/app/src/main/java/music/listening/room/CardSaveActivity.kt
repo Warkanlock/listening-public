@@ -13,6 +13,8 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
 
+internal const val OPEN_CAMPING = "open_camping"
+
 class CardSaveActivity : Activity() {
     private val ui by lazy { RoomUi(this) }
     private var operation: CardSaveOperation? = null
@@ -33,7 +35,7 @@ class CardSaveActivity : Activity() {
         ui.theme.applyWindow(this, ui.paper)
         val frame = ui.screen()
         frame.addView(ui.row(8).apply {
-            addView(ui.iconButton("Back to device files", Mark.BACK) { finish() },
+            addView(ui.iconButton("Back", Mark.BACK) { finish() },
                 LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
             addView(ui.heading("Save for offline", 23f))
         })
@@ -60,6 +62,7 @@ class CardSaveActivity : Activity() {
         layout.addView(list)
         setContentView(frame)
         tree = getSharedPreferences("card", MODE_PRIVATE).getString("tree", null)?.let(Uri::parse)
+        if (state == null && intent.getBooleanExtra(OPEN_CAMPING, false)) chooseTripLength()
     }
 
     private fun formatLabel() = "Mobile audio · " + MobileAudio.load(this).label

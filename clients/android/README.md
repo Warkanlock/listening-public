@@ -2,6 +2,18 @@
 
 Download the signed Android APK from [GitHub Releases](https://github.com/Warkanlock/listening-public/releases). It includes room streaming, offline sync, and local file playback. After installing, enter your **Server URL** and tap **Connect**, then paste a pairing link from that room’s **Settings → Devices**. You can also paste the full pairing link in the first step, or choose **Device files** for local playback.
 
+### Find library features
+
+Open **Library** for shortcuts to **Deep Dive**, **Weekly Discovery**, **Activities**, **Browse catalogs**, **Downloads**, and **Camping mode**. Deep Dive also links to Weekly Discovery, Activities, Downloads, and Camping mode above its recording recommendations.
+
+Open **Downloads** to check active transfers, review requests that need attention, or play recent downloads. To build an offline trip, open **Camping mode**, pick a song count, and save the mixes to your selected music folder over Wi-Fi.
+
+### Update the app
+
+Open **Settings → App → Check for APK updates**. You can also check from the **Connect to a room** screen. When a newer release is available, tap **Download APK**. After the browser finishes downloading, open the APK and confirm the update in Android.
+
+If your phone requires a desktop installer, open the GitHub release on your computer and install the APK using that tool. On Mudita Kompakt, use Mudita Center.
+
 ### Add a song to a playlist
 
 On the server, the owner can allow playlist additions for a paired phone under **Settings → Devices**. On the connected phone, open **Explore**, choose the playlist, and tap **Add song**. Enter the artist and title. The room saves the playlist entry even when the audio is still missing. You can also start from **Song information**, a **Deep Dive** pick, or a recording in **Explore → Browse catalogs**.
@@ -18,7 +30,13 @@ Existing Listening Room installations update in place. The old Listening Offline
 
 **Library** searches the full room catalog by song, artist or album. Tap a verified song to play it, or use its information button for release details. Tap a song without a copy to see its information and availability. **Radio** searches playable genres and live stations. **Explore → Not downloaded** browses and searches those catalog entries. Explore also lists playlists, genres, favorites and listening history. Use **Settings → Playback → Mobile audio** to select Original, Compact Opus, or Compact AAC for room streams.
 
-**Playing** shows the cover and track details above the playback controls. In portrait on Mudita Kompakt, a large grayscale cover, song title, seek bar, and transport fit on a fixed white screen. Tap the cover to see the full artwork, or open the queue and playback options from their icons. Playback continues with the screen off.
+**Playing** shows the cover and track details above the playback controls. Tap the cover to see the full artwork, or open the queue and playback options from their icons. Playback continues with the screen off.
+
+### Use an E Ink display
+
+Listening uses **E Ink** appearance automatically on Mudita Kompakt. On another Android device, select **Settings → Appearance → Theme → E Ink**.
+
+E Ink appearance uses text tabs, high-contrast controls, and compact grayscale artwork. Tap **Show position** when you want to seek. Browse plain lists for moods and artist credits. To blend moods, open **Explore → Moods → Mood Map**. Scroll lyrics by hand or tap a timed line to seek. The app checks visible room screens less often between interactions.
 
 Open **Settings → Extensions** or **Explore → Extensions** to see the installed download extensions and the sources used by **Find a copy**. The format picker also offers **Extensions** so you can check the sources and return to the same request. The room owner can install extensions from the linked room page in a browser.
 
