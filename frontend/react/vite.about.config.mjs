@@ -19,6 +19,8 @@ export default defineConfig({
           return html
             .replace(/<section data-room-only[\s\S]*?<\/section>/, "")
             .replaceAll(/<a [^>]*data-room-only[^>]*>[\s\S]*?<\/a>/g, "")
+            .replace('class="about-room-link" href="%BASE_URL%">Open the room',
+              'class="about-room-link" href="https://github.com/Warkanlock/listening-public">GitHub')
             .replaceAll('href="%BASE_URL%">Open the room', 'href="#connect">Connect a device')
             .replace('<meta charset="utf-8" />', '<meta charset="utf-8" /><meta name="robots" content="noindex" />');
         },
@@ -26,6 +28,10 @@ export default defineConfig({
       async closeBundle() {
         await rename(new URL("about/index.html", output), new URL("index.html", output));
         await cp(new URL("public/assets/about-showcase/room/", root), new URL("assets/about-showcase/room/", output), { recursive: true });
+        for (const screenshot of ["owned-music.webp", "connect-a-device.webp"]) {
+          await cp(new URL(`public/assets/about-showcase/onboarding/${screenshot}`, root),
+            new URL(`assets/about-showcase/onboarding/${screenshot}`, output));
+        }
         await cp(new URL("public/assets/icons/favicon.svg", root), new URL("assets/icons/favicon.svg", output));
       },
     },
