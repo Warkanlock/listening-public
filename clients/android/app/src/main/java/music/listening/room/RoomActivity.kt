@@ -1176,17 +1176,22 @@ class RoomActivity : Activity() {
             page.playlist != null -> "Find in playlist"
             else -> "Find in this list"
         }
-        val form = ui.searchBar(this, searchDraft ?: query, placeholder) {
+        val form = ui.searchBar(this, searchDraft ?: query, placeholder, integrated = searching) {
             catalogPage = page.copy(query = it, offset = 0)
             show()
         }
         content.addView(form.view)
         searchField = form.field
-        if (searching && !local) {
-            content.addView(ui.button("Browse catalogs") { openSection(Screen.CATALOGS) },
-                LinearLayout.LayoutParams(-2, -2))
+        val feedback = if (searching) SearchFeedback(ui, if (local) null else {
+            { openSection(Screen.CATALOGS) }
+        }).also { content.addView(it.view) } else null
+        if (feedback != null) {
+            if (query.isBlank()) {
+                feedback.showMessage(detail = if (local) "Search your phone library." else null)
+                return
+            }
+            feedback.showMessage(detail = "Searching…")
         }
-        if (searching && query.isBlank()) return
         val filters = listOf("playlist" to playlist, "genre" to page.genre, "mood" to page.mood, "filter" to page.filter,
             "q" to query, "offset" to offset.toString(), "limit" to "20")
         val facets = if (page.filter == "favorites") listOf("facets" to "download-favorites") else emptyList()
@@ -1198,6 +1203,16 @@ class RoomActivity : Activity() {
             } else {
                 target.requireCatalog()
                 target.get("/api/tracks?$params")
+            }
+        }, reportErrors = !searching, failed = { error ->
+            if (error is PairingRequired) feedback?.showMessage()
+            else {
+                val detail = when (error) {
+                    is RoomUnreachable, is CatalogLoading -> error.message
+                    else -> "Try searching again."
+                }
+                feedback?.showMessage("Search unavailable", detail,
+                    retry = { show(searchDraft = searchField?.text?.toString()) })
             }
         }) { data ->
             val tracks = data.getJSONArray("tracks")
@@ -1241,6 +1256,14 @@ class RoomActivity : Activity() {
                 }
             } + favoriteDownloads(data)
             val total = data.getInt("total")
+            if (searching && offset > 0 && offset >= total) {
+                val lastPage = (total - 1).coerceAtLeast(0) / 20 * 20
+                catalogPage = page.copy(offset = lastPage)
+                if (total > 0) {
+                    show(searchDraft = searchField?.text?.toString())
+                    return@load
+                }
+            }
             val number = NumberFormat.getIntegerInstance()
             val count = when {
                 total == 0 && local && query.isBlank() -> if (ReplicaSync.busy) ReplicaSync.progress
@@ -1249,9 +1272,13 @@ class RoomActivity : Activity() {
                 total == 1 -> "1 song"
                 else -> "${number.format(total)} songs"
             }
-            count?.let {
-                content.addView(ui.label(it, 14f, ui.secondary))
-            }
+            if (feedback != null) {
+                if (rows.isEmpty() && total == 0) {
+                    feedback.showMessage("No matches", "Try another title, artist, or album.")
+                    return@load
+                }
+                if (count != null) feedback.showResults(count)
+            } else if (count != null) content.addView(ui.label(count, 14f, ui.secondary))
             placeIndex(rows, listPosition)
             if (total > 20 || offset > 0) {
                 val pages = ui.row()
