@@ -3754,7 +3754,12 @@ def run_browser(server, output):
                     assert len({round(box["x"]) for box in bounds}) == columns, "Copy actions must align in columns"
                     assert len({round(box["y"]) for box in bounds}) == len(actions) // columns
                     assert max(box["width"] for box in bounds) - min(box["width"] for box in bounds) <= 1
-                    assert all(box["height"] >= 44 and box["x"] + box["width"] <= width for box in bounds)
+                    touch = width < 580
+                    assert all(box["height"] >= (44 if touch else 35) and box["x"] + box["width"] <= width
+                               for box in bounds)
+                    assert stop_picker.bounding_box()["width"] <= min(448, (width - 28) * .8) + 1
+                    if not touch:
+                        assert all(box["height"] <= 35 for box in bounds)
                     if width == 390:
                         page.screenshot(path=str(output / "13-copy-review-phone.png"), animations="disabled")
                 page.screenshot(path=str(output / "13-copy-review.png"), animations="disabled")
