@@ -52,7 +52,7 @@ def release_assets(repository, tag):
 
 
 def download(opener, url):
-    request = Request(url, headers={"User-Agent": "Listening Room plugin catalog"})
+    request = Request(url, headers={"User-Agent": "Listening plugin catalog"})
     with opener.open(request, timeout=10) as response:
         content = response.read(LIMIT + 1)
     if len(content) > LIMIT:

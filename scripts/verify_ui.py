@@ -687,14 +687,14 @@ def verify_landing(browser, base, output, errors, warnings):
             response = page.goto(base + url)
             assert response.status == 200
             page.get_by_role("heading", level=1, name="Your music, wherever you listen.").wait_for()
-            assert page.get_by_role("navigation").get_by_role("link", name="Open the room").get_attribute("href") == "/"
+            assert page.get_by_role("navigation").get_by_role("link", name="Open the app").get_attribute("href") == "/"
             sleeve = page.locator(".about-sleeve")
             assert sleeve.locator("img").evaluate("img => img.complete && img.naturalWidth > 0")
             assert page.get_by_role("link", name="Explore listening features").get_attribute("href") == "#showcase"
             assert page.get_by_role("navigation").get_by_role("link", name="Features").get_attribute("href") == "#showcase"
-            logo = page.get_by_role("link", name="Listening Room", exact=True).first.locator("img")
+            logo = page.get_by_role("link", name="Listening", exact=True).first.locator("img")
             assert logo.evaluate("img => img.complete && img.naturalWidth > 0")
-            hero_library = page.get_by_role("img", name="Library and queue in Listening Room")
+            hero_library = page.get_by_role("img", name="Library and queue in Listening")
             hero_library.evaluate("image => image.decode()")
             assert hero_library.evaluate("image => image.naturalWidth > 0")
             copy = page.locator("body").inner_text()
@@ -2085,7 +2085,7 @@ def verify_household_browser(browser, root, output):
         unauthenticated = browser.new_page(service_workers="block")
         pages.append(unauthenticated)
         unauthenticated.goto(server.base + "/")
-        unauthenticated.get_by_role("link", name="About Listening Room").click()
+        unauthenticated.get_by_role("link", name="About Listening").click()
         unauthenticated.locator("h1#about-title").wait_for()
         assert unauthenticated.request.get(server.base + "/api/tracks").status == 401
 
@@ -2096,7 +2096,7 @@ def verify_household_browser(browser, root, output):
             pages.append(page)
             install_youtube_fixture(page)
             page.goto(server.base + "/")
-            page.get_by_role("heading", name="Sign in to Listening Room").wait_for()
+            page.get_by_role("heading", name="Sign in to Listening").wait_for()
             page.get_by_label("Username").fill(username)
             page.get_by_label("Password").fill(password)
             page.get_by_role("button", name="Sign in", exact=True).click()
@@ -2530,7 +2530,7 @@ def verify_household_browser(browser, root, output):
         assert titles.all_inner_texts() == list(reversed(original_order))
 
         first.get_by_role("button", name="Sign out", exact=True).click()
-        first.get_by_role("heading", name="Sign in to Listening Room").wait_for()
+        first.get_by_role("heading", name="Sign in to Listening").wait_for()
     finally:
         for page in pages:
             page.close()

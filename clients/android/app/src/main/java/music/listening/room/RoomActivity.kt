@@ -1033,7 +1033,7 @@ class RoomActivity : Activity() {
         val help = when {
             server != null -> "Connected to $server. Paste a pairing link from Settings → Devices on that server."
             homeWifi -> "Enter your paired room’s Wi-Fi address, including http:// and the port, or paste a pairing link."
-            else -> "Enter the URL you use to reach Listening Room on Wi-Fi or Tailscale. You can also paste a pairing link."
+            else -> "Enter the URL you use to reach Listening on Wi-Fi or Tailscale. You can also paste a pairing link."
         }
         form.addView(ui.label(help))
         form.addView(ui.heading(label, 16f))

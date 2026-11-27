@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "775C6AF68B3B91167CD53DE9"
-               BuildableName = "ListeningRoom.app"
-               BlueprintName = "ListeningRoom"
-               ReferencedContainer = "container:ListeningRoom.xcodeproj">
+               BuildableName = "Listening.app"
+               BlueprintName = "Listening"
+               ReferencedContainer = "container:Listening.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
          <BuildActionEntry
@@ -31,7 +31,7 @@
                BlueprintIdentifier = "097BBDECE115FB6A0ED73A78"
                BuildableName = "RoomUITests.xctest"
                BlueprintName = "RoomUITests"
-               ReferencedContainer = "container:ListeningRoom.xcodeproj">
+               ReferencedContainer = "container:Listening.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -45,9 +45,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "775C6AF68B3B91167CD53DE9"
-            BuildableName = "ListeningRoom.app"
-            BlueprintName = "ListeningRoom"
-            ReferencedContainer = "container:ListeningRoom.xcodeproj">
+            BuildableName = "Listening.app"
+            BlueprintName = "Listening"
+            ReferencedContainer = "container:Listening.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -58,7 +58,7 @@
                BlueprintIdentifier = "097BBDECE115FB6A0ED73A78"
                BuildableName = "RoomUITests.xctest"
                BlueprintName = "RoomUITests"
-               ReferencedContainer = "container:ListeningRoom.xcodeproj">
+               ReferencedContainer = "container:Listening.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -78,9 +78,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "775C6AF68B3B91167CD53DE9"
-            BuildableName = "ListeningRoom.app"
-            BlueprintName = "ListeningRoom"
-            ReferencedContainer = "container:ListeningRoom.xcodeproj">
+            BuildableName = "Listening.app"
+            BlueprintName = "Listening"
+            ReferencedContainer = "container:Listening.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -95,9 +95,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "775C6AF68B3B91167CD53DE9"
-            BuildableName = "ListeningRoom.app"
-            BlueprintName = "ListeningRoom"
-            ReferencedContainer = "container:ListeningRoom.xcodeproj">
+            BuildableName = "Listening.app"
+            BlueprintName = "Listening"
+            ReferencedContainer = "container:Listening.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

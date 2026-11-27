@@ -42,7 +42,7 @@ const IMPORT_EXTENSIONS = new Set(["csv", "m3u", "m3u8", "xspf", "zip"]);
 function importFileIssue(file: File): string {
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
   if (!IMPORT_EXTENSIONS.has(extension))
-    return "Choose a CSV, M3U/M3U8, XSPF, or Listening Room ZIP";
+    return "Choose a CSV, M3U/M3U8, XSPF, or Listening ZIP";
   if (!file.size) return "This file is empty";
   if (file.size > (extension === "zip" ? 30 * 1024 * 1024 : 20 * 1024 * 1024))
     return `File exceeds ${extension === "zip" ? "30" : "20"} MB`;
@@ -274,7 +274,7 @@ export function SourcesPanel({
             </span>
           </label>
           <p id="importHint" className="import-hint">
-            CSV, M3U/M3U8, XSPF · up to 20 MB each. Listening Room ZIP · up to
+            CSV, M3U/M3U8, XSPF · up to 20 MB each. Listening ZIP · up to
             30 MB.
           </p>
           <div className="import-selection" aria-live="polite">

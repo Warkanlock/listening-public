@@ -1,4 +1,4 @@
-# Install Listening Room on a private network
+# Install Listening on a private network
 
 The server keeps your catalog and media on its own disk. On the same computer, open the room in a browser. You can also connect a browser, an Android or Apple client, or Android’s offline player from another device on a private network. You can import and play audio you own without an account with a music service.
 
@@ -49,7 +49,7 @@ For a local report on the room, its disk space and the advertised connection add
 
 ## Install with an agent
 
-> Install Listening Room from this private checkout using the instructions above. Create a localhost room first and verify owner sign-in, an imported track, and a disposable restore. Preserve any existing media and service configuration. Set the client origin and private bind only after I provide my network details. Use my existing LAN or VPN and keep the room off the public internet. Let me enter the owner password privately from the terminal.
+> Install Listening from this private checkout using the instructions above. Create a localhost room first and verify owner sign-in, an imported track, and a disposable restore. Preserve any existing media and service configuration. Set the client origin and private bind only after I provide my network details. Use my existing LAN or VPN and keep the room off the public internet. Let me enter the owner password privately from the terminal.
 
 ### Update a source-built Compose room from the browser
 
@@ -195,7 +195,7 @@ LISTENING_ROOM_ORIGIN=http://10.66.44.1:8765
 LISTENING_ROOM_NETWORK=wireguard
 ```
 
-If the tunnel terminates on a router instead of the Docker host, use the host address reachable through that router and permit access from the VPN subnet. A client that connects from outside your home needs a reachable WireGuard peer or hub. Carry Listening Room inside the tunnel. Leave the room's own TCP port on the private network. [WireGuard quick start](https://www.wireguard.com/quickstart/)
+If the tunnel terminates on a router instead of the Docker host, use the host address reachable through that router and permit access from the VPN subnet. A client that connects from outside your home needs a reachable WireGuard peer or hub. Carry Listening inside the tunnel. Leave the room's own TCP port on the private network. [WireGuard quick start](https://www.wireguard.com/quickstart/)
 
 ### Private HTTPS
 

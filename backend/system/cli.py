@@ -1,4 +1,4 @@
-"""The public terminal entry point for a Listening Room installation."""
+"""The public terminal entry point for a Listening installation."""
 
 from contextlib import closing
 import argparse
@@ -176,7 +176,7 @@ def build(args):
     target = "ipad" if args.target == "ios" else args.target
     script = checkout / "scripts" / f"build_{target}.py"
     if not script.is_file():
-        raise ValueError("Choose a Listening Room source checkout with --source DIR")
+        raise ValueError("Choose a Listening source checkout with --source DIR")
     out = (args.output or checkout / "dist/clients").resolve()
     command = [sys.executable, str(script), "--output", str(out)]
     return subprocess.run(command, cwd=checkout).returncode

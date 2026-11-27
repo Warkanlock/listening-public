@@ -108,7 +108,7 @@ def create_demo(folder):
         raise ValueError("Choose a new demo folder in an existing directory.")
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        raise ValueError("Install FFmpeg or run this command in the Listening Room container.")
+        raise ValueError("Install FFmpeg or run this command in the Listening container.")
     with tempfile.TemporaryDirectory(prefix=".listening-demo-", dir=folder.parent) as temporary:
         staging = Path(temporary)
         audio = staging / "First light.mp3"
@@ -117,7 +117,7 @@ def create_demo(folder):
             "aevalsrc=0.12*sin(2*PI*220*t)+0.07*sin(2*PI*277.183*t)+0.04*sin(2*PI*329.628*t):s=44100:d=8",
             "-af", "afade=t=in:d=0.6,afade=t=out:st=6.5:d=1.5",
             "-c:a", "libmp3lame", "-b:a", "256k", "-metadata", "title=First light",
-            "-metadata", "artist=Listening Room", "-metadata", "album=First listen", str(audio),
+            "-metadata", "artist=Listening", "-metadata", "album=First listen", str(audio),
         ], check=True, timeout=30)
         playlist = staging / "Playlists"
         playlist.mkdir()

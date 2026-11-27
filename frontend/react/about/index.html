@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#112e2c" />
-  <meta name="description" content="Host your own music library with Listening Room. Play across devices, find music through Mood Map and Weekly Discovery, and save Camping mixes for offline listening." />
+  <meta name="description" content="Host your own music library with Listening. Play across devices, find music through Mood Map and Weekly Discovery, and save Camping mixes for offline listening." />
   <link rel="icon" href="%BASE_URL%assets/icons/favicon.svg" type="image/svg+xml" />
-  <title>Listening Room — Your self-hosted music library</title>
+  <title>Listening — Your self-hosted music library</title>
   <link rel="stylesheet" href="/src/styles.css" />
   <link rel="stylesheet" href="/src/about/showcase.css" />
 </head>
@@ -20,8 +20,8 @@
   <a class="about-skip" href="#main">Skip to content</a>
   <header class="about-mast">
     <div class="about-wrap">
-      <a class="about-wordmark" href="#main"><img src="%BASE_URL%assets/icons/favicon.svg" width="34" height="34" alt="" />Listening Room</a>
-      <nav aria-label="Main navigation"><a href="#showcase">Features</a><a href="#install">Install</a><a class="about-room-link" href="%BASE_URL%">Open the room <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg></a></nav>
+      <a class="about-wordmark" href="#main"><img src="%BASE_URL%assets/icons/favicon.svg" width="34" height="34" alt="" />Listening</a>
+      <nav aria-label="Main navigation"><a href="#showcase">Features</a><a href="#install">Install</a><a class="about-room-link" href="%BASE_URL%">Open the app <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg></a></nav>
     </div>
   </header>
   <main id="main">
@@ -40,7 +40,7 @@
           </div>
         </div>
         <figure class="about-hero-screen">
-          <a href="%BASE_URL%assets/about-showcase/room/library.webp"><img src="%BASE_URL%assets/about-showcase/room/library.webp" alt="Library and queue in Listening Room" width="1440" height="900" fetchpriority="high" /></a>
+          <a href="%BASE_URL%assets/about-showcase/room/library.webp"><img src="%BASE_URL%assets/about-showcase/room/library.webp" alt="Library and queue in Listening" width="1440" height="900" fetchpriority="high" /></a>
           <figcaption><a class="about-inline" href="#showcase">Explore listening features <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#down-arrow"/></svg></a></figcaption>
         </figure>
       </div>
@@ -179,14 +179,14 @@
             <div class="about-vinyl" aria-hidden="true"></div>
             <details class="about-sleeve">
               <summary aria-label="Turn the First light sleeve">
-                <span class="about-cover" aria-hidden="true"><img src="/src/about/first-light.webp" alt="A pale sun over the sea on the First light sleeve" width="900" height="900" /><span class="about-print"><b>First light</b><small>Listening Room</small></span></span>
-                <span class="about-reverse" aria-hidden="true"><small>Listening Room</small><strong>First listen</strong><span>First light <b>0:08</b></span></span>
+                <span class="about-cover" aria-hidden="true"><img src="/src/about/first-light.webp" alt="A pale sun over the sea on the First light sleeve" width="900" height="900" /><span class="about-print"><b>First light</b><small>Listening</small></span></span>
+                <span class="about-reverse" aria-hidden="true"><small>Listening</small><strong>First listen</strong><span>First light <b>0:08</b></span></span>
                 <span class="about-flip-hint" aria-hidden="true">Turn sleeve ↻</span>
               </summary>
-              <p class="about-notes"><b>First listen</b> by Listening Room. First light is an eight-second ambient study for three sine waves.</p>
+              <p class="about-notes"><b>First listen</b> by Listening. First light is an eight-second ambient study for three sine waves.</p>
             </details>
           </div>
-          <figcaption class="about-audition"><div><strong>First light</strong><small>Listening Room · Demo recording</small></div>
+          <figcaption class="about-audition"><div><strong>First light</strong><small>Listening · Demo recording</small></div>
             <div id="audition"><audio controls preload="none" aria-label="Play First light demo" src="/src/about/first-light.mp3"></audio></div>
           </figcaption>
         </figure>
@@ -244,9 +244,9 @@
           <h3>Mac</h3>
           <p>For Apple silicon Macs running macOS 13 or later.</p>
           <ol class="about-steps">
-            <li>Download the <strong>.dmg</strong> and open it. Drag Listening Room to Applications.</li>
+            <li>Download the <strong>.dmg</strong> and open it. Drag the app to Applications.</li>
             <li>To join an existing room, enter its address or paste your invitation.</li>
-            <li>To host your own, choose <strong>Listening Room → Install terminal command</strong>. Open Terminal, run <code>~/.local/bin/listening setup</code>, and choose your music folder.</li>
+            <li>To host your own, choose <strong>Install terminal command</strong> from the app menu. Open Terminal, run <code>~/.local/bin/listening setup</code>, and choose your music folder.</li>
           </ol>
           <a href="https://github.com/Warkanlock/listening-public/releases/download/macos-v1.0.0/listening-room-macos-1.0.0.dmg">Download for Mac</a>
           <a href="https://github.com/Warkanlock/listening-public/blob/main/clients/macos/README.md">Mac setup guide</a>
@@ -260,12 +260,12 @@
               <span id="docker-copy-status" role="status"></span>
             </div>
             <pre><code id="docker-commands">docker pull ghcr.io/warkanlock/listening-public:1.0.0
-docker run -d --name listening-room --restart unless-stopped \
+docker run -d --name listening --restart unless-stopped \
   -p 127.0.0.1:8765:8765 \
   -e LISTENING_ROOM_REQUIRE_OWNER=1 \
   -v listening-config:/config -v listening-library:/library \
   ghcr.io/warkanlock/listening-public:1.0.0
-docker exec -it listening-room /app/listening account set-owner owner</code></pre>
+docker exec -it listening /app/listening account set-owner owner</code></pre>
           </div>
           <p>Enter a password when prompted. On the Docker host, open <a href="http://127.0.0.1:8765">http://127.0.0.1:8765</a> and sign in as <code>owner</code>.</p>
           <p>The two Docker volumes keep your settings and library when you replace the container.</p>
@@ -312,7 +312,7 @@ docker exec -it listening-room /app/listening account set-owner owner</code></pr
       </details>
     </section>
   </main>
-  <footer class="about-end"><div class="about-wrap"><strong>Listening Room</strong><span>MIT licensed</span><a href="https://github.com/Warkanlock/listening-public">Source on GitHub</a><a href="%BASE_URL%">Open the room <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg></a></div></footer>
+  <footer class="about-end"><div class="about-wrap"><strong>Listening</strong><span>MIT licensed</span><a href="https://github.com/Warkanlock/listening-public">Source on GitHub</a><a href="%BASE_URL%">Open the app <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg></a></div></footer>
   <script type="module" src="/src/about/main.tsx"></script>
 </body>
 </html>

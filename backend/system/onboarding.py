@@ -42,7 +42,7 @@ def _ask(prompt, default):
 
 
 def _walk(args, configured_room, config):
-    print("Listening Room setup\n")
+    print("Listening setup\n")
     print("The server keeps your music and plays it on your devices.")
     print("  host   Create a room or resume setup")
     print("  join   Open an invitation to an existing room")
@@ -254,7 +254,7 @@ def run(args, *, root, selected_config, select_room, install_command, build, sta
             if target == "ios" and not os.environ.get("LISTENING_APPLE_TEAM", "").strip():
                 continue
             if target == "apk":
-                print("Install Listening Room, then pair with an invitation or open Device files to play saved music.")
+                print("Install Listening, then pair with an invitation or open Device files to play saved music.")
                 continue
             print("Install the client, open Connect to a room, and paste the link from listening invite on the server.")
     return 0

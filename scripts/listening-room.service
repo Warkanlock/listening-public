@@ -1,5 +1,5 @@
 [Unit]
-Description=Listening Room music server
+Description=Listening music server
 After=network.target
 
 [Service]

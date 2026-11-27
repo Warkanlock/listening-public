@@ -1,6 +1,6 @@
 # Share a playlist on the Fediverse
 
-People can follow your Mastodon account for playlist updates, open a public track list, and import its XSPF into their own room. Your Listening Room stays on its private network. Use any static HTTPS host you control for the two playlist files.
+People can follow your Mastodon account for playlist updates, open a public track list, and import its XSPF into their own room. Your server stays on its private network. Use any static HTTPS host you control for the two playlist files.
 
 ## Publish a playlist page
 
@@ -32,4 +32,4 @@ The default visibility is `unlisted`. Use `--visibility public` to make the post
 
 If publication times out, look at your account before retrying. Identical posts for an unchanged playlist reuse Mastodon’s idempotency key. How long Mastodon retains that key depends on the instance implementation.
 
-The Mastodon instance handles follow requests and federation. Incoming traffic never needs to reach your Listening Room. The public page can be hosted elsewhere while all room access stays on your LAN or tailnet. [Mastodon posting API](https://docs.joinmastodon.org/methods/statuses/#create)
+The Mastodon instance handles follow requests and federation. Incoming traffic never needs to reach your server. The public page can be hosted elsewhere while all room access stays on your LAN or tailnet. [Mastodon posting API](https://docs.joinmastodon.org/methods/statuses/#create)

@@ -1,6 +1,6 @@
 # Music storage, playback, and offline listening
 
-Listening Room keeps your collection on the home server. Paired players can listen from the same queue. For a trip, save playlists to an offline Android player, sync the Android app, or take exported audio files with you.
+Listening keeps your collection on the home server. Paired players can listen from the same queue. For a trip, save playlists to an offline Android player, sync the Android app, or take exported audio files with you.
 
 ## Where the music lives
 
@@ -50,11 +50,11 @@ Pair each browser or app once with a private room invitation. Get it from **Sett
 
 | Device | Player |
 | --- | --- |
-| Mac | Browser or the Listening Room macOS app |
-| iPhone | Safari or the optional Listening Room app |
-| iPad | Safari or the optional Listening Room app |
+| Mac | Browser or the Listening macOS app |
+| iPhone | Safari or the optional Listening app |
+| iPad | Safari or the optional Listening app |
 | Windows or Linux | Browser on the private network |
-| Android | Listening Room for streaming, offline library sync, and **Device files** on internal or removable storage |
+| Android | Listening for streaming, offline library sync, and **Device files** on internal or removable storage |
 
 If the browser prompts you to **Join audio**, tap it on that device. [Private pairing](../adrs/0011-paired-private-network-access.md)
 

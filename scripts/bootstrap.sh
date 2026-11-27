@@ -1,5 +1,5 @@
 #!/bin/sh
-# Listening Room: bootstrap install (plan 044), the fallback route
+# Listening: bootstrap install (plan 044), the fallback route
 # for a Mac or Linux box without Homebrew.
 #
 # Run this script with Git access to the repository. It builds a private
@@ -41,10 +41,10 @@ case "$REPO_URL" in -*) fail "Supply a Git URL, not a command option." ;; esac
 OS=$(uname -s)
 case "$OS" in
   Darwin|Linux) ;;
-  *) fail "bootstrap.sh covers macOS and Linux. On this platform, install Listening Room through the Docker route instead: docker compose up -d, from the docker-compose.yml in the $RELEASE_BRANCH release." ;;
+  *) fail "bootstrap.sh covers macOS and Linux. On this platform, install Listening through the Docker route instead: docker compose up -d, from the docker-compose.yml in the $RELEASE_BRANCH release." ;;
 esac
 
-say "Listening Room bootstrap: install $RELEASE_BRANCH into $DEST."
+say "Listening bootstrap: install $RELEASE_BRANCH into $DEST."
 [ "$DRY" = 1 ] && say "(dry run: printing the plan, changing nothing)"
 
 # 1. Python 3.9 or newer: every route needs it, and nothing here
@@ -130,7 +130,7 @@ fi
 if [ "$DRY" = 1 ]; then
   say "Dry run complete: nothing was changed."
 else
-  say "Listening Room $RELEASE_BRANCH is installed at $DEST."
+  say "Listening $RELEASE_BRANCH is installed at $DEST."
 fi
 say "Set the owner with listening account set-owner OWNER."
 say "Run LISTENING_ROOM_REQUIRE_OWNER=1 listening server start --host 127.0.0.1 and open http://127.0.0.1:8765."

@@ -92,7 +92,7 @@ export function Updates({ settings }: { settings: SettingsData }) {
           Rebuild the web player with <code>listening setup --client web --non-interactive</code> on the server, then reload this page.
         </p>
       ) : null}
-      {installKind === "app" && <p>Replace Listening Room.app on the server with the app from the new DMG.</p>}
+      {installKind === "app" && <p>Quit Listening, then install the app from the new DMG.</p>}
       {installKind === "brew" && <p>On the server, run <code>brew upgrade listening-room</code>.</p>}
       {installKind === "docker" && !managed && (
         <p>For a source-built room, enable the Compose host updater to install updates here. For a registry image, run <code>docker compose pull</code> followed by <code>docker compose up -d</code>.</p>

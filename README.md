@@ -1,15 +1,15 @@
 <div align="center">
   <img src="frontend/react/public/assets/icons/favicon.svg" alt="" width="96" height="96">
-  <h1>Listening Room</h1>
+  <h1>Listening</h1>
   <p><strong>Stream the records you own.</strong></p>
-  <p>Listening Room is an open-source, self-hosted music player. Run it on your Mac or Linux server, import the music you own, and listen on your other devices.</p>
+  <p>Listening is an open-source, self-hosted music player. Run it on your Mac or Linux server, import the music you own, and listen on your other devices.</p>
   <p>
-    <a href="https://listening-room-tour.vercel.app/">Website</a> ·
+    <a href="https://listening-music.vercel.app/">Website</a> ·
     <a href="#your-first-run">Get started</a> ·
-    <a href="https://github.com/Warkanlock/listening-public/releases/tag/v1.0.0">Get Listening Room 1.0.0</a> ·
+    <a href="https://github.com/Warkanlock/listening-public/releases/tag/v1.0.0">Get Listening 1.0.0</a> ·
     <a href="#documentation">Docs</a>
   </p>
-  <a href="frontend/react/public/assets/about-showcase/room/library.webp"><img src="frontend/react/public/assets/about-showcase/room/library.webp" alt="Listening Room library and playback queue with a demo collection" width="840"></a>
+  <a href="frontend/react/public/assets/about-showcase/room/library.webp"><img src="frontend/react/public/assets/about-showcase/room/library.webp" alt="Listening library and playback queue with a demo collection" width="840"></a>
 </div>
 
 ## What you can do
@@ -46,12 +46,12 @@ With Docker running, pull the published image and start a room.
 
 ```sh
 docker pull ghcr.io/warkanlock/listening-public:1.0.0
-docker run -d --name listening-room --restart unless-stopped \
+docker run -d --name listening --restart unless-stopped \
   -p 127.0.0.1:8765:8765 \
   -e LISTENING_ROOM_REQUIRE_OWNER=1 \
   -v listening-config:/config -v listening-library:/library \
   ghcr.io/warkanlock/listening-public:1.0.0
-docker exec -it listening-room /app/listening account set-owner owner
+docker exec -it listening /app/listening account set-owner owner
 ```
 
 Enter a password when prompted. On the Docker host, open [http://127.0.0.1:8765](http://127.0.0.1:8765) and sign in as `owner`. The two Docker volumes keep your settings and library when you replace the container.
@@ -63,9 +63,9 @@ Enter a password when prompted. On the Docker host, open [http://127.0.0.1:8765]
 <details>
 <summary><strong>Mac</strong></summary>
 
-1. Download the Mac DMG, drag Listening Room to Applications, and open it. The Mac app runs on Apple silicon with macOS 13 or later.
+1. Download the Mac DMG, drag the app to Applications, and open it. The Mac app runs on Apple silicon with macOS 13 or later.
 2. To join a room, enter its address or paste your invitation.
-3. To host a new room, choose **Listening Room → Install terminal command**. Open Terminal, run `~/.local/bin/listening setup`, and choose a music folder.
+3. To host a new room, choose **Install terminal command** from the app menu. Open Terminal, run `~/.local/bin/listening setup`, and choose a music folder.
 
 [Download for Mac](https://github.com/Warkanlock/listening-public/releases/download/macos-v1.0.0/listening-room-macos-1.0.0.dmg) · [Mac setup guide](clients/macos/README.md)
 

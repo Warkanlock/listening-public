@@ -728,7 +728,7 @@ export function useSessionEngine(
 
   useEffect(() => {
     const track = store.session?.current;
-    document.title = track ? `${track.title} — Listening Room` : "Listening Room";
+    document.title = track ? `${track.title} — Listening` : "Listening";
   }, [store.session?.current]);
 
   useEffect(() => {

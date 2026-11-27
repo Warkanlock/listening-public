@@ -14,7 +14,7 @@
     "typescript": "^5.9.0",
     "vite": "^7.0.0"
   },
-  "name": "listening-room-frontend",
+  "name": "listening-frontend",
   "private": true,
   "scripts": {
     "build": "node tools/check-classes.mjs && tsc --noEmit && vite build && node tools/gen-sw.mjs",

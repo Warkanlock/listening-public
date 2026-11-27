@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import WebKit
 
 /// The web app exchanges the incoming pairing token for an HttpOnly cookie.
@@ -25,7 +26,7 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         for (name, action, key) in [
             ("Connect to a room…", #selector(connectScreen), "l"),
             ("Install terminal command…", #selector(installCommand), ""),
-            ("Quit Listening Room", #selector(NSApplication.terminate(_:)), "q")
+            ("Quit Listening", #selector(NSApplication.terminate(_:)), "q")
         ] {
             let item = actions.addItem(withTitle: name, action: action, keyEquivalent: key)
             item.target = action == #selector(NSApplication.terminate(_:)) ? NSApp : self
@@ -42,7 +43,7 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 320),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
-        window.title = "Listening Room"
+        window.title = "Listening"
         window.contentMinSize = NSSize(width: 400, height: 280)
         window.isReleasedWhenClosed = false
         window.center()
@@ -71,7 +72,7 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         room = nil
         pairingServer = server
         retryRoom = retry
-        window.title = "Listening Room"
+        window.title = "Listening"
         message.stringValue = problem
         connectButton.title = server != nil ? "Pair device" : retry != nil ? "Retry" : "Connect"
         message.textColor = .systemRed
@@ -88,7 +89,7 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         heading.font = .systemFont(ofSize: 27, weight: .semibold)
         let hint = NSTextField(wrappingLabelWithString: server.map {
             "Paste a pairing link for \($0.origin.absoluteString) from Settings → Devices."
-        } ?? "Enter the URL you use to reach Listening Room on Wi-Fi or Tailscale. You can also paste a pairing link.")
+        } ?? "Enter the URL you use to reach Listening on Wi-Fi or Tailscale. You can also paste a pairing link.")
         hint.textColor = .secondaryLabelColor
         let fieldLabel = NSTextField(labelWithString: label)
         fieldLabel.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
@@ -143,7 +144,7 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     }
 
     private func openRoom(_ location: RoomAddress) {
-        window.title = "Connecting to Listening Room…"
+        window.title = "Connecting to Listening…"
         room = location
         retryRoom = location
         pairingServer = nil
@@ -215,7 +216,7 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
                  withError error: Error) { failed(error) }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        window.title = "Listening Room"
+        window.title = "Listening"
         if !openedPlayer {
             window.setContentSize(NSSize(width: 1040, height: 720))
             window.center()
@@ -227,6 +228,32 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         }
     }
 
+    private func installLink(_ link: URL, to executable: URL, using fm: FileManager) throws {
+        guard let target = try? fm.destinationOfSymbolicLink(atPath: link.path) else {
+            try fm.createSymbolicLink(at: link, withDestinationURL: executable)
+            return
+        }
+
+        let directory = link.deletingLastPathComponent()
+        let existing = URL(fileURLWithPath: target, relativeTo: directory).standardizedFileURL
+        if existing == executable.standardizedFileURL { return }
+
+        let previousBundle = existing.deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        guard let identifier = Bundle.main.bundleIdentifier,
+              Bundle(url: previousBundle)?.bundleIdentifier == identifier,
+              previousBundle.appendingPathComponent("Contents/Resources/bin/listening") == existing else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+
+        let replacement = directory.appendingPathComponent(UUID().uuidString)
+        try fm.createSymbolicLink(at: replacement, withDestinationURL: executable)
+        defer { try? fm.removeItem(at: replacement) }
+        guard rename(replacement.path, link.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
     @objc private func installCommand() {
         let alert = NSAlert()
         do {
@@ -234,16 +261,14 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             let app = Bundle.main.bundleURL
             let volume = try app.resourceValues(forKeys: [.volumeIsReadOnlyKey])
             guard volume.volumeIsReadOnly == false, !app.path.contains("/AppTranslocation/") else {
-                throw NSError(domain: "ListeningRoom", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                    "Drag Listening Room.app to Applications and open it there before installing the command."])
+                throw NSError(domain: "Listening", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                    "Drag Listening.app to Applications and open it there before installing the command."])
             }
             let executable = app.appendingPathComponent("Contents/Resources/bin/listening")
             let directory = fm.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin")
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
             let link = directory.appendingPathComponent("listening")
-            if (try? fm.destinationOfSymbolicLink(atPath: link.path)) != executable.path {
-                try fm.createSymbolicLink(at: link, withDestinationURL: executable)
-            }
+            try installLink(link, to: executable, using: fm)
             alert.messageText = "Terminal command installed"
             alert.informativeText = "Run listening --help. If your shell cannot find it, add ~/.local/bin to your PATH."
         } catch {

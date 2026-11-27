@@ -3,7 +3,7 @@ import SwiftUI
 import WebKit
 
 private let savedRoom = "roomOrigin"
-private let switchRoom = Notification.Name("SwitchListeningRoom")
+private let switchRoom = Notification.Name("SwitchListening")
 
 final class RoomScene: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -74,7 +74,7 @@ private struct RoomScreen: View {
                                 .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                                 .textFieldStyle(.roundedBorder).submitLabel(.go).onSubmit(connect)
                         } else {
-                            Text("Enter the URL you use to reach Listening Room on Wi-Fi or Tailscale. You can also paste a pairing link.")
+                            Text("Enter the URL you use to reach Listening on Wi-Fi or Tailscale. You can also paste a pairing link.")
                             Text("Server URL").font(.headline)
                             TextField("http://your-server:8765", text: $address)
                                 .accessibilityLabel("Server URL")

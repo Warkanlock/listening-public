@@ -1,4 +1,4 @@
-# Set up a Listening room
+# Set up Listening
 
 These screens come from a clean Listening 1.5.0 installation with a demo track. If you already have a room, review [backup and recovery](private-install.md#update-and-recover). For source-built Compose rooms, follow the [Compose update guide](private-install.md#update-a-source-built-compose-room-from-the-browser). Rooms with a download engine can follow the [engine upgrade guide](download-engines.md#upgrade-a-room-with-an-existing-engine).
 
@@ -25,8 +25,8 @@ Open **Library** and select **Owned music**. Play a track and listen for a few s
 
 | Device | How to connect |
 | --- | --- |
-| Mac | On an Apple silicon Mac with macOS 13 or later, open the DMG and drag Listening Room into Applications. Open the app, then enter the room address or paste the full invitation. |
-| Android | Install the APK and open Listening Room. Paste the full invitation into the app, or enter the room address and follow the pairing prompt. |
+| Mac | On an Apple silicon Mac with macOS 13 or later, open the DMG and drag Listening into Applications. Open the app, then enter the room address or paste the full invitation. |
+| Android | Install the APK and open Listening. Paste the full invitation into the app, or enter the room address and follow the pairing prompt. |
 | iPhone or iPad | Open the address or invitation in Safari. Use **Share → Add to Home Screen** to open Listening from its own icon. Use the room’s trusted HTTPS address for offline Camping playback. |
 | Other computers | Open the address or invitation in a browser on the room’s private network. |
 

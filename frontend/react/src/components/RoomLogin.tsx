@@ -85,11 +85,11 @@ export function RoomLogin({ children, onUnavailable }: {
 
   return <main className="room-login">
     <section className="room-login-panel">
-      <div className="brand" aria-label="Listening Room">
+      <div className="brand" aria-label="Listening">
         <span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span>
         <span>listening<span className="brand-dot">.</span></span>
       </div>
-      <h1>{access.setupRequired ? "Set up the room owner" : "Sign in to Listening Room"}</h1>
+      <h1>{access.setupRequired ? "Set up the room owner" : "Sign in to Listening"}</h1>
       {access.setupRequired ? <>
         <p>On the server, set an owner name and password, then return here.</p>
         <code>listening account set-owner OWNER</code>
@@ -103,7 +103,7 @@ export function RoomLogin({ children, onUnavailable }: {
         </form>
         <p>Have an invitation from the room owner? <a href="/?pair=1">Pair this device</a>.</p>
       </>}
-      <p><a href={`${import.meta.env.BASE_URL}about/`}>About Listening Room</a></p>
+      <p><a href={`${import.meta.env.BASE_URL}about/`}>About Listening</a></p>
     </section>
   </main>;
 }
