@@ -18,7 +18,8 @@ import android.widget.*
 internal data class Entry(val title: String, val subtitle: String = "", val detail: String = "",
                           val info: (() -> Unit)? = null, val mark: Mark? = null,
                           val openArtist: (() -> Unit)? = null, val album: String = "",
-                          val openAlbum: (() -> Unit)? = null, val open: (() -> Unit)? = null)
+                          val openAlbum: (() -> Unit)? = null, val destination: Boolean = false,
+                          val open: (() -> Unit)? = null)
 
 /** Native controls for room and offline players. */
 internal class RoomUi(private val context: Context) {
@@ -369,7 +370,7 @@ internal class RoomUi(private val context: Context) {
             subtitle.setCompoundDrawablesRelative(item.mark?.let { mark(it, 16, accent) }, null, null, null)
             subtitle.compoundDrawablePadding = dp(4)
             subtitle.visibility = if (item.subtitle.isEmpty()) View.GONE else View.VISIBLE
-            arrow.visibility = if (item.subtitle.isEmpty() && item.detail.isEmpty()) View.VISIBLE else View.GONE
+            arrow.visibility = if (item.destination) View.VISIBLE else View.GONE
             detail.text = item.detail
             detail.visibility = if (item.detail.isEmpty()) View.GONE else View.VISIBLE
         }
