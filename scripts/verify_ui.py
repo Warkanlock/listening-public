@@ -1770,21 +1770,56 @@ def verify_tablet(browser, server, output):
     # Use touch input as well as a tablet viewport. A Mac window of the same
     # width deliberately keeps the desktop sidebar and full transport.
     with browser.new_context(has_touch=True, is_mobile=True,
-                             viewport={"width": 1194, "height": 834}) as context:
+                             viewport={"width": 1280, "height": 744}) as context:
+        # Keep the artwork and overview fixtures on the network path, including in WebKit.
+        context.add_init_script("Object.defineProperty(navigator, 'serviceWorker', { value: undefined })")
         tablet = context.new_page()
+        cover_url = "https://artwork.fixture.test/playlist.webp"
+        title = "Evening listening · Library Radio"
+
+        def playlist_cover(route):
+            response = route.fetch()
+            overview = response.json()
+            evening = next(item for item in overview["playlists"] if item["name"].casefold() == "evening")
+            evening.update(name=title, cover=cover_url)
+            route.fulfill(response=response, json=overview)
+
+        context.route(re.compile(r"/api/overview(?:\?|$)"), playlist_cover)
+        context.route(cover_url, lambda route: route.fulfill(
+            path=str(REPO_ROOT / "frontend/react/src/about/first-light.webp")))
         tablet.goto(server.base)
-        tablet.locator(".playlist-card").filter(has_text="Evening").tap()
-        tablet.get_by_role("heading", name="evening", exact=True).wait_for()
+        tablet.locator(".playlist-card").filter(has_text=title).tap()
+        heading = tablet.get_by_role("heading", name=title, exact=True)
+        heading.wait_for()
+        hero = tablet.locator(".collection-hero[data-playlist]")
+        cover = hero.locator(".playlist-banner-art")
+        backdrop = hero.locator(".playlist-banner-backdrop")
         tablet.locator(".track-row").first.wait_for()
-        for name, width, height in (("landscape", 1194, 834), ("portrait", 834, 1194)):
+        queue = tablet.get_by_role("complementary", name="Playback queue", exact=True)
+        for name, width, height in (("wide", 1280, 744), ("landscape", 1194, 834), ("portrait", 834, 1194)):
             tablet.set_viewport_size({"width": width, "height": height})
+            assert queue.count() == 0, "The queue covers the tablet when it opens by default"
+            search = tablet.locator(".topbar .search-wrap").bounding_box()
+            tools = tablet.locator(".topbar-actions").bounding_box()
+            assert search["x"] + search["width"] <= tools["x"] + 1, name
+            assert abs(search["y"] + (search["height"] - tools["height"]) / 2 - tools["y"]) <= 1, name
+            assert tools["height"] <= 44, f"{name} toolbar actions wrap"
             nav = tablet.locator(".sidebar").bounding_box()
             player = tablet.locator(".player").bounding_box()
             if not (nav["y"] > height * 0.8 and abs(nav["y"] - player["y"]) < 2
                     and nav["x"] + nav["width"] <= player["x"] + 1
                     and player["x"] + player["width"] <= width + 1):
                 raise AssertionError(f"{name} dock is clipped or overlaps: {nav}, {player}")
-            tablet.locator(".playlist-banner-art").wait_for(state="visible")
+            bounds, art, copy, background = (item.bounding_box() for item in (hero, cover, heading, backdrop))
+            assert art["x"] > bounds["x"] + 20 and abs(art["width"] - art["height"]) <= 1, name
+            assert copy["x"] >= art["x"] + art["width"] + 12, name
+            assert all(abs(bounds[key] - background[key]) <= 1 for key in ("x", "y", "width", "height")), name
+            for image in (cover.locator("img"), backdrop.locator("img")):
+                image.evaluate("img => img.decode()")
+                assert image.get_attribute("src") == cover_url
+            assert backdrop.locator("img").evaluate("img => getComputedStyle(img).filter.includes('blur')")
+            actions = hero.get_by_role("button", name="Play playlist", exact=True).bounding_box()
+            assert actions["y"] >= max(art["y"] + art["height"], copy["y"] + copy["height"]), name
             if tablet.evaluate("document.querySelector('main').scrollWidth > document.querySelector('main').clientWidth"):
                 raise AssertionError(f"{name} playlist overflows horizontally")
             tablet.screenshot(path=str(output / f"18-tablet-{name}.png"))
@@ -1805,6 +1840,13 @@ def verify_tablet(browser, server, output):
         tablet.get_by_role("button", name="Menu").tap()
         tablet.get_by_role("button", name="Settings", exact=True).tap()
         tablet.get_by_role("heading", name="Settings", exact=True).wait_for()
+        tablet.get_by_role("button", name="Library", exact=True).tap()
+        tablet.locator(".playlist-card").filter(has_text=re.compile("morning", re.I)).tap()
+        portrait = tablet.locator(".playlist-banner-backdrop > svg")
+        portrait.wait_for(state="visible")
+        assert portrait.evaluate("art => getComputedStyle(art).filter.includes('blur')")
+        tablet.locator(".track-row").first.wait_for()
+        tablet.screenshot(path=str(output / "18-tablet-portrait-fallback.png"))
 
 
 def verify_lan_pair_again(browser):
@@ -4118,7 +4160,7 @@ def run_browser(server, output):
             try:
                 verify_tablet(browser, server, output)
                 item.ok = True
-                item.detail = "touch playlist, dock, queue, missing-song YouTube fallback and menu in both orientations"
+                item.detail = "aligned cover and blurred artwork with a portrait fallback, dock, queue and touch navigation"
             except Exception as error:
                 item.detail = repr(error)
 

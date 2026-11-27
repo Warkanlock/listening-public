@@ -1549,7 +1549,17 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 }
 
 .nav-core, .nav-overflow { display: contents; }
-.playlist-banner-art, .tablet-player-toggle, .tablet-progress { display: none; }
+.playlist-banner-art, .playlist-banner-backdrop, .tablet-player-toggle, .tablet-progress { display: none; }
+@media (min-width: 901px), (min-width: 651px) and (any-pointer: coarse) {
+  .collection-hero[data-playlist] { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-7); justify-content: start; }
+  .collection-hero[data-playlist] .playlist-banner-art {
+    display: grid; place-items: center; width: clamp(110px, 11vw, 156px); aspect-ratio: 1; background: var(--art-bg);
+    border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden;
+  }
+  .playlist-banner-art img { width: 100%; height: 100%; object-fit: cover; }
+  .playlist-banner-art .fallback { font-size: var(--font-hero); font-weight: var(--weight-bold); color: var(--accent-ink); }
+  .collection-hero[data-playlist] .hero-actions { grid-column: 1/-1; }
+}
 
 /* A touch tablet has enough width to keep browsing and transport side by side.
    Both halves of the dock use the same controls as the desktop player. */
@@ -1564,6 +1574,8 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
   .main-area { grid-column: 1 / -1; }
   .view, .topbar { max-width: 1280px; margin-inline: auto; }
   .topbar { padding-inline: var(--view-pad-x); }
+  .topbar .search-wrap { flex: 1 1 12rem; min-width: 0; max-width: 520px; }
+  .topbar .topbar-actions { flex: none; flex-wrap: nowrap; }
   .search-wrap kbd, .shortcuts-button { display: none; }
   .sidebar {
     grid-area: 2 / 1;
@@ -1637,25 +1649,24 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
   .player[data-expanded="true"] .player-buttons { flex-wrap: wrap; }
   .collection-view:has(.collection-hero[data-playlist]) { padding-top: 0; }
   .collection-hero[data-playlist] {
-    position: relative; isolation: isolate; overflow: hidden; align-content: end;
-    align-items: end; min-height: clamp(220px, 32vh, 380px);
-    margin-inline: calc(-1 * var(--view-pad-x)); padding: var(--space-12) var(--view-pad-x);
+    position: relative; isolation: isolate; overflow: hidden; align-content: center;
+    gap: var(--space-7) var(--space-10); min-height: clamp(208px, 26dvh, 272px);
+    margin-inline: calc(-1 * var(--view-pad-x)); padding: var(--space-10) var(--view-pad-x);
     border: 0; background: var(--stage-deep); color: var(--stage-text);
   }
-  .playlist-banner-art { position: absolute; display: block; inset: 0; z-index: -1; overflow: hidden; }
-  .playlist-banner-art img { width: 100%; height: 100%; object-fit: cover; object-position: center 40%; }
-  .playlist-banner-art .fallback {
-    background: repeating-radial-gradient(circle at 87% 122%, transparent 0 16px, var(--stage-chip) 17px 19px),
-      linear-gradient(115deg, var(--stage-deep), var(--art-fg));
+  .playlist-banner-backdrop { position: absolute; display: block; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  .playlist-banner-backdrop > :is(img, svg) {
+    display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 40%;
+    filter: blur(22px) brightness(.72) saturate(1.18); transform: scale(1.16);
   }
-  .playlist-banner-art::after {
+  .playlist-banner-backdrop > svg { position: absolute; inset-block-start: 50%; height: auto; transform: translateY(-50%) scale(1.16); }
+  .playlist-banner-backdrop::after {
     content: ""; position: absolute; inset: 0;
-    background: linear-gradient(0deg, var(--stage-deep), transparent 92%),
-      linear-gradient(100deg, var(--stage-tint), transparent);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--stage-deep) 82%, transparent),
+      color-mix(in srgb, var(--stage-deep) 56%, transparent)),
+      linear-gradient(0deg, color-mix(in srgb, var(--stage-deep) 62%, transparent), transparent 75%);
   }
   .collection-hero[data-playlist] :is(h1, .hero-meta, .library-back) { color: var(--stage-text); }
-  .collection-hero[data-playlist] h1 { font-size: clamp(48px, 6vw, 80px); overflow-wrap: anywhere; }
-  .collection-hero[data-playlist] .hero-copy { align-self: end; }
   .collection-hero[data-playlist] .library-back { min-height: 44px; }
   .collection-hero[data-playlist] .hero-actions { position: relative; gap: var(--space-4); }
   .collection-hero[data-playlist] .primary-action { background: var(--stage-text); color: var(--stage-deep); }
@@ -2957,16 +2968,6 @@ a.room-action.connections-source, .connections-state button, .song-fallback-link
 .discovery-manager-body { max-width: 48rem; padding: var(--space-7); margin-block-start: var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-tint); }
 .discovery-source-form { gap: var(--space-6); }
 .discovery-source-list { margin-top: var(--space-6); }
-@media (min-width: 901px) {
-  .collection-hero[data-playlist] { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-7); justify-content: start; }
-  .collection-hero[data-playlist] .playlist-banner-art {
-    display: grid; place-items: center; width: clamp(110px, 11vw, 156px); aspect-ratio: 1; background: var(--art-bg);
-    border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden;
-  }
-  .playlist-banner-art img { width: 100%; height: 100%; object-fit: cover; }
-  .playlist-banner-art .fallback { background: var(--art-bg); font-size: var(--font-hero); font-weight: var(--weight-bold); color: var(--accent-ink); }
-  .collection-hero[data-playlist] .hero-actions { grid-column: 1/-1; }
-}
 @media (max-width: 650px) {
   .catalog-directory ul { grid-template-columns: minmax(0,1fr); }
   .discovery-scope { flex-wrap: nowrap; max-width: 100%; }
