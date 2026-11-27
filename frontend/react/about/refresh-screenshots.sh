@@ -8,14 +8,13 @@ destination=frontend/react/public/assets/about-showcase/room
 staging=$(mktemp -d)
 trap 'rm -rf "$staging"' EXIT
 
-# Credits and Song information use curated detail crops. To update them,
-# capture the graph and recording details from a local fixture library, then
-# update their intrinsic image dimensions in about/index.html.
 # Refresh Storage separately using example paths in both the fields and help text.
 # An unmodified fixture capture shows the host's temporary workspace paths.
 while read -r filename name; do
     case "$name" in
         library|catalogs|radio) set -- -lossless ;;
+        copy-review) set -- -q 88 -crop 272 170 896 560 ;;
+        credits|song) set -- -q 88 -crop 160 100 1120 700 ;;
         *) set -- -q 87 ;;
     esac
     cwebp -quiet "$@" "$source/$filename.png" -o "$staging/$name.webp"
@@ -24,6 +23,8 @@ done <<'SCREENS'
 23-now-playing-phone player
 01f-mood-map mood-map
 12-deep-dive deep-dive
+31-artist-connections-desktop credits
+32-song-details-desktop song
 14-lyrics-stage lyrics
 16-radio radio
 21-discovery-mobile catalogs

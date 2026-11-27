@@ -135,7 +135,7 @@ export function ExtensionUpdateReview({ engine, supported, close, onUpdated }: {
           After updating, enter {preview.missing_settings.join(", ")}, check setup, and enable the extension.
         </p>}
       </>}
-      <footer className="format-dialog-footer">
+      <footer className="dialog-actions">
         <RoomAction onClick={close} disabled={saving}>Close</RoomAction>
         {supported && review.kind === "error" && <RoomAction onClick={reload}>Check again</RoomAction>}
         {preview && <RoomAction primary disabled={saving || preview.requires_disable || preview.incompatible_sources}

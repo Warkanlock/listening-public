@@ -695,14 +695,15 @@ def verify_landing(browser, base, output, errors, warnings):
             assert hero_library.evaluate("image => image.naturalWidth > 0")
             assert not re.search(r"\b(?:YouTube|SomaFM)\b", page.locator("body").inner_text(), re.I)
             release = page.get_by_role("region", name="New in Listening Room")
-            release_notes = release.get_by_role("link", name="2.0.6 release notes", exact=True)
-            assert release_notes.get_attribute("href").endswith("/releases/tag/v2.0.6")
+            release_notes = release.get_by_role("link", name="2.0.7 release notes", exact=True)
+            assert release_notes.get_attribute("href").endswith("/releases/tag/v2.0.7")
             release_images = release.get_by_role("img").all()
             assert len(release_images) == 2
             for picture in release_images:
                 picture.scroll_into_view_if_needed()
                 picture.evaluate("image => image.decode()")
-                assert picture.evaluate("image => image.naturalWidth === 1440 && image.naturalHeight === 900")
+                assert picture.evaluate("""image => image.naturalWidth === Number(image.getAttribute('width'))
+                    && image.naturalHeight === Number(image.getAttribute('height'))""")
             screens = page.get_by_role("region", name="Inside Listening.")
             first_screen = screens.get_by_role("img", name="Library Radio in Listening")
             assert first_screen.bounding_box()["width"] <= (390 if page == mobile else 560)
@@ -3743,7 +3744,19 @@ def run_browser(server, output):
                 stopped_search = page.locator(".request-item", has_text="Search to stop")
                 stopped_search.get_by_role("button", name="Review copies", exact=True).click()
                 stop_picker = page.get_by_role("dialog", name="Choose a copy")
-                stop_picker.get_by_role("button", name="Stop searching", exact=True).wait_for()
+                search_again = stop_picker.get_by_role("button", name="Search again", exact=True)
+                wait_for("copy search to finish", search_again.is_enabled, timeout=15)
+                actions = [stop_picker.get_by_role("button", name=label, exact=True) for label in
+                           ("Other recordings", "Change format", "Search again", "Stop searching")]
+                for width, columns in ((320, 2), (390, 2), (1440, 4)):
+                    page.set_viewport_size({"width": width, "height": 900})
+                    bounds = [action.bounding_box() for action in actions]
+                    assert len({round(box["x"]) for box in bounds}) == columns, "Copy actions must align in columns"
+                    assert len({round(box["y"]) for box in bounds}) == len(actions) // columns
+                    assert max(box["width"] for box in bounds) - min(box["width"] for box in bounds) <= 1
+                    assert all(box["height"] >= 44 and box["x"] + box["width"] <= width for box in bounds)
+                    if width == 390:
+                        page.screenshot(path=str(output / "13-copy-review-phone.png"), animations="disabled")
                 page.screenshot(path=str(output / "13-copy-review.png"), animations="disabled")
                 with page.expect_response(lambda response: response.url.endswith("/api/requests/stop-search")
                                           and response.ok) as stopped:
