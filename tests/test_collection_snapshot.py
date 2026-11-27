@@ -287,6 +287,16 @@ class CollectionRestoreTests(unittest.TestCase):
             self.assertEqual(json.loads(db.execute("SELECT playlist_names FROM collection_info").fetchone()[0]),
                              {"mix": "My fixture"})
 
+    def test_restore_rejects_a_mistyped_playable_reference_even_when_the_audio_exists(self):
+        create_snapshot(self.config, self.backup)
+        with closing(sqlite3.connect(self.backup)) as db, db:
+            db.execute("UPDATE requests SET audio_path='file:' || substr(audio_path, 6) WHERE id=?",
+                       (self.request,))
+        restored = self.base / "broken-reference"
+        with self.assertRaisesRegex(ValueError, "unresolved playable track"):
+            restore_snapshot(self.backup, restored)
+        self.assertFalse(restored.exists())
+
     def test_refuses_low_space_and_busy_room_without_creating_destination(self):
         with collection_access(self.config.parent):
             with self.assertRaisesRegex(RuntimeError, "busy"):
