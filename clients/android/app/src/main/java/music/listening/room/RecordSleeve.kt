@@ -19,12 +19,11 @@ import android.widget.LinearLayout
 import org.json.JSONObject
 
 /** Cover artwork and track details shared by room and device-file playback. */
-internal class RecordSleeve(context: Context, private val ui: RoomUi,
-                            favoriteAction: View? = null) : FrameLayout(context) {
+internal class RecordSleeve(context: Context, private val ui: RoomUi) : FrameLayout(context) {
     private var picture: Bitmap? = null
     private var viewer: Dialog? = null
     private val monochrome = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
-    private val fallback = ui.mark(Mark.ALBUM, if (ui.eInk) 54 else 96)
+    private val fallback = ui.mark(Mark.ALBUM, if (ui.eInk) 64 else 90)
     private val art = ImageView(context).apply {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         scaleType = ImageView.ScaleType.CENTER
@@ -42,7 +41,7 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi,
         background = ui.surface(if (ui.eInk) ui.paper else ui.fog)
         clipToOutline = true
         addView(art, LayoutParams(-1, -1))
-        val badgeSize = ui.dp(if (ui.eInk) 24 else 30)
+        val badgeSize = ui.dp(if (ui.eInk) 22 else 26)
         addView(expand, LayoutParams(badgeSize, badgeSize, Gravity.TOP or Gravity.END).apply {
             topMargin = ui.dp(6)
             marginEnd = ui.dp(6)
@@ -51,54 +50,44 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi,
         isClickable = false
         isFocusable = false
     }
-    private val title = ui.heading("", if (ui.eInk) 25f else 29f).apply {
+    private val title = ui.heading("", 26f).apply {
+        gravity = Gravity.CENTER
         maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
     }
-    private val artist = ui.label("", if (ui.eInk) 16f else 17f).apply {
-        maxLines = 1
-        ellipsize = TextUtils.TruncateAt.END
-    }
-    private val album = ui.label("", 13f, ui.secondary).apply {
-        maxLines = 1
+    private val artist = ui.label("", 17f, ui.secondary).apply {
+        gravity = Gravity.CENTER
+        maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
     }
     private val artwork = resources.displayMetrics.let { metrics ->
         SleeveArtwork(minOf(metrics.widthPixels, metrics.heightPixels), ::display)
     }
-    private val preferredSize = resources.configuration.let {
-        ui.dp(minOf(216, it.screenHeightDp * 36 / 100, it.screenWidthDp - 72).coerceAtLeast(100))
+    private val preferredSize = resources.configuration.let { size ->
+        val limit = when {
+            ui.compactPlayerLandscape -> 104
+            ui.eInk -> 168
+            else -> 240
+        }
+        ui.dp(minOf(limit, size.screenHeightDp * 37 / 100, size.screenWidthDp - 70).coerceAtLeast(80))
     }
 
     init {
-        val metadata = ui.column(1).apply {
-            addView(title)
-            addView(artist)
-            addView(album)
-        }
-        val caption = if (favoriteAction == null) metadata else ui.row(8).apply {
-            addView(metadata, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(favoriteAction, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-        }
-        val sleeve = if (ui.eInk) {
-            ui.row(14).apply {
-                val size = ui.dp(104)
-                addView(cover, LinearLayout.LayoutParams(size, size))
-                addView(caption, LinearLayout.LayoutParams(0, -2, 1f))
-            }
-        } else {
-            ui.column(10).apply {
-                addView(cover, LinearLayout.LayoutParams(preferredSize, preferredSize).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                })
-                addView(caption)
-            }
+        val sleeve = ui.column().apply {
+            val padding = ui.dp(8)
+            setPadding(padding, 0, padding, 0)
+            addView(cover, LinearLayout.LayoutParams(preferredSize, preferredSize).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = ui.dp(12)
+            })
+            addView(title, LinearLayout.LayoutParams(-1, -2))
+            addView(artist, LinearLayout.LayoutParams(-1, -2))
         }
         addView(sleeve, LayoutParams(-1, -2))
     }
 
     fun limitArtworkHeight(maxHeight: Int) {
-        val size = minOf(preferredSize, maxOf(ui.dp(96), maxHeight))
+        val size = minOf(preferredSize, maxOf(ui.dp(80), maxHeight))
         val bounds = cover.layoutParams
         if (bounds.width != size) {
             bounds.width = size
@@ -131,7 +120,7 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi,
     }
 
     private fun describeCover() {
-        val label = if (picture == null) null else "View cover for ${title.text}, ${artist.text}"
+        val label = picture?.let { "View cover for ${title.text}" }
         if (!TextUtils.equals(cover.contentDescription, label)) cover.contentDescription = label
     }
 
@@ -165,18 +154,13 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi,
     }
 
     fun bind(track: JSONObject, ref: String, embedded: ByteArray?) {
-        for ((label, key) in listOf(title to "title", artist to "artist", album to "album")) {
-            val value = track.optString(key)
-            if (!TextUtils.equals(label.text, value)) label.text = value
-            label.visibility = if (value.isEmpty()) View.GONE else View.VISIBLE
-        }
+        val name = track.optString("title")
+        val performer = track.optString("artist")
+        if (!TextUtils.equals(title.text, name)) title.text = name
+        if (!TextUtils.equals(artist.text, performer)) artist.text = performer
+        artist.visibility = if (performer.isBlank()) View.GONE else View.VISIBLE
         describeCover()
         artwork.bind(ref, track.optString("cover"), embedded)
-    }
-
-    fun linkProfiles(openArtist: (() -> Unit)?, openAlbum: (() -> Unit)?) {
-        ui.profileLink(artist, openArtist)
-        ui.profileLink(album, openAlbum)
     }
 
     fun clear() = artwork.clear()

@@ -86,7 +86,7 @@ internal class PlayerLyrics(
                 }
                 for ((time, text) in timed) {
                     val view = ui.label(text, 20f, ui.secondary).apply {
-                        minHeight = ui.dp(44)
+                        minHeight = ui.dp(48)
                         gravity = android.view.Gravity.CENTER_VERTICAL
                         setOnClickListener { if (seekable && subject == id) seek(id, time) }
                         isClickable = seekable

@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
 import java.io.IOException
@@ -16,17 +17,24 @@ import java.util.concurrent.Executors
 internal const val OPEN_CAMPING = "open_camping"
 
 class CardSaveActivity : Activity() {
+    private data class TripPreview(val roomId: String, val mixes: List<Pair<SavedPlaylist, List<SaveTrack>>>) {
+        val songCount = mixes.sumOf { it.second.size }
+        val summary get() = "$songCount songs across ${mixes.size} mixes"
+    }
+
     private val ui by lazy { RoomUi(this) }
+    private val camping get() = intent.getBooleanExtra(OPEN_CAMPING, false)
     private var operation: CardSaveOperation? = null
     private lateinit var status: TextView
     private lateinit var find: Button
     private lateinit var invitation: Button
     private lateinit var format: Button
-    private lateinit var hiking: Button
+    private lateinit var sizes: LinearLayout
     private lateinit var action: Button
     private lateinit var list: LinearLayout
     private var playlist: SavedPlaylist? = null
-    private var trip: List<Pair<SavedPlaylist, List<SaveTrack>>> = emptyList()
+    private var tripSize: Int? = null
+    private var trip: TripPreview? = null
     private var tree: Uri? = null
     private var busy = false
 
@@ -35,34 +43,56 @@ class CardSaveActivity : Activity() {
         ui.theme.applyWindow(this, ui.paper)
         val frame = ui.screen()
         frame.addView(ui.row(8).apply {
-            addView(ui.iconButton("Back", Mark.BACK) { finish() },
+            addView(ui.iconButton("Back", Mark.BACK, outlined = false) { finish() },
                 LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-            addView(ui.heading("Save for offline", 23f))
+            addView(ui.heading(if (camping) "Camping mode" else "Save for offline", 23f))
         })
         val layout = ui.column(8)
-        frame.addView(android.widget.ScrollView(this).apply { addView(layout) },
+        frame.addView(ScrollView(this).apply {
+            if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
+            addView(layout)
+        },
             LinearLayout.LayoutParams(-1, 0, 1f))
-        status = ui.label("Join your home Wi-Fi to copy a playlist directly to your card.", 15f, ui.secondary).apply {
+        val instructions = if (camping) "Choose how many songs to take with you."
+            else "Connect on home Wi-Fi to choose a playlist to save."
+        status = ui.label(instructions, 15f, ui.secondary).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         layout.addView(status)
-        find = ui.button("Connect over Wi-Fi", true) { findRoom() }
-        layout.addView(find)
+        find = ui.button("Connect over Wi-Fi", true) { findRoom() }.apply {
+            visibility = if (camping) View.GONE else View.VISIBLE
+        }
         invitation = ui.button("Wi-Fi address or invitation") { openPairing() }
-        layout.addView(invitation)
-        format = ui.button(formatLabel()) { MobileAudio.choose(this) { format.text = formatLabel() } }
-        layout.addView(format)
-        hiking = ui.button("Camping mode") { chooseTripLength() }
-        layout.addView(hiking)
-        action = ui.button("Save playlist", true) {
-            if (trip.isEmpty()) playlist?.let(::prepare) else prepareTrip()
+        format = ui.button(formatLabel()) { MobileAudio.choose(this) { format.text = formatLabel() } }.apply {
+            visibility = View.GONE
+        }
+        sizes = ui.row(6).apply {
+            for (count in tripSizes) {
+                addView(ui.button("$count songs") { makeTrip(count) }, LinearLayout.LayoutParams(0, -2, 1f))
+            }
+            visibility = if (camping) View.VISIBLE else View.GONE
+        }
+        action = ui.button("Save", true) {
+            if (camping) prepareTrip() else playlist?.let(::prepare)
         }.apply { visibility = View.GONE }
+        list = ui.column()
+        layout.addView(sizes)
+        if (camping) layout.addView(list)
+        layout.addView(format)
         layout.addView(action)
-        list = ui.column(8)
-        layout.addView(list)
+        if (!camping) {
+            layout.addView(list)
+            layout.addView(find)
+        }
+        layout.addView(invitation)
+        if (!camping) {
+            layout.addView(ui.line())
+            layout.addView(ui.button("Camping mode") {
+                startActivity(Intent(this, CardSaveActivity::class.java).putExtra(OPEN_CAMPING, true))
+            })
+        }
         setContentView(frame)
         tree = getSharedPreferences("card", MODE_PRIVATE).getString("tree", null)?.let(Uri::parse)
-        if (state == null && intent.getBooleanExtra(OPEN_CAMPING, false)) chooseTripLength()
     }
 
     private fun formatLabel() = "Mobile audio · " + MobileAudio.load(this).label
@@ -71,17 +101,24 @@ class CardSaveActivity : Activity() {
         Room.load(this, homeWifi = true, onCall = task::register) ?: throw PairingRequired()
 
     private fun openPairing() {
-        trip = emptyList()
+        val pairing = Intent(this, RoomActivity::class.java)
+            .putExtra("home_wifi", true).putExtra("pair_only", true)
+        if (camping) {
+            startActivityForResult(pairing, CONNECT_FOR_TRIP)
+            return
+        }
         playlist = null
         action.visibility = View.GONE
+        format.visibility = View.GONE
         list.removeAllViews()
-        startActivity(Intent(this, RoomActivity::class.java)
-            .putExtra("home_wifi", true).putExtra("pair_only", true))
+        startActivity(pairing)
     }
 
     private fun findRoom() {
-        trip = emptyList()
         playlist = null
+        action.visibility = View.GONE
+        format.visibility = View.GONE
+        list.removeAllViews()
         status.text = "Looking for the room on Wi-Fi…"
         work({ task ->
             val room = Room.load(this, homeWifi = true, onCall = task::register)
@@ -89,41 +126,38 @@ class CardSaveActivity : Activity() {
             room.requireCatalog()
             room.get("/api/overview").getJSONArray("playlists")
         }) { rows ->
-            find.text = "Connect over Wi-Fi"
-            action.visibility = View.GONE
-            list.removeAllViews()
+            find.text = "Refresh playlists"
             val choices = (0 until rows.length()).map { RoomPlaylist(rows.getJSONObject(it)) }
             status.text = if (choices.isEmpty()) "No playlists in this room yet." else "Choose a playlist to save."
-            for (choice in choices) list.addView(ui.button("${choice.name} · ${choice.playable} ready") {
-                if (choice.playable > 0) prepare(SavedPlaylist(choice.key, choice.name, choice.playable))
-                else status.text = "This playlist has no downloaded songs yet."
-            }.apply {
-                if (choice.linked) {
-                    append("\n" + choice.syncLabel)
-                    setCompoundDrawablesRelative(ui.mark(Mark.MAGNET, 17, ui.accent), null, null, null)
-                    compoundDrawablePadding = ui.dp(6)
-                }
-            })
+            format.visibility = if (choices.isEmpty()) View.GONE else View.VISIBLE
+            val style = SongDetailsStyle(ui)
+            for (choice in choices) {
+                val detail = listOf("${choice.playable} ready", if (choice.linked) choice.syncLabel else "")
+                    .filter(String::isNotBlank).joinToString(" · ")
+                list.addView(style.link(choice.name, detail) {
+                    if (!busy) {
+                        if (choice.playable > 0) prepare(SavedPlaylist(choice.key, choice.name, choice.playable))
+                        else status.text = "This playlist has no downloaded songs yet."
+                    }
+                })
+            }
         }
     }
 
-    private fun chooseTripLength() {
-        val sizes = intArrayOf(30, 60, 90)
-        AlertDialog.Builder(this).setTitle("Songs for your trip")
-            .setItems(sizes.map { "$it songs" }.toTypedArray()) { _, index -> makeTrip(sizes[index]) }
-            .setNegativeButton("Cancel", null).show()
-    }
-
     private fun makeTrip(count: Int) {
-        playlist = null
-        trip = emptyList()
+        if (busy) return
+        tripSize = count
+        for ((index, size) in tripSizes.withIndex()) sizes.getChildAt(index).isSelected = size == count
+        trip = null
         action.visibility = View.GONE
+        format.visibility = View.GONE
         list.removeAllViews()
         status.text = "Finding ready songs…"
         work({ task ->
-            val plan = paired(task).get("/api/hiking?songs=$count")
+            val room = paired(task)
+            val plan = room.get("/api/hiking?songs=$count")
             val mixes = plan.getJSONArray("mixes")
-            (0 until mixes.length()).map { index ->
+            val previews = (0 until mixes.length()).map { index ->
                 val mix = mixes.getJSONObject(index)
                 val rows = mix.getJSONArray("tracks")
                 val tracks = (0 until rows.length()).map { trackIndex ->
@@ -134,28 +168,40 @@ class CardSaveActivity : Activity() {
                 }
                 SavedPlaylist("hike-${plan.getString("id")}-$index", "Camping - ${mix.getString("name")}", tracks.size) to tracks
             }
-        }) { mixes ->
-            trip = mixes
-            val total = mixes.sumOf { it.second.size }
-            status.text = if (total == 0) "No ready songs in this room." else "$total songs across ${mixes.size} mixes"
-            mixes.forEach { (mix, tracks) -> list.addView(ui.label("${mix.name} · ${tracks.size} songs", 16f)) }
+            TripPreview(room.id, previews)
+        }) { preview ->
+            val canSave = preview.songCount > 0
+            trip = preview.takeIf { canSave }
+            status.text = if (canSave) preview.summary else "No ready songs in this room."
+            for ((mix, tracks) in preview.mixes) {
+                list.addView(ui.row(10).apply {
+                    minimumHeight = ui.dp(48)
+                    val title = ui.label(mix.name.removePrefix("Camping - "))
+                    val count = ui.label("${tracks.size} songs", 14f, ui.secondary)
+                    addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(count)
+                })
+                list.addView(ui.line())
+            }
             action.text = "Save trip"
-            action.visibility = if (total > 0) View.VISIBLE else View.GONE
+            format.visibility = if (canSave) View.VISIBLE else View.GONE
+            action.visibility = if (canSave) View.VISIBLE else View.GONE
         }
     }
 
     private fun prepareTrip() {
-        if (busy || trip.isEmpty()) return
+        if (busy) return
+        val selected = trip ?: return
         val card = writableFolder() ?: return
-        val selected = trip
         val profile = MobileAudio.load(this)
-        val total = selected.sumOf { it.second.size }
+        val total = selected.songCount
         status.text = "Saving 0 of $total…"
         work({ task ->
             val room = paired(task)
+            check(room.id == selected.roomId) { "The room changed. Choose a trip size to make a new preview." }
             val saver = CardSaves(contentResolver, card, File(cacheDir, "card-transfers"), task)
             var previous = 0
-            selected.forEach { (mix, tracks) ->
+            selected.mixes.forEach { (mix, tracks) ->
                 saver.save(room, mix, tracks, profile) { completed ->
                     val done = previous + completed
                     runOnUiThread { if (!isDestroyed && !isFinishing) status.text = "Saved $done of $total" }
@@ -174,7 +220,7 @@ class CardSaveActivity : Activity() {
         status.text = "Choose Music on your microSD card or phone storage and allow write access."
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION), 1)
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION), PICK_FOLDER)
         return null
     }
 
@@ -183,7 +229,6 @@ class CardSaveActivity : Activity() {
 
     private fun prepare(choice: SavedPlaylist) {
         if (busy) return
-        trip = emptyList()
         playlist = choice
         action.visibility = View.GONE
         val card = writableFolder() ?: return
@@ -224,7 +269,7 @@ class CardSaveActivity : Activity() {
                 }
         }) {
             status.text = "${choice.name} is ready in Device files → Saved playlists."
-            action.text = "Check for updates"
+            action.text = "Check for playlist updates"
             action.visibility = View.VISIBLE
         }
     }
@@ -237,7 +282,8 @@ class CardSaveActivity : Activity() {
         find.isEnabled = false
         invitation.isEnabled = false
         format.isEnabled = false
-        hiking.isEnabled = false
+        action.isEnabled = false
+        for (index in 0 until sizes.childCount) sizes.getChildAt(index).isEnabled = false
         worker.execute {
             val outcome = runCatching { task.check(); block(task) }
             runOnUiThread {
@@ -247,9 +293,10 @@ class CardSaveActivity : Activity() {
                 find.isEnabled = true
                 invitation.isEnabled = true
                 format.isEnabled = true
-                hiking.isEnabled = true
+                action.isEnabled = true
+                for (index in 0 until sizes.childCount) sizes.getChildAt(index).isEnabled = true
                 outcome.onSuccess(success).onFailure { error ->
-                    status.text = if (task.cancelled) "Save paused. Tap Retry to continue."
+                    status.text = if (task.cancelled) "Transfer paused."
                         else error.message ?: "Could not save the playlist. Check Wi-Fi and the card."
                     if (error is PairingRequired) {
                         find.text = "Connect over Wi-Fi"
@@ -257,9 +304,11 @@ class CardSaveActivity : Activity() {
                             .setMessage("Enter your paired room’s Wi-Fi address or use a fresh invitation from Devices settings.")
                             .setNegativeButton("Cancel", null)
                             .setPositiveButton("Connect") { _, _ -> openPairing() }.show()
-                    } else if (playlist != null || trip.isNotEmpty()) {
+                    } else if (playlist != null || trip != null) {
                         action.text = "Retry save"
                         action.visibility = View.VISIBLE
+                    } else if (camping) {
+                        status.text = "${status.text}\nChoose a trip size or change the Wi-Fi address below."
                     } else {
                         find.text = "Retry"
                     }
@@ -268,10 +317,23 @@ class CardSaveActivity : Activity() {
         }
     }
 
-    @Deprecated("Uses the platform folder picker")
+    @Deprecated("Uses the platform folder picker and connection form")
     override fun onActivityResult(request: Int, result: Int, data: Intent?) {
         super.onActivityResult(request, result, data)
-        if (request != 1 || result != RESULT_OK) return
+        if (result != RESULT_OK) return
+        if (request == CONNECT_FOR_TRIP) {
+            val preview = trip
+            val room = Room.load(this, homeWifi = true)
+            if (preview != null && preview.roomId == room?.id) {
+                if (action.visibility == View.VISIBLE) status.text = preview.summary
+            } else {
+                val count = tripSize
+                if (count != null) makeTrip(count)
+                else status.text = "Connected. Choose how many songs to take with you."
+            }
+            return
+        }
+        if (request != PICK_FOLDER) return
         val selected = data?.data ?: return
         if (selected.authority != "com.android.externalstorage.documents") {
             status.text = "Choose a Music folder in local storage or on your SD card."
@@ -282,7 +344,7 @@ class CardSaveActivity : Activity() {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             tree = selected
             getSharedPreferences("card", MODE_PRIVATE).edit().putString("tree", selected.toString()).apply()
-            if (trip.isEmpty()) playlist?.let(::prepare) else prepareTrip()
+            if (camping) prepareTrip() else playlist?.let(::prepare)
         } catch (_: SecurityException) {
             status.text = "Select the folder again and allow write access."
         }
@@ -294,6 +356,9 @@ class CardSaveActivity : Activity() {
     }
 
     private companion object {
+        const val PICK_FOLDER = 1
+        const val CONNECT_FOR_TRIP = 2
+        val tripSizes = intArrayOf(30, 60, 90)
         val worker = Executors.newSingleThreadExecutor()
     }
 }
