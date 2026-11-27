@@ -1,24 +1,187 @@
+[data-view="settings"] {
+  --settings-gutter: clamp(16px, 2.4vw, 32px);
+  --settings-content: 55rem;
+}
+
+[data-view="settings"] > .listening-view-head {
+  margin-block-end: var(--space-8);
+  padding-block-end: var(--space-6);
+}
+
+[data-settings-layout] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--settings-gutter);
+}
+
 [data-view="settings"] .settings-tabs {
-  flex-wrap: wrap;
-  gap: 0;
+  display: flex;
+  gap: var(--space-1);
+  min-inline-size: 0;
+  margin: 0;
+  padding: var(--space-2);
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--stage-track) var(--stage-deep);
+  border: 1px solid var(--stage-track);
+  border-radius: var(--radius-lg);
+  background: var(--stage-deep);
 }
 
 [data-view="settings"] .settings-tabs button {
-  padding-inline: var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-height: 44px;
+  padding: var(--space-3) var(--space-6);
+  border: 0;
+  border-block-end: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--stage-secondary);
+  font-size: var(--font-md);
+  font-weight: var(--weight-medium);
+  text-align: start;
+  white-space: nowrap;
+}
+
+[data-view="settings"] .settings-tabs :is(button:hover, button:focus-visible) {
+  color: var(--stage-text);
+  background: var(--stage-chip);
+}
+
+[data-view="settings"] .settings-tabs button:focus-visible {
+  outline: 2px solid var(--stage-progress);
+  outline-offset: -3px;
+}
+
+[data-view="settings"] .settings-tabs button[aria-selected="true"] {
+  border-block-end-color: var(--stage-progress);
+  background: var(--stage-chip);
+  color: var(--stage-text);
+  font-weight: var(--weight-bold);
+}
+
+[data-view="settings"] .settings-tabs .room-icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+}
+
+[data-view="settings"] .settings-tabs button[aria-selected="true"] .room-icon {
+  color: var(--stage-progress);
+}
+
+@media (min-width: 900px) {
+  [data-settings-layout] {
+    grid-template-columns: clamp(10.75rem, 16vw, 13.5rem) minmax(0, var(--settings-content));
+  }
+
+  [data-view="settings"] .settings-tabs {
+    position: sticky;
+    top: 76px;
+    flex-direction: column;
+    align-items: stretch;
+    max-block-size: calc(100dvh - var(--player-height) - 94px);
+  }
+
+  [data-view="settings"] .settings-tabs button {
+    border-block-end: 0;
+    border-inline-start: 2px solid transparent;
+  }
+
+  [data-view="settings"] .settings-tabs button[aria-selected="true"] {
+    border-inline-start-color: var(--stage-progress);
+  }
+}
+
+[data-view="settings"] .settings-panel {
+  container-type: inline-size;
+  min-width: 0;
+  max-width: var(--settings-content);
+  overflow-wrap: anywhere;
+}
+
+[data-view="settings"] .settings-section-title {
+  align-items: center;
+  gap: var(--space-4) var(--space-8);
+  margin: 0 0 var(--space-8);
+  padding: var(--space-2) 0 var(--space-7);
+  border-bottom: 1px solid var(--line);
+}
+
+[data-view="settings"] .settings-section-title h2 {
+  font-size: clamp(1.85rem, 3vw, 2.65rem);
+  line-height: 1.08;
+}
+
+[data-view="settings"] .settings-section-title p {
+  max-width: 64ch;
+  margin-block-start: var(--space-4);
+  color: var(--muted);
 }
 
 [data-view="settings"] .settings-panel .settings-card {
-  padding: 0;
-  border: 0;
-  background: transparent;
+  padding: clamp(12px, 3cqi, 24px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel-tint);
 }
 
 [data-view="settings"] .settings-panel > .settings-card {
-  margin-bottom: var(--space-13);
+  max-width: none;
+  margin-bottom: var(--space-8);
 }
 
-[data-view="settings"] .settings-stack {
-  gap: var(--space-13);
+[data-view="settings"] .settings-panel :is(.settings-stack, .extensions-stack) {
+  max-width: none;
+  gap: var(--space-8);
+}
+
+[data-view="settings"] .settings-panel .settings-card h3 {
+  margin: 0 0 var(--space-3);
+  color: var(--text);
+  font-size: var(--font-2xl);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-copy);
+}
+
+[data-view="settings"] .settings-panel .settings-card > p {
+  max-width: 64ch;
+  margin-bottom: var(--space-6);
+}
+
+[data-view="settings"] .settings-panel .settings-card > :last-child {
+  margin-bottom: 0;
+}
+
+[data-view="settings"] .settings-panel .settings-card-heading {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-8);
+  margin-bottom: var(--space-6);
+}
+
+[data-view="settings"] .settings-panel .settings-card-heading :is(h2, h3) {
+  margin: 0;
+}
+
+[data-view="settings"] .settings-panel .settings-details {
+  margin-top: var(--space-7);
+  padding-top: var(--space-3);
+}
+
+[data-view="settings"] .settings-panel summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+[data-view="settings"] .settings-panel .appearance-options {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+}
+
+[data-view="settings"] .settings-panel .appearance-preview {
+  min-height: 76px;
 }
 
 .settings-panel {
@@ -106,23 +269,17 @@
   font-size: var(--font-base);
   font-weight: var(--weight-medium);
 }
-@media (max-width: 520px) {
-  .settings-panel .room-select:has(.room-select-caption) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 
-.settings-card[data-layout="tasks"] {
+[data-view="settings"] .settings-panel .settings-card[data-layout="tasks"] {
   padding-block: 0;
 }
 
 .settings-card[data-layout="tasks"] > div {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-8);
-  padding-block: var(--space-8);
+  gap: var(--space-6);
+  padding-block: var(--space-7);
 }
 
 .settings-card[data-layout="tasks"] > div + div {
@@ -133,18 +290,86 @@
   margin: 0;
 }
 
-.settings-card[data-layout="tasks"] button {
-  flex: none;
+.settings-card[data-layout="tasks"] > div > .room-icon {
+  box-sizing: content-box;
+  width: 20px;
+  height: 20px;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--accent-ink);
 }
 
-@media (max-width: 520px) {
-  [data-view="settings"] .settings-tabs {
-    padding-inline: 0;
+@container (max-width: 500px) {
+  .settings-card[data-layout="tasks"] > div {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
   }
 
-  .settings-card[data-layout="tasks"] > div {
-    align-items: start;
-    flex-direction: column;
-    gap: var(--space-4);
+  .settings-card[data-layout="tasks"] button {
+    grid-column: 2;
+    justify-self: start;
+    text-align: start;
   }
+
+  .settings-panel .room-select:has(.room-select-caption) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+[data-view="settings"] .settings-health[data-ready="false"] {
+  background: var(--tint);
+  color: var(--muted);
+}
+
+[data-view="settings"] .playback-card .check-setting {
+  padding-block: var(--space-5);
+}
+
+[data-view="settings"] .playback-card .check-setting + .check-setting {
+  border-top: 1px solid var(--line);
+}
+
+[data-view="settings"] .playback-card .check-setting .settings-note {
+  margin-block: var(--space-2) 0;
+}
+
+[data-view="settings"] .client-connect-row {
+  align-items: end;
+}
+
+[data-view="settings"] .client-connect-row > div {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+[data-view="settings"] .room-select [data-slot="select-trigger"] {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+[data-view="settings"] .settings-panel :is(.source-item, .device-item) {
+  background: var(--card);
+}
+
+@media (max-width: 650px) {
+  [data-view="settings"] .settings-panel .settings-card :is(input:not([type="checkbox"], [type="file"], [type="radio"]), textarea, select) {
+    font-size: max(1rem, var(--font-md));
+  }
+}
+
+[data-view="settings"] [data-settings-share] {
+  padding-block-start: var(--space-8);
+  border-block-start: 1px solid var(--line);
+}
+
+[data-view="settings"] [data-settings-share] .settings-card-heading,
+[data-view="settings"] [data-settings-share] .settings-note {
+  margin: 0;
+}
+
+[data-view="settings"] [data-settings-share] .settings-health {
+  flex: 0 1 auto;
 }
