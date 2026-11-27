@@ -22,13 +22,15 @@ done <<'SCREENS'
 00-library library
 23-now-playing-phone player
 01f-mood-map mood-map
+01e-activities activities
 12-deep-dive deep-dive
+12-weekly-discovery weekly-discovery
 31-artist-connections-desktop credits
 32-song-details-desktop song
 14-lyrics-stage lyrics
 16-radio radio
 21-discovery-mobile catalogs
-29-camping-mode camping
+29-camping-mode-desktop camping
 34-nearby-jams-phone jams
 01b-playlist-share share
 11-settings-devices devices

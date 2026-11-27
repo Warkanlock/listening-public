@@ -682,38 +682,53 @@ def verify_landing(browser, base, output, errors, warnings):
             page.on("request", lambda request: requests.append(request.url))
             response = page.goto(base + url)
             assert response.status == 200
-            page.get_by_role("heading", level=1, name="Stream the records you own.").wait_for()
+            page.get_by_role("heading", level=1, name="Your music, wherever you listen.").wait_for()
             assert page.get_by_role("navigation").get_by_role("link", name="Open the room").get_attribute("href") == "/"
             sleeve = page.locator(".about-sleeve")
             assert sleeve.locator("img").evaluate("img => img.complete && img.naturalWidth > 0")
-            assert page.get_by_role("link", name="Explore the player").get_attribute("href") == "#showcase"
+            assert page.get_by_role("link", name="Explore listening features").get_attribute("href") == "#showcase"
             assert page.get_by_role("navigation").get_by_role("link", name="Features").is_visible()
             logo = page.get_by_role("link", name="Listening Room", exact=True).first.locator("img")
             assert logo.evaluate("img => img.complete && img.naturalWidth > 0")
             hero_library = page.get_by_role("img", name="Library and queue in Listening Room")
             hero_library.evaluate("image => image.decode()")
             assert hero_library.evaluate("image => image.naturalWidth > 0")
-            assert not re.search(r"\b(?:YouTube|SomaFM)\b", page.locator("body").inner_text(), re.I)
-            release = page.get_by_role("region", name="New in Listening Room")
-            release_notes = release.get_by_role("link", name="2.0.7 release notes", exact=True)
-            assert release_notes.get_attribute("href").endswith("/releases/tag/v2.0.7")
-            release_images = release.get_by_role("img").all()
-            assert len(release_images) == 2
-            for picture in release_images:
-                picture.scroll_into_view_if_needed()
-                picture.evaluate("image => image.decode()")
-                assert picture.evaluate("""image => image.naturalWidth === Number(image.getAttribute('width'))
-                    && image.naturalHeight === Number(image.getAttribute('height'))""")
-            screens = page.get_by_role("region", name="Inside Listening.")
+            copy = page.locator("body").inner_text()
+            assert not re.search(r"\b(?:YouTube|SomaFM|Soulseek|Nicotine\+?|news|release notes)\b", copy, re.I)
+            assert "Browse the demo collection" not in copy and "Select a screenshot" not in copy
+            install = page.get_by_role("region", name="Set up a room.")
+            hero = page.get_by_role("region", name="Your music, wherever you listen.")
+            for action, platform, download in (("Install on Mac", "Mac", "Download for Mac"),
+                                               ("Set up with Docker", "Linux", "Illustrated setup guide")):
+                link = hero.get_by_role("link", name=action)
+                bounds = link.bounding_box()
+                assert bounds["height"] >= 44 and bounds["y"] + bounds["height"] < page.viewport_size["height"]
+                link.click()
+                install.get_by_role("tabpanel", name=platform, exact=True).get_by_role("link", name=download).wait_for()
+                page.get_by_role("heading", level=1).scroll_into_view_if_needed()
+                page.evaluate("scrollTo({top: 0, behavior: 'instant'})")
+            install.get_by_role("tab", name="Mac", exact=True).click()
+            assert page.evaluate("location.hash") == "#install-linux"
+            hero.get_by_role("link", name="Set up with Docker").click()
+            install.get_by_role("tabpanel", name="Linux", exact=True).wait_for()
+            hero.get_by_role("link", name="Connect a device").click()
+            assert page.evaluate("location.hash") == "#connect"
+            page.evaluate("scrollTo({top: 0, behavior: 'instant'})")
+            page.screenshot(path=str(output / ("landing-hero-mobile.png" if page == mobile else "landing-hero-desktop.png")),
+                            animations="disabled")
+            screens = page.get_by_role("region", name="Find your next listen.")
+            assert screens.get_by_role("heading", level=3).all_text_contents() == [
+                "Mood Map", "Library Radio", "Activity mixes", "Deep Dive", "Weekly Discovery", "Camping mode"]
             first_screen = screens.get_by_role("img", name="Library Radio in Listening")
             assert first_screen.bounding_box()["width"] <= (390 if page == mobile else 560)
             screens.get_by_text("See more screens", exact=True).click()
             room_images = screens.get_by_role("img").all()
-            assert len(room_images) == 15
+            assert len(room_images) == 17
             for picture in room_images:
                 picture.scroll_into_view_if_needed()
                 picture.evaluate("image => image.decode()")
-                assert picture.evaluate("image => image.naturalWidth > 0")
+                assert picture.evaluate("""image => image.naturalWidth === Number(image.getAttribute('width'))
+                    && image.naturalHeight === Number(image.getAttribute('height'))""")
                 assert picture.get_attribute("src") == picture.locator("..").get_attribute("href")
             screens.get_by_text("See more screens", exact=True).click()
             showcase = page.get_by_role("region", name="Listening on e-ink.")
@@ -764,9 +779,8 @@ def verify_landing(browser, base, output, errors, warnings):
             query.fill("qwertyuiop")
             features.get_by_text("No features match. Try another search.", exact=True).wait_for()
             query.fill("")
-            features.get_by_text("13 features", exact=True).wait_for()
+            features.get_by_text("16 features", exact=True).wait_for()
 
-            install = page.get_by_role("region", name="Set up a room.")
             mac = install.get_by_role("tab", name="Mac", exact=True)
             mac.press("ArrowRight")
             assert install.get_by_role("tab", name="Linux", exact=True).get_attribute("aria-selected") == "true"
@@ -2031,7 +2045,7 @@ def verify_household_browser(browser, root, output):
         pages.append(unauthenticated)
         unauthenticated.goto(server.base + "/")
         unauthenticated.get_by_role("link", name="About Listening Room").click()
-        unauthenticated.get_by_role("heading", level=1, name="Stream the records you own.").wait_for()
+        unauthenticated.locator("h1#about-title").wait_for()
         assert unauthenticated.request.get(server.base + "/api/tracks").status == 401
 
         def visit(username):
@@ -2623,6 +2637,7 @@ def verify_discovery_trail(page, screenshot):
         assert page.get_by_role("progressbar", name="Playlist downloads").get_attribute("value") == "50"
         assert page.get_by_text("1 of 2 downloaded · 50%", exact=True).is_visible()
         assert page.get_by_role("button", name="Review copies for Recording to review").is_visible()
+        screenshot("12-weekly-discovery.png")
         assert not page.get_by_role("button", name="Other recordings: Recording to review").count()
         attention = page.get_by_role("button", name="1 needs attention", exact=True)
         attention.press("Enter")
@@ -2647,7 +2662,6 @@ def verify_discovery_trail(page, screenshot):
         assert not board.is_visible()
         page.get_by_role("button", name="Back to Deep Dive").click()
         first.wait_for()
-        screenshot()
         liked = board.get_by_role("region", name="Recently liked").get_by_role("button", name=re.compile("Atlas Air"))
         liked.click()
         page.get_by_role("heading", name="Atlas Air").wait_for()
@@ -2665,6 +2679,9 @@ def verify_discovery_trail(page, screenshot):
         page.set_viewport_size({"width": 1440, "height": 900})
         first.click()
         fork = page.get_by_role("region", name="Paths to follow")
+        fork.get_by_role("button", name=re.compile("Frequencies")).first.wait_for()
+        fork.get_by_role("status").wait_for(state="hidden")
+        screenshot("12-deep-dive.png")
         fork.get_by_role("button", name="Show more").click()
         fork.get_by_role("button", name=re.compile("A Winged Victory")).wait_for()
         fork.get_by_role("button", name=re.compile("Suggested artist The Fixture Trio")).click()
@@ -3626,7 +3643,7 @@ def run_browser(server, output):
             # -- Deep Dive ---------------------------------------------------
             item = surface("deep-dive")
             try:
-                verify_discovery_trail(page, lambda: shot(item, "12-deep-dive.png"))
+                verify_discovery_trail(page, lambda filename: shot(item, filename))
                 item.ok = True
                 item.detail = "Weekly trail, another performance, retry, listening actions, focus and phone layout"
             except Exception as error:

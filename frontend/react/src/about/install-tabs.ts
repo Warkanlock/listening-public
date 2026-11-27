@@ -44,4 +44,10 @@ export function enableInstallTabs() {
   strip.hidden = false;
   if (!selectFromHash()) activate(0);
   window.addEventListener("hashchange", selectFromHash);
+  for (const shortcut of document.querySelectorAll<HTMLAnchorElement>("a[data-install-shortcut]")) {
+    shortcut.addEventListener("click", event => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (shortcut.hash === location.hash) selectFromHash();
+    });
+  }
 }

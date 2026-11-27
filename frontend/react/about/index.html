@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#112e2c" />
-  <meta name="description" content="Listening Room is an open-source, self-hosted music player. Stream your own library across devices, explore the records you own, and save mixes for offline listening." />
+  <meta name="description" content="Host your own music library with Listening Room. Play across devices, find music through Mood Map and Weekly Discovery, and save Camping mixes for offline listening." />
   <link rel="icon" href="%BASE_URL%assets/icons/favicon.svg" type="image/svg+xml" />
-  <title>Listening Room — Stream the records you own</title>
+  <title>Listening Room — Your self-hosted music library</title>
   <link rel="stylesheet" href="/src/styles.css" />
   <link rel="stylesheet" href="/src/about/showcase.css" />
 </head>
@@ -21,7 +21,7 @@
   <header class="about-mast">
     <div class="about-wrap">
       <a class="about-wordmark" href="#main"><img src="%BASE_URL%assets/icons/favicon.svg" width="34" height="34" alt="" />Listening Room</a>
-      <nav aria-label="Main navigation"><a href="#features">Features</a><a class="about-nav-wide" href="#install">Installation</a><a class="about-room-link" href="%BASE_URL%">Open the room <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg></a></nav>
+      <nav aria-label="Main navigation"><a href="#features">Features</a><a href="#install">Install</a><a class="about-room-link" href="%BASE_URL%">Open the room <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg></a></nav>
     </div>
   </header>
   <main id="main">
@@ -29,72 +29,60 @@
       <div class="about-wrap about-hero">
         <div class="about-lead">
           <p class="about-label">Self-hosted music player</p>
-          <h1 id="about-title">Stream the<br />records <em>you own.</em></h1>
-          <p class="about-intro">Host a music library on your Mac or Linux server. Play it on your phone, pick up a song on another device, or save a mix for the road.</p>
-          <div class="about-actions"><a class="about-primary" href="#install">Set up a room <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#down-arrow"/></svg></a><a class="about-inline" href="https://github.com/Warkanlock/listening-public/releases/latest">Get the apps <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg></a></div>
-          <a class="about-latest" href="#release">What’s new in 2.0.7 <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#down-arrow"/></svg></a>
+          <h1 id="about-title">Your music, <em>wherever</em> you listen.</h1>
+          <p class="about-intro">Host your own library, find something to play for every mood, and take your favorite mixes offline.</p>
+          <div class="about-hero-install">
+            <div class="about-actions">
+              <a class="about-primary" href="#install-macos" data-install-shortcut>Install on Mac <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#down-arrow"/></svg></a>
+              <a class="about-inline" href="#install-linux" data-install-shortcut>Set up with Docker <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#down-arrow"/></svg></a>
+            </div>
+            <p>Already have a room? <a href="#connect">Connect a device</a></p>
+          </div>
         </div>
         <figure class="about-hero-screen">
           <a href="%BASE_URL%assets/about-showcase/room/library.webp"><img src="%BASE_URL%assets/about-showcase/room/library.webp" alt="Library and queue in Listening Room" width="1440" height="900" fetchpriority="high" /></a>
-          <figcaption><a class="about-inline" href="#showcase">Explore the player <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#down-arrow"/></svg></a></figcaption>
+          <figcaption><a class="about-inline" href="#showcase">Explore listening features <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#down-arrow"/></svg></a></figcaption>
         </figure>
-      </div>
-    </section>
-
-    <section id="release" class="about-release" aria-labelledby="release-title">
-      <div class="about-wrap">
-        <header class="about-release-head">
-          <div class="about-section-lead"><h2 id="release-title">New in <em>Listening Room</em></h2></div>
-          <nav aria-label="Release notes"><a href="https://github.com/Warkanlock/listening-public/releases/tag/v2.0.7">2.0.7 release notes</a><a href="https://github.com/Warkanlock/listening-public/releases/tag/v2.0.6">2.0.6 release notes</a><a href="https://github.com/Warkanlock/listening-public/releases/tag/v2.0.5">2.0.5 release notes</a></nav>
-        </header>
-        <div class="about-release-grid about-screen-grid">
-          <article>
-            <h3>Review copies at a glance</h3>
-            <p>Find copy-review actions together on web and Android. Choose <strong>Stop searching</strong> to mark a request <strong>Unavailable</strong> and take it out of automatic searches. Choose <strong>Retry now</strong> to search again.</p>
-            <a href="%BASE_URL%assets/about-showcase/room/copy-review.webp"><img src="%BASE_URL%assets/about-showcase/room/copy-review.webp" alt="Review copies dialog with four aligned actions" width="896" height="560" loading="lazy" decoding="async" /></a>
-          </article>
-          <article>
-            <h3>Find the setting you need</h3>
-            <p>Find settings in a side index on desktop and swipeable tabs on phones. Manage your Spotify account and playlists in <strong>Spotify</strong>. Review matches before linking playlists in <strong>Sources</strong>.</p>
-            <a href="%BASE_URL%assets/about-showcase/room/settings-spotify.webp"><img src="%BASE_URL%assets/about-showcase/room/settings-spotify.webp" alt="Spotify account and playlist settings in Listening Room" width="1440" height="900" loading="lazy" decoding="async" /></a>
-          </article>
-        </div>
-        <div class="about-release-note">
-          <div>
-            <h3>Folder sharing lives in Extensions</h3>
-            <p>On a Linux Docker host, a compatible optional plugin can share a folder you choose. Start and stop sharing from that plugin’s settings.</p>
-          </div>
-          <a class="about-inline" href="https://github.com/Warkanlock/listening-public/blob/main/docs/download-engines.md#share-a-folder-through-a-plugin">Plugin sharing guide <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg></a>
-        </div>
       </div>
     </section>
 
     <section class="about-screens" id="showcase" aria-labelledby="screens-title">
       <div class="about-wrap">
         <header class="about-section-lead about-screens-lead">
-          <h2 id="screens-title">Inside <em>Listening.</em></h2>
-          <p>Browse the demo collection. Select a screenshot to see it at full size.</p>
+          <h2 id="screens-title">Find your <em>next listen.</em></h2>
         </header>
         <div class="about-screen-grid about-screen-leads">
-        <figure>
-          <a href="%BASE_URL%assets/about-showcase/room/radio.webp"><img src="%BASE_URL%assets/about-showcase/room/radio.webp" alt="Library Radio in Listening" width="1440" height="900" loading="lazy" decoding="async" /></a>
-          <figcaption><h3>Library Radio</h3><p>Shuffle playable songs from the genres in your room.</p></figcaption>
-        </figure>
-        <figure class="about-screen-portrait">
-          <a href="%BASE_URL%assets/about-showcase/room/player.webp"><img src="%BASE_URL%assets/about-showcase/room/player.webp" alt="Now Playing in Listening" width="390" height="650" loading="lazy" decoding="async" /></a>
-          <figcaption><h3>Now Playing</h3><p>Control playback and queue songs from your own collection.</p></figcaption>
-        </figure>
-        <figure>
-          <a href="%BASE_URL%assets/about-showcase/room/mood-map.webp"><img src="%BASE_URL%assets/about-showcase/room/mood-map.webp" alt="Mood Map in Listening" width="1440" height="900" loading="lazy" decoding="async" /></a>
-          <figcaption><h3>Mood Map</h3><p>Follow a mood into nearby genres and recordings.</p></figcaption>
-        </figure>
+          <figure>
+            <a href="%BASE_URL%assets/about-showcase/room/mood-map.webp"><img src="%BASE_URL%assets/about-showcase/room/mood-map.webp" alt="Mood Map in Listening" width="1440" height="900" loading="lazy" decoding="async" /></a>
+            <figcaption><h3>Mood Map</h3><p>Pick a mood or blend two to hear a mix that matches how you feel.</p></figcaption>
+          </figure>
+          <figure>
+            <a href="%BASE_URL%assets/about-showcase/room/radio.webp"><img src="%BASE_URL%assets/about-showcase/room/radio.webp" alt="Library Radio in Listening" width="1440" height="900" loading="lazy" decoding="async" /></a>
+            <figcaption><h3>Library Radio</h3><p>Tune to a genre in your library and let the room keep the music playing.</p></figcaption>
+          </figure>
+          <figure>
+            <a href="%BASE_URL%assets/about-showcase/room/activities.webp"><img src="%BASE_URL%assets/about-showcase/room/activities.webp" alt="Walking, studying, and meditation mixes in Listening" width="1440" height="900" loading="lazy" decoding="async" /></a>
+            <figcaption><h3>Activity mixes</h3><p>Play music from your library matched to the pace and energy of walking, studying, or meditation.</p></figcaption>
+          </figure>
+          <figure>
+            <a href="%BASE_URL%assets/about-showcase/room/deep-dive.webp"><img src="%BASE_URL%assets/about-showcase/room/deep-dive.webp" alt="A recording trail in Deep Dive" width="1440" height="900" loading="lazy" decoding="async" /></a>
+            <figcaption><h3>Deep Dive</h3><p>Start with an artist or recording you know and follow the trail to related artists, credits, and other performances.</p></figcaption>
+          </figure>
+          <figure>
+            <a href="%BASE_URL%assets/about-showcase/room/weekly-discovery.webp"><img src="%BASE_URL%assets/about-showcase/room/weekly-discovery.webp" alt="Weekly Discovery playlist in Listening" width="1440" height="900" loading="lazy" decoding="async" /></a>
+            <figcaption><h3>Weekly Discovery</h3><p>Open a fresh set of recommendations each Monday, based on artists you’ve played and songs outside your library.</p></figcaption>
+          </figure>
+          <figure>
+            <a href="%BASE_URL%assets/about-showcase/room/camping.webp"><img src="%BASE_URL%assets/about-showcase/room/camping.webp" alt="Camping mode in Listening" width="1440" height="900" loading="lazy" decoding="async" /></a>
+            <figcaption><h3>Camping mode</h3><p>Save a trip mix on your device before you leave. Keep listening when you lose signal.</p></figcaption>
+          </figure>
         </div>
         <details class="about-more-screens">
           <summary>See more screens</summary>
           <div class="about-screen-grid">
-        <figure>
-          <a href="%BASE_URL%assets/about-showcase/room/deep-dive.webp"><img src="%BASE_URL%assets/about-showcase/room/deep-dive.webp" alt="Deep Dive in Listening" width="1440" height="900" loading="lazy" decoding="async" /></a>
-          <figcaption><h3>Deep Dive</h3><p>Follow a discovery trail from a familiar recording to new music.</p></figcaption>
+        <figure class="about-screen-portrait">
+          <a href="%BASE_URL%assets/about-showcase/room/player.webp"><img src="%BASE_URL%assets/about-showcase/room/player.webp" alt="Now Playing in Listening" width="390" height="650" loading="lazy" decoding="async" /></a>
+          <figcaption><h3>Now Playing</h3><p>Control playback and queue songs from your own collection.</p></figcaption>
         </figure>
         <figure>
           <a href="%BASE_URL%assets/about-showcase/room/credits.webp"><img src="%BASE_URL%assets/about-showcase/room/credits.webp" alt="Artist connections in Listening" width="1120" height="700" loading="lazy" decoding="async" /></a>
@@ -111,10 +99,6 @@
         <figure class="about-screen-portrait">
           <a href="%BASE_URL%assets/about-showcase/room/catalogs.webp"><img src="%BASE_URL%assets/about-showcase/room/catalogs.webp" alt="Catalog search in Listening" width="390" height="844" loading="lazy" decoding="async" /></a>
           <figcaption><h3>Catalog search</h3><p>Find recordings in public sources and connected private catalogs.</p></figcaption>
-        </figure>
-        <figure class="about-screen-portrait">
-          <a href="%BASE_URL%assets/about-showcase/room/camping.webp"><img src="%BASE_URL%assets/about-showcase/room/camping.webp" alt="Camping mode in Listening" width="390" height="844" loading="lazy" decoding="async" /></a>
-          <figcaption><h3>Camping mode</h3><p>Prepare a mix that plays offline on the device.</p></figcaption>
         </figure>
         <figure class="about-screen-portrait">
           <a href="%BASE_URL%assets/about-showcase/room/jams.webp"><img src="%BASE_URL%assets/about-showcase/room/jams.webp" alt="Nearby Jams in Listening" width="390" height="900" loading="lazy" decoding="async" /></a>
@@ -206,16 +190,19 @@
           <div id="feature-results">
           <details data-feature="files" data-keywords="upload local owned folders files usb nas hard drive mp3 flac aac m4a lossless tags"><summary>Import your music</summary><p>Import tagged MP3, AAC, M4A, and FLAC files. Choose a folder on your computer, an external drive, or a share your server can read. Listening imports a playable copy and can watch for changes.</p></details>
           <details data-feature="library" data-keywords="import export m3u m3u8 xspf csv handoff lists merge backup portable artist genre song spotify liked songs sync playlist matches"><summary>Library search and playlists</summary><p>Search by song, artist, album, or genre. Bring portable playlists, merge lists, and export tracks or playlists for other players. Connect Spotify to sync liked songs and playlists you own or collaborate on.</p></details>
-          <details data-feature="player" data-keywords="shuffle play next add queue gapless seeking now playing crossfade replaygain normalize artwork"><summary>Playback and queue</summary><p>Reorder the queue, play the next song, shuffle, or follow a genre. Supported players offer crossfade and volume normalization.</p></details>
+          <details data-feature="player" data-keywords="shuffle play next add queue gapless seeking now playing crossfade replaygain normalize artwork e-ink e ink eink"><summary>Playback and queue</summary><p>Reorder the queue, play the next song, shuffle, or follow a genre. Supported players offer crossfade and volume normalization. Android also has a high-contrast E Ink theme.</p></details>
           <details data-feature="devices" data-keywords="synchronize resume progress timestamp position multiscreen multiroom speakers phone tablet connected"><summary>Device pairing and handoff</summary><p>Pair a browser, phone, or computer. Choose playback devices and resume a library track at its saved position, including tracks from Library Radio.</p></details>
           <details data-feature="profiles" data-keywords="personal multiuser privacy profiles favorites recently most played history jam shared listening family"><summary>Household accounts and Jams</summary><p>Create separate profiles with their own favorites, playlists, queues, and history. Nearby Jams let listeners on the same network share a queue.</p></details>
           <details data-feature="artist" data-keywords="bands members discography song information musicbrainz credits you know what song dna solo project cover art"><summary>Artist and album pages</summary><p>Open an artist or album from a song. Follow credits into other bands and solo projects, read release details, and play available tracks in album order.</p></details>
           <details data-feature="lyrics" data-keywords="words karaoke timecoded plaintext now playing"><summary>Synced lyrics</summary><p>Follow the current line when synced lyrics are available. Select a line to jump to that part of the song.</p></details>
           <details data-feature="radio" data-keywords="genre shuffle stations ambient white noise brown noise study live mixes continuous local"><summary>Radio and ambient sound</summary><p>Shuffle your own songs by genre or play generated white or brown noise. Optional extensions can add other radio sources.</p></details>
-          <details data-feature="discovery" data-keywords="discover recommendation browse mood music metadata public private search trails"><summary>Mood Map, Deep Dive, and catalogs</summary><p>Explore moods and related genres, follow weekly recommendations into discovery trails, or search public and configured private catalogs.</p></details>
+          <details data-feature="discovery" data-keywords="discover recommendation browse mood music metadata energy brightness trails credits"><summary>Mood Map and Deep Dive</summary><p>Blend moods to find a mix or follow an artist trail from a favorite into related recordings, artists, and credits.</p></details>
+          <details data-feature="weekly" data-keywords="weekly new monday discovery playlist recommendations related artists download"><summary>Weekly Discovery</summary><p>Each Monday brings an edition built from artists you’ve played. Request missing copies through an optional download extension and play verified tracks in playlist order.</p></details>
+          <details data-feature="activities" data-keywords="activity activities exercise walking studying meditation pace energy tempo bpm"><summary>Activity mixes</summary><p>Start a walking, studying, or meditation mix from music in your room, matched to the activity’s pace and energy.</p></details>
+          <details data-feature="catalogs" data-keywords="catalogs recording search public private collections metadata browse"><summary>Catalog search</summary><p>Look up recordings in public sources and connected private catalogs. Browse another room’s shared catalog when you have access.</p></details>
           <details data-feature="offline" data-keywords="trip airplane subway travel no internet buffer prefetch wifi android ipad iphone 30 60 90"><summary>Offline listening and Camping mode</summary><p>Buffer upcoming tracks for short interruptions. Save a mix of up to 30, 60, or 90 tracks for a trip. Android also supports offline sync, device files, and removable storage.</p></details>
           <details data-feature="sharing" data-keywords="fediverse xspf opensubsonic api portable interoperability export original aac opus"><summary>Playlist sharing and other players</summary><p>Share a portable track list with a friend or publish it from a social account. Export original audio, make compact copies, or connect another compatible music player.</p></details>
-          <details data-feature="extensions" data-keywords="plugins addons add ons download search engine musicbrainz genres source mp3 flac quality verify disk space stop searching unavailable retry review copies folder sharing"><summary>Requests, jobs, and extensions</summary><p>Request a missing recording through a configured plugin. In Review copies, choose Stop searching to keep it out of automatic searches. The room verifies downloaded audio before it becomes playable. Compatible plugins can also share a selected folder.</p></details>
+          <details data-feature="extensions" data-keywords="plugins addons add ons download search engine musicbrainz genres source mp3 flac quality verify disk space stop searching unavailable retry review copies folder sharing"><summary>Extensions, requests, and jobs</summary><p>Choose extensions for extra radio sources, finding missing copies, or sharing a folder. Track requests and background jobs, choose the copy and format, or stop a search and retry when you’re ready. The room verifies downloaded audio before it becomes playable.</p></details>
           <details data-feature="operations" data-keywords="metrics traffic cache bandwidth queue health storage disk recover migration snapshots restore server updates"><summary>Insights, storage, and backups</summary><p>Check playback traffic, buffering, the upcoming queue, and free disk space. Back up the library and restore it on another server.</p></details>
           </div>
         </div>
@@ -227,6 +214,7 @@
         <p>Run Listening on one computer. Then open your room on the devices you listen on.</p>
       </div>
       <div class="about-install-paths">
+        <p class="about-install-note" id="connect">Joining an existing room? Get its address or invitation in <strong>Settings → Connect a device</strong>, then choose the device you’ll listen on.</p>
         <div class="about-install-tabs" data-install-tabs role="tablist" aria-label="Installation by platform" hidden>
           <button type="button" role="tab" id="tab-macos" aria-controls="install-macos">Mac</button>
           <button type="button" role="tab" id="tab-linux" aria-controls="install-linux">Linux</button>
@@ -238,7 +226,7 @@
           <h3>Mac</h3>
           <p>For Apple silicon Macs running macOS 13 or later.</p>
           <ol class="about-steps">
-            <li>Open the Mac DMG. Drag Listening Room to Applications and open it.</li>
+            <li>Download the <strong>.dmg</strong> from the latest release. Open it and drag Listening Room to Applications.</li>
             <li>To join an existing room, enter its address or paste your invitation.</li>
             <li>To host your own, choose <strong>Listening Room → Install terminal command</strong>. Open Terminal, run <code>~/.local/bin/listening setup</code>, and choose your music folder.</li>
           </ol>
@@ -278,7 +266,6 @@
           <h3>Browser on any computer</h3>
           <p>On Windows, Linux, macOS, or another device, open the room address or pairing invitation on the room’s private network. Sign in or pair when prompted.</p>
         </article>
-        <p class="about-install-note" id="connect">Already have a room? Open <strong>Settings → Connect a device</strong> for its address, pairing, and any installers staged on that server.</p>
         <a href="%BASE_URL%?setup=clients" data-room-only>Get apps from this room</a>
       </div>
       <details class="about-more-screens">
