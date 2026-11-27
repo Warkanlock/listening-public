@@ -10,7 +10,7 @@ Open **Downloads** to check active transfers, review requests that need attentio
 
 ### Update the app
 
-Open **Settings → App → Check for APK updates**. You can also check from the **Connect to a room** screen. When a newer release is available, tap **Download APK**. After the browser finishes downloading, open the APK and confirm the update in Android.
+Open **Settings → App → Check for APK updates**. You can also check from the **Connect to a room** screen. When a newer release is available, tap **Update and install**. Listening downloads and verifies the APK, then opens Android's installation screen. Android may ask you to allow installs from Listening Room the first time.
 
 If your phone requires a desktop installer, open the GitHub release on your computer and install the APK using that tool. On Mudita Kompakt, use Mudita Center.
 
