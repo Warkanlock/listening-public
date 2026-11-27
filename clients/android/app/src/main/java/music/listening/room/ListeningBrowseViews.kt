@@ -67,7 +67,7 @@ private fun RoomUi.roomSearchField(field: EditText, search: () -> Unit) = row().
         search()
     }
     fun showClear() {
-        val visibility = if (field.text.isEmpty()) View.GONE else View.VISIBLE
+        val visibility = if (field.text.isEmpty()) View.INVISIBLE else View.VISIBLE
         if (clear.visibility != visibility) clear.visibility = visibility
     }
     showClear()
