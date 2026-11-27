@@ -56,8 +56,14 @@ export function ExtensionShareSettings({ engine, busy, setSaving }: {
     void change({ operation: "start", folder: folder ?? status.folder });
   };
 
-  return <form className="settings-form" aria-label={`Library sharing with ${engine}`} onSubmit={start}>
-    <h3>Library sharing</h3>
+  return <form className="settings-form" data-settings-share aria-label={`Library sharing with ${engine}`} onSubmit={start}>
+    <header className="settings-card-heading">
+      <h3>Library sharing</h3>
+      {status && <span className="settings-health" data-ready={status.running} role="status">
+        {status.running ? "Sharing is running." :
+          status.available ? "Sharing is stopped." : "The server’s sharing folder is unavailable."}
+      </span>}
+    </header>
     {error && <p role="alert" className="settings-note">{error}</p>}
     {!status ? (
       error ? <div className="settings-actions">
@@ -66,10 +72,6 @@ export function ExtensionShareSettings({ engine, busy, setSaving }: {
         </RoomAction>
       </div> : <p role="status" className="settings-note">Checking sharing…</p>
     ) : <>
-      <p role="status" className="settings-note">
-        {status.running ? "Sharing is running." :
-          status.available ? "Sharing is stopped." : "The server’s sharing folder is unavailable."}
-      </p>
       {status.available && <>
         <label>
           Folder to share

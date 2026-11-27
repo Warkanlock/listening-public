@@ -34,7 +34,7 @@ export function DownloadsPanel({
           <h2>Downloads</h2>
           <p>Choose the default format and whether to search in the background.</p>
         </div>
-        <span className="settings-health">{settings.download_ready ? "Ready to search" : "Needs setup"}</span>
+        <span className="settings-health" data-ready={settings.download_ready}>{settings.download_ready ? "Ready to search" : "Needs setup"}</span>
       </div>
       <div className="settings-card">
         <form className="settings-form" onSubmit={submit}>
