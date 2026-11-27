@@ -726,10 +726,10 @@ class RequestsStore:
             if not indices:
                 return {}
             marks = ",".join("?" for _ in indices)
-            # A zero track index falls back to the original in the full map.
+            # A zero index falls back to the original. CASE keeps the fallback index usable.
             where = (f"(track_index IN ({marks}) AND track_index!=0) OR "
                      f"(original_track_index IN ({marks}) AND "
-                     "(track_index=0 OR (track_index IS NULL AND status='unavailable')))")
+                     "CASE WHEN track_index IS NULL THEN status='unavailable' ELSE track_index=0 END)")
             params = indices * 2
 
         def work(conn):
