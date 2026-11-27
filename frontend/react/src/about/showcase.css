@@ -185,7 +185,40 @@
 .about-install-paths article[data-install-panel] { margin: 0; padding: 1.1rem 0 .45rem; border: 0; }
 .about-install-paths article[data-install-panel] > a { margin-inline-end: .9rem; }
 .about-install-paths .about-install-note { margin-bottom: 1rem; }
-.about-page :is(.about-feature-search, .about-install-tabs, [data-feature], [data-install-panel])[hidden] { display: none; }
+.about-docker {
+  margin-block: 1rem;
+  border-radius: 12px;
+  background: var(--ocean);
+  color: var(--paper);
+}
+.about-docker-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .25rem 1rem;
+  padding: .55rem .75rem;
+  border-bottom: 1px solid var(--dark-rule);
+}
+.about-docker-toolbar button {
+  min-height: 44px;
+  padding-inline: .85rem;
+  border: 1px solid #819b8e;
+  border-radius: 6px;
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+.about-docker-toolbar button:hover { background: var(--dark-rule); }
+.about-docker-toolbar [role="status"] { color: var(--mint); }
+.about-docker pre {
+  margin: 0;
+  padding: .85rem 1rem 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: .85rem/1.6 ui-monospace, monospace;
+}
+.about-install-paths .about-docker ~ a { display: inline-block; margin-top: .75rem; }
+.about-page :is(.about-feature-search, .about-install-tabs, .about-docker-toolbar, [data-feature], [data-install-panel])[hidden] { display: none; }
 
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) and (min-width: 801px) {
