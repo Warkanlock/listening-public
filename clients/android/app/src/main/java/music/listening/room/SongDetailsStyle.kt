@@ -7,6 +7,7 @@ import android.content.res.ColorStateList
 import android.graphics.drawable.StateListDrawable
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -18,7 +19,8 @@ internal enum class SongDetailsView(val label: String, val mark: Mark) {
 /** Shared presentation for recording information and artist credits. */
 internal class SongDetailsStyle(private val ui: RoomUi) {
     fun column() = ui.column().apply {
-        setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(8))
+        val side = ui.dp(if (ui.eInk) 12 else 16)
+        setPadding(side, ui.dp(if (ui.eInk) 8 else 12), side, ui.dp(8))
     }
 
     fun progress(message: String) = ui.row(8).apply {
@@ -83,15 +85,16 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
                backLabel: String? = null, titleView: TextView = ui.heading(title, 23f),
                compact: Boolean = false, canDismiss: () -> Boolean = { true }): AlertDialog {
         val header = ui.row().apply {
-            val padding = ui.dp(if (compact) 12 else 16)
-            setPadding(padding, padding, padding, ui.dp(if (compact) 9 else 12))
+            val padding = ui.dp(if (compact || ui.eInk) 12 else 16)
+            val vertical = ui.dp(if (ui.eInk) 6 else if (compact) 9 else 12)
+            setPadding(padding, vertical, padding, vertical)
             addView(ui.column().apply {
                 addView(titleView)
                 if (artist.isNotBlank()) addView(ui.label(artist, if (compact) 12f else 16f, ui.secondary))
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = ui.dp(8) })
         }
         val content = ui.column().apply {
-            background = ui.surface(ui.paper)
+            background = ui.surface(ui.paper, if (ui.eInk) ui.ink else ui.rule)
             clipToOutline = true
             addView(header)
             addView(ui.line())
@@ -109,7 +112,10 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
             setTitle(title)
             setGravity(Gravity.CENTER)
             setBackgroundDrawableResource(android.R.color.transparent)
-            if (ui.eInk) setWindowAnimations(0)
+            if (ui.eInk) {
+                setWindowAnimations(0)
+                clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            }
         }
         return dialog
     }

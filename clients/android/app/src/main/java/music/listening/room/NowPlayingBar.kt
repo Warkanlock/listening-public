@@ -45,9 +45,10 @@ internal class NowPlayingBar(context: Context, private val ui: RoomUi, open: () 
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
     }
-    private val summary = ui.row(10).apply {
-        minimumHeight = ui.dp(56)
-        setPadding(ui.dp(10), ui.dp(5), ui.dp(6), ui.dp(5))
+    private val summary = ui.row(if (ui.eInk) 6 else 10).apply {
+        minimumHeight = ui.dp(if (ui.eInk) 48 else 56)
+        val vertical = ui.dp(if (ui.eInk) 3 else 5)
+        setPadding(ui.dp(8), vertical, ui.dp(6), vertical)
         background = StateListDrawable().apply {
             val focus = intArrayOf(android.R.attr.state_focused)
             val pressed = intArrayOf(android.R.attr.state_pressed)

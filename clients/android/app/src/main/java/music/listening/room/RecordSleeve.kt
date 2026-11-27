@@ -65,20 +65,23 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi) : FrameLay
     }
     private val preferredSize = resources.configuration.let { size ->
         val limit = when {
-            ui.compactPlayerLandscape -> 104
+            ui.compactPlayerLandscape && ui.eInk -> 104
+            ui.compactPlayerLandscape -> 168
             ui.eInk -> 168
             else -> 240
         }
         ui.dp(minOf(limit, size.screenHeightDp * 37 / 100, size.screenWidthDp - 70).coerceAtLeast(80))
     }
+    private var heightLimit = preferredSize
+    private val coverSize get() = minOf(heightLimit, if (picture == null && ui.eInk) ui.dp(84) else preferredSize)
 
     init {
         val sleeve = ui.column().apply {
             val padding = ui.dp(8)
             setPadding(padding, 0, padding, 0)
-            addView(cover, LinearLayout.LayoutParams(preferredSize, preferredSize).apply {
+            addView(cover, LinearLayout.LayoutParams(coverSize, coverSize).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = ui.dp(12)
+                bottomMargin = ui.dp(if (ui.eInk) 6 else 12)
             })
             addView(title, LinearLayout.LayoutParams(-1, -2))
             addView(artist, LinearLayout.LayoutParams(-1, -2))
@@ -87,7 +90,12 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi) : FrameLay
     }
 
     fun limitArtworkHeight(maxHeight: Int) {
-        val size = minOf(preferredSize, maxOf(ui.dp(80), maxHeight))
+        heightLimit = minOf(preferredSize, maxOf(ui.dp(80), maxHeight))
+        updateCoverSize()
+    }
+
+    private fun updateCoverSize() {
+        val size = coverSize
         val bounds = cover.layoutParams
         if (bounds.width != size) {
             bounds.width = size
@@ -100,6 +108,7 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi) : FrameLay
         if (picture === image) return
         viewer?.dismiss()
         picture = image
+        updateCoverSize()
         art.animate().cancel()
         art.alpha = 1f
         if (image == null) {
