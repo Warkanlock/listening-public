@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from system.engine_fleet import Fleet, IDENTITY, LIMIT, WorkerDeadlineExceeded
-from system.engine_repository import stage_repository
+from system.engine_repository import stage_catalog_url, stage_repository
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -97,6 +97,7 @@ def main():
         parser.add_argument(f"--{option}", required=True, type=Path)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--catalog", type=Path, help="path to a locally signed catalog")
+    source.add_argument("--catalog-url", help="HTTPS URL of a signed catalog.json with a sibling catalog.sig")
     source.add_argument("--repository", help="HTTPS GitHub repository with signed catalog release assets")
     parser.add_argument("--plugin-release", help="catalog release tag (defaults to latest)")
     parser.add_argument("--server-version", required=True)
@@ -116,9 +117,13 @@ def main():
               tempfile.TemporaryDirectory(prefix="listening-engine-repository-") as directory):
             remove_stale_socket(args.socket)
             key = args.public_key.resolve()
-            catalog = (stage_repository(args.repository, args.plugin_release, Path(directory), args.state,
-                                        key, arch, args.server_version)
-                       if args.repository else args.catalog.resolve())
+            staging = (Path(directory), args.state, key, arch, args.server_version)
+            if args.repository:
+                catalog = stage_repository(args.repository, args.plugin_release, *staging)
+            elif args.catalog_url:
+                catalog = stage_catalog_url(args.catalog_url, *staging)
+            else:
+                catalog = args.catalog.resolve()
             fleet = Fleet(args.state, args.staging, catalog, key, arch, args.server_version,
                           share_root=args.share_root)
             with Server(str(args.socket), Handler) as server:

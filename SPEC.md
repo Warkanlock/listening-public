@@ -11,15 +11,16 @@ own, on a computer you control. Anything that can describe songs with the
 fields in this spec can feed it, and everything in it can leave again in open
 formats.
 
-Spotify appears in this system only as two optional adapters, never as a
-requirement:
+Listening Room supports Spotify playlist files and an optional account
+connection.
 
 - Its playlist CSV export shape is one of the CSV dialects the CSV adapter
   accepts (see the criteria below). A CSV from any other tool that matches
   the same criteria works exactly the same way.
-- An optional OAuth connection can mirror Spotify playlists on a schedule.
-  It writes a CSV, the list watcher converts that to XSPF, and the catalog
-  never talks to Spotify directly. Turning it off changes nothing else.
+- The OAuth connection mirrors liked songs and playlists into local sources.
+  It also records the external identity of linked playlists. If the owner
+  authorizes playlist writes, an explicit edit can update a linked Spotify playlist.
+  Local files and portable playlists work without the account connection.
 
 The same holds for every other source: a folder of M3U files, a hand-written
 CSV, an XSPF list from another player, or a watched folder on disk are all
