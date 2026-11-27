@@ -23,13 +23,17 @@
 
 ## What's new
 
+- **Less room for dialogs.** Copy review, playlist sharing, and related actions use more compact controls.
+- **Better tablet listening.** On iPad, playlist artwork anchors the header, and the player background reaches the bottom edge.
+- **A tour you can host anywhere.** The landing leads with installation and discovery features. Download the static site from the release.
+
 - **Review copies at a glance.** Copy-review actions line up in a row on desktop and in two columns on web and Android phones.
 - **Stop searching on web and Android.** In **Review copies**, choose **Stop searching** to mark a request **Unavailable** and remove it from automatic searches. The request stays visible. Select **Retry now** to search again.
 - **Find your way around Settings.** Use a sidebar on a computer or scroll the tabs on a phone. Spotify account controls and playlist tools have their own sections. In **Sources → Playlist matches**, open a suggested match to compare recordings before linking playlists.
 - **Manage sharing in Extensions.** Open the plugin that provides sharing to choose a folder and start or stop sharing. [Folder sharing setup](docs/download-engines.md#share-a-folder-through-a-plugin)
 - **Search and update on Android.** Use the dedicated **Search** screen to find songs, artists, and albums. Check for a new APK from **Settings → App updates**. [Android guide](clients/android/README.md)
 
-[2.0.7 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.7) · [2.0.6 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.6) · [2.0.5 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.5)
+[2.0.8 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.8) · [2.0.7 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.7) · [2.0.6 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.6)
 
 ## Your first run
 

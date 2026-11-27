@@ -60,6 +60,7 @@ private struct RoomScreen: View {
                 RoomPlayer(room: room) { problem, retry, expired in
                     openForm(problem, retry: retry, expired: expired)
                 }
+                .ignoresSafeArea(.container, edges: UIDevice.current.userInterfaceIdiom == .pad ? .bottom : [])
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
@@ -139,6 +140,17 @@ private struct RoomPlayer: UIViewRepresentable {
         #endif
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            // The native room keeps its top and side insets. Let the web dock paint its bottom inset.
+            let fitViewport = """
+                const viewport = document.querySelector('meta[name="viewport"]');
+                if (viewport && !viewport.content.includes('viewport-fit')) {
+                    viewport.content += ', viewport-fit=cover';
+                }
+                """
+            config.userContentController.addUserScript(WKUserScript(
+                source: fitViewport, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        }
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         web.scrollView.contentInsetAdjustmentBehavior = .never

@@ -53,6 +53,8 @@ import {
   type RadioStatus,
 } from "./slices/radio";
 
+const DEFAULT_QUEUE_MEDIA = "(min-width: 1250px) and (not (any-pointer: coarse))";
+
 type RoomConnection = "connecting" | "catalog_loading" | "ready" | "unreachable" | "pairing_required";
 
 export type View =
@@ -633,7 +635,7 @@ export class Store implements SliceHost {
     if (!this.member && this.settings?.onboarding && this.view !== "extensions") this.view = "settings";
     this.queueOpen =
       this.queuePreference === null
-        ? innerWidth >= 1250
+        ? matchMedia(DEFAULT_QUEUE_MEDIA).matches
         : this.queuePreference === "true";
     this.bump();
   }
@@ -654,7 +656,7 @@ export function StoreProvider({ children, member = false }: { children: ReactNod
     store.onChange = () => setTick((value) => value + 1);
     void store.startup();
     const stopPolling = startPolls(store);
-    const media = matchMedia("(min-width: 1250px)");
+    const media = matchMedia(DEFAULT_QUEUE_MEDIA);
     const onMedia = (event: MediaQueryListEvent) => {
       if (store.queuePreference === null) store.setQueueOpen(event.matches, false);
     };

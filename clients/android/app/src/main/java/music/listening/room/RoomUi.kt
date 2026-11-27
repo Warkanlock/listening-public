@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Build
 import android.view.Gravity
@@ -128,11 +129,13 @@ internal class RoomUi(private val context: Context) {
         setBounds(0, 0, intrinsicWidth, intrinsicHeight)
     }
 
-    fun iconButton(name: String, glyph: Mark, solid: Boolean = false, outlined: Boolean = true, action: () -> Unit) =
+    fun iconButton(name: String, glyph: Mark, solid: Boolean = false, outlined: Boolean = true,
+                   compact: Boolean = false, action: () -> Unit) =
         ImageButton(context).apply {
             contentDescription = name
             tooltipText = name
-            setImageDrawable(mark(glyph, if (solid) 25 else 23, if (solid) onAccent else accentInk))
+            val size = if (solid) 25 else 23
+            setImageDrawable(mark(glyph, if (compact) size * 4 / 5 else size, if (solid) onAccent else accentInk))
             scaleType = ImageView.ScaleType.CENTER
             val disabled = intArrayOf(-android.R.attr.state_enabled)
             val selected = intArrayOf(android.R.attr.state_selected)
@@ -149,13 +152,14 @@ internal class RoomUi(private val context: Context) {
                     setStroke(dp(if (outline) 2 else 1), if (outline) ink else controlEdge)
                 }
             }
-            background = StateListDrawable().apply {
+            val buttonBackground = StateListDrawable().apply {
                 addState(disabled, disc(fog))
                 addState(down, disc(if (solid) secondary else pressed, true))
                 addState(focus, disc(if (solid) secondary else fog, true))
                 addState(selected, disc(accent, true))
                 addState(intArrayOf(), disc(rest))
             }
+            background = if (compact) InsetDrawable(buttonBackground, dp(5)) else buttonBackground
             minimumWidth = dp(48); minimumHeight = dp(48)
             setOnClickListener { action() }
         }
