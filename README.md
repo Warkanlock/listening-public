@@ -6,8 +6,7 @@
   <p>
     <a href="https://listening-room-tour.vercel.app/">Website</a> ·
     <a href="#your-first-run">Get started</a> ·
-    <a href="https://github.com/Warkanlock/listening-public/releases/tag/macos-v1.0.0">Download for Mac</a> ·
-    <a href="https://github.com/Warkanlock/listening-public/releases/latest">Download for Android</a> ·
+    <a href="https://github.com/Warkanlock/listening-public/releases/tag/v1.0.0">Get Listening Room 1.0.0</a> ·
     <a href="#documentation">Docs</a>
   </p>
   <a href="frontend/react/public/assets/about-showcase/room/library.webp"><img src="frontend/react/public/assets/about-showcase/room/library.webp" alt="Listening Room library and playback queue with a demo collection" width="840"></a>
@@ -46,12 +45,12 @@ Choose a computer to host Listening. It holds the library. Open the room on the 
 With Docker running, pull the published image and start a room.
 
 ```sh
-docker pull ghcr.io/warkanlock/listening-public:2.0.5
+docker pull ghcr.io/warkanlock/listening-public:1.0.0
 docker run -d --name listening-room --restart unless-stopped \
   -p 127.0.0.1:8765:8765 \
   -e LISTENING_ROOM_REQUIRE_OWNER=1 \
   -v listening-config:/config -v listening-library:/library \
-  ghcr.io/warkanlock/listening-public:2.0.5
+  ghcr.io/warkanlock/listening-public:1.0.0
 docker exec -it listening-room /app/listening account set-owner owner
 ```
 
@@ -68,7 +67,7 @@ Enter a password when prompted. On the Docker host, open [http://127.0.0.1:8765]
 2. To join a room, enter its address or paste your invitation.
 3. To host a new room, choose **Listening Room → Install terminal command**. Open Terminal, run `~/.local/bin/listening setup`, and choose a music folder.
 
-[Download for Mac](https://github.com/Warkanlock/listening-public/releases/tag/macos-v1.0.0) · [Mac setup guide](clients/macos/README.md)
+[Download for Mac](https://github.com/Warkanlock/listening-public/releases/download/macos-v1.0.0/listening-room-macos-1.0.0.dmg) · [Mac setup guide](clients/macos/README.md)
 
 </details>
 
@@ -88,7 +87,7 @@ Use a trusted HTTPS room and save the mix from the Home Screen app for offline C
 1. Download and open the Listening APK. Allow installation from your browser or Files app if prompted.
 2. Open Listening and enter your room address or invitation. You can also open music already on the device.
 
-[Download for Android](https://github.com/Warkanlock/listening-public/releases/latest) · [Android guide](clients/android/README.md)
+[Download for Android](https://github.com/Warkanlock/listening-public/releases/download/v1.0.0/listening-room-2.0.9.apk) · [Android guide](clients/android/README.md)
 
 </details>
 

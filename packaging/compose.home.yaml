@@ -2,11 +2,6 @@
 # Set LISTENING_ROOM_ORIGIN to the URL your devices use to reach this room.
 services:
   listening-room:
-    build:
-      context: ..
-    image: listening-room:home
-    platform: linux/amd64
-    restart: unless-stopped
     environment:
       LISTENING_ROOM_PROFILE: home-server
       LISTENING_ROOM_MUSIC_INBOX: /shares/Music

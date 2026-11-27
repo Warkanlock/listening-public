@@ -10,6 +10,10 @@ on:
         description: Publish a tagged release from a public repository to GHCR
         type: boolean
         default: false
+      distribution_tag:
+        description: Match the Git tag when the distribution and server versions differ
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -141,10 +145,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate the release tag
+        env:
+          DISTRIBUTION_TAG: ${{ inputs.distribution_tag }}
         run: |
           version=$(./listening --version)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$GITHUB_REF_NAME" == "v$version" ]]
-          printf 'VERSION=%s\nIMAGE=ghcr.io/%s\n' "$version" "${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          tag="${DISTRIBUTION_TAG:-v$version}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$GITHUB_REF_NAME" == "$tag" ]]
+          printf 'VERSION=%s\nREGISTRY_VERSION=%s\nIMAGE=ghcr.io/%s\n' "$version" "${tag#v}" "${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           pattern: registry-*
@@ -164,9 +171,9 @@ jobs:
             [[ $(docker image inspect --format '{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}}' "$source") == "$expected" ]]
             docker tag "$source" "$IMAGE:$tag"
           }
-          load_candidate core amd64 "$VERSION-amd64"
-          load_candidate core arm64 "$VERSION-arm64"
-          docker push "$IMAGE:$VERSION-amd64"
-          docker push "$IMAGE:$VERSION-arm64"
-          docker buildx imagetools create -t "$IMAGE:$VERSION" "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
-          docker buildx imagetools inspect "$IMAGE:$VERSION"
+          load_candidate core amd64 "$REGISTRY_VERSION-amd64"
+          load_candidate core arm64 "$REGISTRY_VERSION-arm64"
+          docker push "$IMAGE:$REGISTRY_VERSION-amd64"
+          docker push "$IMAGE:$REGISTRY_VERSION-arm64"
+          docker buildx imagetools create -t "$IMAGE:$REGISTRY_VERSION" "$IMAGE:$REGISTRY_VERSION-amd64" "$IMAGE:$REGISTRY_VERSION-arm64"
+          docker buildx imagetools inspect "$IMAGE:$REGISTRY_VERSION"
