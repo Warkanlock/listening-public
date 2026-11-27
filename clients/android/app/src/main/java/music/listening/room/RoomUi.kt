@@ -29,7 +29,8 @@ internal class RoomUi(private val context: Context) {
     val eInk = theme == RoomTheme.E_INK
     private val palette by lazy { RoomPalettes.load(context, theme) }
     val compactPlayerLandscape get() = context.resources.configuration.let {
-        it.orientation == Configuration.ORIENTATION_LANDSCAPE && (eInk || it.screenHeightDp < 550)
+        it.orientation == Configuration.ORIENTATION_LANDSCAPE && it.screenWidthDp >= 480 &&
+            (eInk || it.screenHeightDp < 550)
     }
     private val compact get() = eInk || context.resources.configuration.screenWidthDp < 380
     private fun tone(kompakt: Int, token: String) = if (eInk) Color.rgb(kompakt, kompakt, kompakt)
