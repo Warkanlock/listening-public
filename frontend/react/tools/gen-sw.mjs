@@ -25,8 +25,7 @@ function listFiles(dir, prefix = "") {
     if (entry.isDirectory()) {
       files.push(...listFiles(join(dir, entry.name), relative));
     } else if (entry.isFile() && !networkOnly.has(relative) &&
-               !relative.startsWith("assets/first-light-") && !relative.startsWith("assets/feature-pattern.worker-") &&
-               !relative.startsWith("assets/about-showcase/")) {
+               !relative.startsWith("assets/first-light-") && !relative.startsWith("assets/about-showcase/")) {
       files.push(relative);
     }
   }
