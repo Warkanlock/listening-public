@@ -77,6 +77,7 @@ class RoomActivity : Activity() {
     private var downloadNoticeSlot: LinearLayout? = null
     private var downloadActivityLoading = false
     private var refreshDownloads: (() -> Unit)? = null
+    private var apkInstallResult: ((Boolean) -> Unit)? = null
     private var autoJoinAttempt: Pair<String, Long>? = null
     private var authorizedExternalRadio: Pair<String, RadioHistory>? = null
     private fun phone() = room?.let { PhoneLibrary.get(this, it.replicaId) }
@@ -381,9 +382,21 @@ class RoomActivity : Activity() {
         form.show()
     }
 
-    @Deprecated("Uses the platform document picker")
+    @Suppress("DEPRECATION")
+    internal fun startApkInstall(intent: Intent, onResult: (Boolean) -> Unit) {
+        startActivityForResult(intent, APK_INSTALL_REQUEST)
+        apkInstallResult = onResult
+    }
+
+    @Deprecated("Uses the platform document picker and installer")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == APK_INSTALL_REQUEST) {
+            val onResult = apkInstallResult
+            apkInstallResult = null
+            onResult?.invoke(resultCode == RESULT_OK)
+            return
+        }
         if (requestCode != 81 || resultCode != RESULT_OK) return
         val target = room ?: return
         val library = phone() ?: return
