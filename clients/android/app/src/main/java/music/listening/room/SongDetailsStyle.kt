@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.animation.ValueAnimator
 import android.content.res.ColorStateList
+import android.graphics.drawable.StateListDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
@@ -34,19 +35,6 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
         addView(ui.label(message, color = ui.secondary))
     }
 
-    fun loading(message: String) = ui.column(8).apply {
-        val padding = ui.dp(12)
-        setPadding(padding, padding, padding, padding)
-        background = ui.surface(ui.fog)
-        addView(progress(message))
-        for (width in if (ui.eInk) emptyList() else listOf(155, 112, 134)) {
-            addView(View(context).apply {
-                background = ui.surface(ui.rule, null)
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(ui.dp(width), ui.dp(8)))
-        }
-    }
-
     fun fact(name: String, value: String) = ui.column().apply {
         addView(ui.line())
         addView(ui.column().apply {
@@ -54,6 +42,31 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
             addView(ui.label(name, 13f, ui.secondary))
             addView(ui.label(value).apply { setTextIsSelectable(true) })
         })
+    }
+
+    fun link(title: String, detail: String = "", open: () -> Unit) = with(ui) {
+        column().apply {
+            addView(row(8).apply {
+                minimumHeight = dp(48)
+                setPadding(0, dp(6), dp(6), dp(6))
+                background = StateListDrawable().apply {
+                    addState(intArrayOf(android.R.attr.state_pressed), surface(fog, null))
+                    addState(intArrayOf(android.R.attr.state_focused), surface(fog, ink))
+                    addState(intArrayOf(), surface(paper, null))
+                }
+                addView(column(2).apply {
+                    addView(label(title))
+                    if (detail.isNotBlank()) addView(label(detail, 14f, secondary))
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(android.widget.ImageView(context).apply {
+                    setImageDrawable(mark(Mark.BROWSE, 17))
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                })
+                isFocusable = true
+                setOnClickListener { open() }
+            })
+            addView(line())
+        }
     }
 
     fun navigation(current: SongDetailsView, hasAlbum: Boolean, open: (SongDetailsView) -> Unit) =

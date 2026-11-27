@@ -116,7 +116,9 @@ private class ArtistConnectionsDialog(
         accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
     }
     private val stage = ui.column()
-    private val scroll = ScrollView(activity)
+    private val scroll = ScrollView(activity).apply {
+        if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
+    }
     private val back = ui.iconButton("Previous connection", Mark.BACK) {
         history.removeAt(history.lastIndex)
         load()
@@ -167,7 +169,7 @@ private class ArtistConnectionsDialog(
         stage.removeAllViews()
         cache[page.target]?.let { render(it, page.from); return }
         subject.text = page.from?.node?.name ?: title
-        stage.addView(style.loading("Looking up credits…"))
+        stage.addView(style.progress("Looking up credits…"))
         val request = MetadataRequest()
         pending = request
         request.future = metadataRequests.submit {
@@ -186,7 +188,7 @@ private class ArtistConnectionsDialog(
                         else -> "Couldn’t load these credits. Try again."
                     }
                     with(ui) {
-                        stage.section(panel().apply {
+                        stage.section(column().apply {
                             section(label(message, color = secondary), gap = 8)
                             addView(button("Try again", action = ::load))
                         })
@@ -204,10 +206,7 @@ private class ArtistConnectionsDialog(
                 if (!subject.isInTouchMode) subject.requestFocus()
                 if (ui.eInk) {
                     for (edge in credits.branches) {
-                        val name = listOf(edge.node.name, edge.label).filter(String::isNotBlank).joinToString("\n")
-                        stage.section(button(name) { follow(edge) }.apply {
-                            gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                        }, gap = 6)
+                        stage.addView(style.link(edge.node.name, edge.label) { follow(edge) })
                     }
                 } else {
                     val graph = CreditGraph(activity, ui, credits, ::follow)
@@ -221,7 +220,7 @@ private class ArtistConnectionsDialog(
                 }
                 val facts = listOf(root.detail, from?.label.orEmpty(), from?.note.orEmpty())
                     .filter(String::isNotBlank).joinToString(" · ")
-                stage.section(panel().apply {
+                stage.section(column().apply {
                     if (facts.isNotBlank()) {
                         section(heading("Credit details", 19f), gap = 4)
                         section(label(facts, color = secondary), gap = 8)
@@ -238,7 +237,7 @@ private class ArtistConnectionsDialog(
             is Credits.Unmatched -> {
                 val kind = if (origin.kind == "album") "album" else "recording"
                 subject.text = if (credits.retry) "Credits unavailable" else "No confirmed match"
-                stage.section(panel().apply {
+                stage.section(column().apply {
                     val message = if (credits.retry) "These credits couldn’t load."
                         else "MusicBrainz has no confirmed match for this $kind."
                     section(label(message, color = secondary), gap = 8)

@@ -5,7 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.Toast
 import android.widget.ScrollView
 import org.json.JSONObject
@@ -30,7 +30,7 @@ internal fun RoomUi.showSongInfo(activity: Activity, room: Room, track: JSONObje
     val context = content.context
     val title = track.getString("title")
     val artist = track.optString("artist")
-    val facts = column().apply { section(heading("Recording details", 19f), gap = 8) }
+    val facts = column()
     fun fact(name: String, value: String) {
         if (value.isNotBlank()) facts.addView(style.fact(name, value))
     }
@@ -51,14 +51,17 @@ internal fun RoomUi.showSongInfo(activity: Activity, room: Room, track: JSONObje
         else -> "Not downloaded"
     })
     fact("Audio codec", track.optString("codec"))
-    val dialog = style.dialog(activity, title, ScrollView(context).apply { addView(content) }, artist)
+    val dialog = style.dialog(activity, title, ScrollView(context).apply {
+        if (eInk) overScrollMode = android.view.View.OVER_SCROLL_NEVER
+        addView(content)
+    }, artist)
     if (canExplore) content.section(style.navigation(view, hasAlbum) {
         dialog.dismiss()
         openView(it)
     })
     val trackId = track.musicProfileRef()
-    val actions = buildList<ImageButton> {
-        fun action(name: String, mark: Mark, click: () -> Unit) = add(iconButton(name, mark) {
+    val actions = buildList<Entry> {
+        fun action(name: String, mark: Mark, click: () -> Unit) = add(Entry(name, mark = mark) {
             dialog.dismiss()
             click()
         })
@@ -66,17 +69,10 @@ internal fun RoomUi.showSongInfo(activity: Activity, room: Room, track: JSONObje
             action("Play next", Mark.QUEUE_NEXT) { queueAction("play_next") }
             action("Add to queue", Mark.QUEUE_ADD) { queueAction("enqueue") }
         }
-        if (!copyAvailable && findCopy != null) {
-            when {
-                track.optJSONObject("mp3_retry") != null -> action("Try MP3", Mark.REFRESH, findCopy)
-                track.optString("status") == "waiting_format" -> action("Choose format", Mark.SETTINGS, findCopy)
-                else -> action("Find a copy", Mark.DOWNLOAD, findCopy)
-            }
-        }
         if (addToPlaylist != null) action("Add to playlist", Mark.PLAYLIST_ADD, addToPlaylist)
         if (!copyAvailable) {
-            add(iconButton("Find on YouTube", Mark.YOUTUBE) { openYouTube(context, artist, title) })
-            if (findCopy != null) add(iconButton("View extensions", Mark.EXTENSIONS) { activity.showRoomExtensions(room) })
+            add(Entry("Find on YouTube", mark = Mark.YOUTUBE) { openYouTube(context, artist, title) })
+            if (findCopy != null) add(Entry("View extensions", mark = Mark.EXTENSIONS) { activity.showRoomExtensions(room) })
         }
         if (trackId != null && profilePlayback != null) {
             action("Open artist", Mark.ARTIST) { showMusicProfile(activity, room, "artist/$trackId", profilePlayback) }
@@ -85,7 +81,19 @@ internal fun RoomUi.showSongInfo(activity: Activity, room: Room, track: JSONObje
             }
         }
     }
-    if (actions.isNotEmpty()) content.section(actionStrip(actions), gap = 8)
+    val copyAction = if (copyAvailable || findCopy == null) null else button(when {
+        track.optJSONObject("mp3_retry") != null -> "Try MP3"
+        track.optString("status") == "waiting_format" -> "Choose format"
+        else -> "Find a copy"
+    }, solid = true) {
+        dialog.dismiss()
+        findCopy()
+    }
+    if (copyAction != null || actions.isNotEmpty()) content.section(row(8).apply {
+        if (copyAction != null) addView(copyAction, LinearLayout.LayoutParams(0, -2, 1f))
+        if (actions.isNotEmpty()) addView(button("More actions") { choices(activity, title, actions) },
+            LinearLayout.LayoutParams(0, -2, 1f))
+    })
     content.section(facts)
     dialog.show()
 }
