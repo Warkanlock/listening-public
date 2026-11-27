@@ -710,17 +710,31 @@ class RequestsStore:
                     read("status='downloaded' AND message!='Already in the library'", 32))
         return self._run(work)
 
-    def by_track(self):
+    def by_track(self, indices=None):
         """The requests-by-track map the catalog read path needs.
 
         When a track has several requests, the newest row wins. A
         stopped replacement also holds its original track out of search.
+        Pass the indices of a catalog page to read only those tracks.
         """
+        if indices is None:
+            where = ("track_index IS NOT NULL OR "
+                     "(status='unavailable' AND original_track_index IS NOT NULL)")
+            params = ()
+        else:
+            indices = tuple(dict.fromkeys(indices))
+            if not indices:
+                return {}
+            marks = ",".join("?" for _ in indices)
+            # A zero track index falls back to the original in the full map.
+            where = (f"(track_index IN ({marks}) AND track_index!=0) OR "
+                     f"(original_track_index IN ({marks}) AND "
+                     "(track_index=0 OR (track_index IS NULL AND status='unavailable')))")
+            params = indices * 2
+
         def work(conn):
             return {row["track_index"] or row["original_track_index"]: decode_request_row(row)
-                    for row in conn.execute("SELECT * FROM requests WHERE track_index IS NOT NULL "
-                                            "OR (status='unavailable' AND original_track_index IS NOT NULL) "
-                                            "ORDER BY id")}
+                    for row in conn.execute(f"SELECT * FROM requests WHERE {where} ORDER BY id", params)}
         return self._run(work)
 
     @staticmethod
