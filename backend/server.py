@@ -64,7 +64,7 @@ from system import client_artifacts
 from devices.announcements import AnnouncementBoard
 from devices.device_store import DeviceStore, invitation_room_proof
 from devices.presence import Presence
-from downloads.requests_store import EDITABLE_FORMAT, RequestsStore, mp3_retry
+from downloads.requests_store import ACTIVE_STATUSES, EDITABLE_FORMAT, RequestsStore, mp3_retry
 from downloads.state_store import StateStore
 from downloads.verification import PROBE_CACHE_VERSION, probe
 from metadata.artist_connections import ArtistConnections, CONNECTION_PATH, ConnectionsBusy, valid_id
@@ -3193,7 +3193,8 @@ class Handler(BaseHTTPRequestHandler):
         if playlist != "all" and (playlist not in catalog.playlists or (profile is not None and not member_playlist(playlist))):
             return self.error_json("Unknown playlist")
         indices = range(1, len(catalog.records) + 1) if playlist == "all" else catalog.playlists[playlist]
-        requests = requests_store().by_track() if profile is None else {}
+        request_filter = filter_name == "requests"
+        requests = requests_store().by_track() if request_filter else {}
         favorite_keys = catalog.favorites if profile is None else profile.keys()
         # Your listening (plan 050 step 5): the two history views
         # filter and order by the play-event aggregates, read once
@@ -3233,12 +3234,11 @@ class Handler(BaseHTTPRequestHandler):
                     # 045): a completion whose start row was lost
                     # counts in Most played, not here.
                     continue
-            status = catalog.status_of(index, requests)
-            if filter_name == "ready" and status != "verified":
-                continue
-            if filter_name == "missing" and status == "verified":
-                continue
-            if filter_name == "requests" and status not in {"waiting_format", "queued", "searching", "waiting_space"}:
+            if filter_name in ("ready", "missing"):
+                ready = catalog.status_of(index) == "verified"
+                if ready != (filter_name == "ready"):
+                    continue
+            if request_filter and catalog.status_of(index, requests) not in ACTIVE_STATUSES:
                 continue
             matching.append(index)
         if history is not None:
@@ -3255,6 +3255,8 @@ class Handler(BaseHTTPRequestHandler):
         matching.extend(downloads)
         page = matching[offset:offset + limit]
         indices = [index for index in page if type(index) is int]
+        if profile is None and not request_filter:
+            requests = requests_store().by_track(indices)
         tracks = ([catalog.track(index, requests) for index in indices] if profile is None
                   else [track for index in indices if (track := member_catalog_track(index, favorite_keys)) is not None])
         for track in tracks:

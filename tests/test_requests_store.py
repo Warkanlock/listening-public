@@ -217,6 +217,8 @@ class FormatSelectionTests(StoreTestCase):
         stopped = self.store.stop_search(request_id, queued["format_revision"])
 
         self.assertEqual(self.store.by_track(), {1: stopped})
+        self.assertEqual(self.store.by_track([1, 2]), {1: stopped})
+        self.assertEqual(self.store.by_track([2]), {})
         self.assertEqual(self.create(individual=False), (stopped, False))
         self.assertEqual(self.store.queued(1), [])
         self.enqueue_custom(title="Newer request")
@@ -561,10 +563,16 @@ class LookupTests(StoreTestCase):
     def test_by_track_maps_tracks_to_their_newest_request(self):
         self.enqueue_track(5, "First")
         newest = self.enqueue_track(5, "Second")
+        other = self.enqueue_track(6)
+        legacy = self.enqueue_track(0)
         self.enqueue_custom()
+        with closing(self.store.connect()) as connection, connection:
+            connection.execute("UPDATE requests SET original_track_index=7 WHERE id=?", (legacy,))
         by_track = self.store.by_track()
-        self.assertEqual(set(by_track), {5})
-        self.assertEqual(by_track[5]["id"], newest)
+        self.assertEqual({index: row["id"] for index, row in by_track.items()}, {5: newest, 6: other, 7: legacy})
+        self.assertEqual(self.store.by_track([5, 5]), {5: self.store.get(newest)})
+        self.assertEqual(self.store.by_track([7]), {7: self.store.get(legacy)})
+        self.assertEqual(self.store.by_track([]), {})
 
     def test_active_for_track_prefers_the_newest_active_row(self):
         old = self.enqueue_track(7)
