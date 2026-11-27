@@ -783,6 +783,27 @@ def verify_landing(browser, base, output, errors, warnings):
             page.close()
 
 
+def verify_settings_keyboard(page, tablist, count):
+    assert tablist.get_attribute("aria-orientation") == "vertical", "The desktop tab list is not announced as vertical"
+    assert tablist.get_by_role("tab").count() == count, f"Expected {count} room settings tabs"
+    setup = tablist.get_by_role("tab", name="Room setup", exact=True)
+    sources = tablist.get_by_role("tab", name="Sources", exact=True)
+    setup_box, sources_box = setup.bounding_box(), sources.bounding_box()
+    assert sources_box["y"] > setup_box["y"] and abs(sources_box["x"] - setup_box["x"]) < 2, \
+        "Desktop settings tabs are not in a vertical column"
+    setup.click()
+    page.keyboard.press("ArrowDown")
+    assert sources.evaluate("element => element === document.activeElement"), \
+        "Down Arrow does not focus Sources"
+    page.keyboard.press("Enter")
+    assert sources.get_attribute("aria-selected") == "true", "The keyboard does not select Sources"
+    panel = page.get_by_role("tabpanel", name="Sources", exact=True)
+    panel.get_by_role("heading", name="Music sources", exact=True).wait_for()
+    list_box = tablist.bounding_box()
+    assert panel.bounding_box()["x"] >= list_box["x"] + list_box["width"], \
+        "The desktop settings panel does not sit beside the tab list"
+
+
 def verify_phone(browser, server, output, errors, warnings):
     with browser.new_context(has_touch=True, is_mobile=True,
                              viewport={"width": 320, "height": 568}) as context:
@@ -798,17 +819,51 @@ def verify_phone(browser, server, output, errors, warnings):
         phone.get_by_role("button", name="Settings", exact=True).tap()
         phone.get_by_role("heading", name="Settings", exact=True).wait_for()
         nav.wait_for(state="hidden")
-        phone.get_by_role("tab", name="Storage", exact=True).tap()
-        storage = phone.get_by_role("tab", name="Storage", exact=True)
+        tabs = phone.get_by_role("tablist", name="Settings sections")
+        setup = tabs.get_by_role("tab", name="Room setup", exact=True)
+        sources = tabs.get_by_role("tab", name="Sources", exact=True)
+        setup.wait_for()
+        assert tabs.get_attribute("aria-orientation") in (None, "horizontal"), \
+            "The phone tab list is not announced as horizontal"
+        assert tabs.get_by_role("tab").evaluate_all("""items => {
+            const first = items[0].getBoundingClientRect();
+            return items.slice(1).every(item => {
+                const bounds = item.getBoundingClientRect();
+                return bounds.left > first.left && Math.abs(bounds.top - first.top) < 2;
+            });
+        }"""), \
+            "The phone settings tabs are not in one horizontal row"
+        setup.focus()
+        phone.keyboard.press("ArrowRight")
+        assert sources.evaluate("element => element === document.activeElement"), \
+            "Right Arrow does not focus Sources on the phone tab list"
+        storage = tabs.get_by_role("tab", name="Storage", exact=True)
+        storage.tap()
         if storage.get_attribute("aria-selected") != "true":
             raise AssertionError("Storage is not reachable from the phone settings tabs")
         if phone.evaluate("document.documentElement.scrollWidth") > phone.viewport_size["width"]:
             raise AssertionError("Settings overflows the 320px viewport")
 
         phone.set_viewport_size({"width": 390, "height": 650})
-        phone.get_by_role("tab", name="Room setup", exact=True).tap()
-        phone.get_by_role("button", name="Manage sources", exact=True).wait_for()
+        setup.tap()
+        setup_panel = phone.get_by_role("tabpanel", name="Room setup", exact=True)
+        setup_panel.get_by_role("button", name="Manage sources", exact=True).wait_for()
         phone.screenshot(path=str(output / "01c-phone-settings.png"))
+        setup_panel.get_by_role("button", name="Get client apps", exact=True).tap()
+        clients = tabs.get_by_role("tab", name="Connect a device", exact=True)
+        phone.get_by_role("tabpanel", name="Connect a device", exact=True).get_by_role(
+            "heading", name="Connect a device", exact=True).wait_for()
+        assert clients.get_attribute("aria-selected") == "true", "Get client apps did not select Connect a device"
+        wait_for("the active Connect a device tab to scroll into view", lambda: clients.evaluate(
+            """tab => {
+                const bounds = tab.getBoundingClientRect();
+                const list = tab.closest('[role="tablist"]').getBoundingClientRect();
+                return bounds.left >= Math.max(0, list.left) - 1 &&
+                    bounds.right <= Math.min(innerWidth, list.right) + 1 &&
+                    bounds.top >= 0 && bounds.bottom <= innerHeight;
+            }"""), timeout=5, interval=0.1)
+        assert phone.evaluate("document.documentElement.scrollWidth") <= phone.viewport_size["width"], \
+            "Connect a device overflows the phone viewport"
         menu.tap()
         phone.screenshot(path=str(output / "01d-phone-menu.png"))
         phone.keyboard.press("Escape")
@@ -2096,6 +2151,12 @@ def verify_household_browser(browser, root, output):
         first.screenshot(path=str(output))
 
         owner = visit("room-owner")
+        owner.get_by_role("button", name="Settings", exact=True).click()
+        owner_tabs = owner.get_by_role("tablist", name="Settings sections")
+        owner_tabs.get_by_role("tab", name="Appearance", exact=True).click()
+        owner.get_by_role("tabpanel", name="Appearance", exact=True).get_by_role(
+            "heading", name="Appearance", exact=True).wait_for()
+        owner.screenshot(path=str(output.with_name("11-settings-appearance.png")))
         owner.get_by_role("button", name="My playlists", exact=True).click()
         shared_shelf = owner.get_by_role("region", name="Room playlists")
         shared_card = shared_shelf.locator(".playlist-card").first
@@ -2760,7 +2821,7 @@ def run_browser(server, output):
             try:
                 verify_phone(browser, server, output, errors, warnings)
                 item.ok = True
-                item.detail = "320px and 390px touch layouts, Settings and song reflow, menu dismissal, and queue access"
+                item.detail = "320px and 390px touch layouts, horizontal Settings tabs and setup shortcut, song reflow, menu dismissal, and queue access"
             except Exception as error:
                 item.detail = str(error)
 
@@ -3244,7 +3305,8 @@ def run_browser(server, output):
 
             # -- Settings, every tab ---------------------------------------
             tabs = ["Room setup", "Sources", "Downloads", "Spotify", "Playback",
-                    "Radio", "Devices", "Storage", "Extensions"]
+                    "Radio", "Devices", "Storage", "Extensions", "Connect a device"]
+            headings = {"Sources": "Music sources"}
             plugin = {"id": "fixture", "version": "1.0", "capabilities": ["search", "fetch"], "enabled": False,
                       "sources": {"search": ["fixture"], "fetch": ["fixture"]}, "image": "fixture@sha256:same",
                       "settings": [{"key": "api_token", "label": "Catalog token",
@@ -3320,33 +3382,33 @@ def run_browser(server, output):
                 route.fulfill(json=extension_settings)
 
             page.route("**/api/extensions", engine_settings)
+            tablist = page.get_by_role("tablist", name="Settings sections")
             try:
                 page.get_by_role("button", name="Settings").click(
                     timeout=15000)
-                page.get_by_role("tab", name="Room setup").wait_for(timeout=20000)
+                tablist.get_by_role("tab", name="Room setup", exact=True).wait_for(timeout=20000)
             except Exception as error:
                 for label in tabs:
                     item = surface(
                         f"settings-{label.lower().replace(' ', '-')}")
                     item.detail = f"could not open Settings: {error}"
                 tabs = []
+            if tabs:
+                item = surface("settings-keyboard-navigation")
+                try:
+                    verify_settings_keyboard(page, tablist, len(tabs))
+                    item.ok = True
+                    item.detail = "Vertical settings tabs with keyboard focus and selection"
+                except Exception as error:
+                    item.detail = str(error)
             for label in tabs:
                 item = surface(f"settings-{label.lower().replace(' ', '-')}")
                 try:
-                    tab = page.get_by_role("tab", name=label, exact=True)
-                    tab.click()
-
-                    def selected():
-                        return (tab.get_attribute("aria-selected") == "true"
-                                or tab.get_attribute("data-state") == "active")
-                    wait_for(f"the {label} tab to select", selected,
-                             timeout=15)
-                    visible_panel = page.locator(
-                        ".settings-panel:visible").first
-                    visible_panel.wait_for(state="visible", timeout=15000)
-                    expect(item,
-                           len(visible_panel.inner_text().strip()) > 0,
-                           f"{label} panel renders empty")
+                    tablist.get_by_role("tab", name=label, exact=True).click()
+                    tablist.get_by_role("tab", name=label, exact=True, selected=True).wait_for()
+                    visible_panel = page.get_by_role("tabpanel", name=label, exact=True)
+                    visible_panel.get_by_role("heading", name=headings.get(label, label), exact=True).wait_for()
+                    assert page.get_by_role("tabpanel").count() == 1, "More than one settings panel is visible"
                     if label == "Playback":
                         buffer = visible_panel.get_by_role("combobox", name="Buffer ahead")
                         before = buffer.inner_text()
