@@ -1,49 +1,27 @@
-"""Read a small, structured history from Sockseek batch logs."""
+"""The latest activity for each song attempted by the bulk downloader."""
 
-import re
+import json
 from pathlib import Path
 
-from system.logtail import tail_lines
+from system.private_files import private_write
+
+HISTORY = "download-activity.json"
+MAX_EVENTS = 80
 
 
-EVENT = re.compile(r"SongJob: (searching|downloading|succeeded|failed)(?: \[([^\]]+)\])?: (.+)")
+def recent_events(state_directory, limit=MAX_EVENTS):
+    try:
+        events = json.loads((Path(state_directory) / HISTORY).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(events, list):
+        return []
+    return [event for event in events[:limit] if isinstance(event, dict)
+            and all(isinstance(event.get(field), str) for field in ("batch", "song", "state", "reason"))]
 
 
-def parse_event(line):
-    match = EVENT.search(line)
-    if not match:
-        return None
-    state, reason, details = match.groups()
-    # Download and success lines append a source file after the song name.
-    song = details.rsplit(": ", 1)[0] if state in {"downloading", "succeeded"} and ": " in details else details
-    return {"state": state, "song": song[:180], "reason": (reason or "")[:120]}
-
-
-def recent_events(state_directory, limit=80, batches=4):
-    paths = sorted(Path(state_directory).glob("batch-*.log"),
-                   key=lambda path: path.stat().st_mtime_ns, reverse=True)[:batches]
-    events = []
-    seen = set()
-    for path in paths:
-        try:
-            lines = tail_lines(path, 700)
-        except OSError:
-            continue
-        for line in reversed(lines):
-            event = parse_event(line)
-            if not event:
-                continue
-            # One row per song: the scan runs newest first, so the
-            # first event seen for a song is its latest state. The
-            # dialog presents rows as per-song status, and a song that
-            # was searched, downloaded, then succeeded must read as
-            # one Ready row, not three contradictory ones.
-            key = event["song"]
-            if key in seen:
-                continue
-            seen.add(key)
-            event["batch"] = path.stem.removeprefix("batch-").replace("-", "–")
-            events.append(event)
-            if len(events) >= limit:
-                return events
-    return events
+def record_event(state_directory, *, batch, song, state, reason=""):
+    song = song[:180]
+    event = {"batch": batch, "song": song, "state": state, "reason": reason[:120]}
+    events = [prior for prior in recent_events(state_directory) if prior["song"] != song]
+    private_write(Path(state_directory) / HISTORY, json.dumps([event, *events[:MAX_EVENTS - 1]]))

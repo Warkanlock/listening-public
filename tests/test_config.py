@@ -4,7 +4,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 import hashlib
 import json
 import os
-import shutil
 import stat
 import tempfile
 import unittest
@@ -49,57 +48,7 @@ class ConfigLoadTests(unittest.TestCase):
         self.assertEqual(settings["source_folders"], [])
         self.assertEqual(settings["source_files"], [])
         self.assertEqual(settings["spotify_client_id"], "")
-        self.assertEqual(settings["credentials_path"],
-                         str(self.config_path.parent / "sockseek.conf"))
-        self.assertEqual(settings["share_folder"], "")
-        self.assertEqual(settings["share_username"], "")
-        # Plan 044's default order, last two steps: with no managed
-        # binary in the (temp) application folder and no environment
-        # override, the default is PATH, then the repo bin/ fallback.
-        expected_sockseek = shutil.which("sockseek") or str(REPO_ROOT / "bin/sockseek")
-        self.assertEqual(settings["sockseek_binary"], expected_sockseek)
-        self.assertEqual(settings["nicotine_binary"], shutil.which("nicotine") or "")
-
-    def test_sockseek_default_prefers_the_managed_binary(self):
-        managed = self.config_path.parent / "bin" / "sockseek"
-        managed.parent.mkdir(parents=True)
-        managed.write_bytes(b"stub")
-        managed.chmod(0o755)
-        settings = self.build().load()
-        self.assertEqual(settings["sockseek_binary"], str(managed))
-
-    def test_sockseek_default_ignores_a_non_executable_managed_file(self):
-        managed = self.config_path.parent / "bin" / "sockseek"
-        managed.parent.mkdir(parents=True)
-        managed.write_bytes(b"stub")
-        managed.chmod(0o644)
-        settings = self.build().load()
-        self.assertEqual(settings["sockseek_binary"],
-                         shutil.which("sockseek") or str(REPO_ROOT / "bin/sockseek"))
-
-    def test_sockseek_default_honors_the_environment_override(self):
-        # The Docker image's seam (plan 044): the baked-in binary is
-        # named by the environment, ahead of every other candidate,
-        # and the path need not exist for the default to name it.
-        self.environ["LISTENING_ROOM_SOCKSEEK_BINARY"] = "/opt/sockseek/sockseek"
-        managed = self.config_path.parent / "bin" / "sockseek"
-        managed.parent.mkdir(parents=True)
-        managed.write_bytes(b"stub")
-        managed.chmod(0o755)
-        settings = self.build().load()
-        self.assertEqual(settings["sockseek_binary"], "/opt/sockseek/sockseek")
-
-    def test_saved_sockseek_binary_always_wins(self):
-        self.config_path.parent.mkdir(parents=True)
-        self.config_path.write_text(json.dumps(
-            {"folder": str(self.room), "share_token": "known-token",
-             "sockseek_binary": "/owner/chosen/sockseek"}), encoding="utf-8")
-        managed = self.config_path.parent / "bin" / "sockseek"
-        managed.parent.mkdir(parents=True)
-        managed.write_bytes(b"stub")
-        managed.chmod(0o755)
-        settings = self.build().load()
-        self.assertEqual(settings["sockseek_binary"], "/owner/chosen/sockseek")
+        self.assertEqual(settings["download_engines"], {})
 
     def test_token_is_generated_once_and_persisted(self):
         config = self.build()
@@ -214,15 +163,15 @@ class SupportFolderTests(unittest.TestCase):
 
     def test_rewrite_support_paths(self):
         settings = {"folder": str(self.legacy_dir / "workspace"),
-                    "credentials_path": str(self.legacy_dir / "sockseek.conf"),
-                    "share_folder": str(self.legacy_dir),
+                    "playlist_output": str(self.legacy_dir / "local.m3u8"),
+                    "reports_folder": str(self.legacy_dir),
                     "unrelated": "/elsewhere/file",
                     "count": 3}
         rewrite_support_paths(settings, self.legacy_dir, self.new_dir)
         self.assertEqual(settings["folder"], str(self.legacy_dir / "workspace"))
-        self.assertEqual(settings["credentials_path"],
-                         str(self.new_dir / "sockseek.conf"))
-        self.assertEqual(settings["share_folder"], str(self.new_dir))
+        self.assertEqual(settings["playlist_output"],
+                         str(self.new_dir / "local.m3u8"))
+        self.assertEqual(settings["reports_folder"], str(self.new_dir))
         self.assertEqual(settings["unrelated"], "/elsewhere/file")
         self.assertEqual(settings["count"], 3)
 
@@ -231,15 +180,15 @@ class SupportFolderTests(unittest.TestCase):
                              "paired_at": 1.0, "last_seen_at": 2.0}}
         legacy_text = self.write_legacy(
             {"folder": str(self.workspace), "share_token": "invented-token-032",
-             "credentials_path": str(self.legacy_dir / "sockseek.conf"),
+             "playlist_output": str(self.legacy_dir / "local.m3u8"),
              "custom": 7},
             devices=devices)
         config = self.build()
         settings = config.load()
         self.assertEqual(settings["share_token"], "invented-token-032")
         self.assertEqual(settings["folder"], str(self.workspace))
-        self.assertEqual(settings["credentials_path"],
-                         str(self.new_dir / "sockseek.conf"))
+        self.assertEqual(settings["playlist_output"],
+                         str(self.new_dir / "local.m3u8"))
         self.assertEqual(settings["custom"], 7)
         self.assertEqual(config.root, self.workspace.resolve())
         self.assertEqual(stat.S_IMODE(self.new_config.stat().st_mode), 0o600)

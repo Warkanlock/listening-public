@@ -12,7 +12,7 @@ resources=$(CDPATH='' cd -P -- "$(/usr/bin/dirname "$entry")/.." && pwd)
 export PYTHONPATH="$resources/room/backend"
 export PYTHONHOME="$resources/python" PYTHONNOUSERSITE=1 PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1
 export PATH="$resources/bin:$PATH"
-export LISTENING_ROOM_SOCKSEEK_BINARY="$resources/bin/sockseek" LISTENING_ROOM_INSTALL_KIND=app
+export LISTENING_ROOM_INSTALL_KIND=app
 if [ -z "${SSL_CERT_FILE:-}" ] && [ -f /etc/ssl/cert.pem ]; then
     export SSL_CERT_FILE=/etc/ssl/cert.pem
 fi

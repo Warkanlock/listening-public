@@ -6,7 +6,6 @@ from contextlib import ExitStack
 import argparse
 import base64
 import binascii
-import configparser
 import csv
 import gzip
 import hmac
@@ -58,13 +57,13 @@ from playback.play_events import PlayEventsStore
 from playback import radio_resume
 from playback.radio import (PROVIDERS, RADIO_PRESETS, SOMAFM_CHANNELS, clean_live_stations, clean_stations,
                             live_catalog, live_stations_from, provider_enabled, source_enabled, stations_from)
+from downloads.download_activity import recent_events
 from downloads.engine_contract import (EngineError, EngineUpdateConflict, engine_selection, engines_ready, extension_health,
                                        manager_call, request_recording, search_recording, source_summary)
 from system import client_artifacts
 from devices.announcements import AnnouncementBoard
 from devices.device_store import DeviceStore, invitation_room_proof
 from devices.presence import Presence
-from downloads.download_activity import recent_events
 from downloads.requests_store import EDITABLE_FORMAT, RequestsStore, mp3_retry
 from downloads.state_store import StateStore
 from downloads.verification import PROBE_CACHE_VERSION, probe
@@ -341,7 +340,7 @@ def valid_folder(raw, require_csv=True):
 # queued like the library jobs) and export (started directly,
 # like sharing). Plan 062 adds migrate, the one-time library
 # migration, a job like reclaim.
-WORKER_KINDS = ("downloads", "requests", "genres", "share", "reclaim", "export", "migrate")
+WORKER_KINDS = ("downloads", "requests", "genres", "reclaim", "export", "migrate")
 # The workers that write library state, and so take turns alone:
 # the three pipeline workers, plus migrate (plan 062). The
 # migration rewrites coverage and request references and unlinks
@@ -386,9 +385,7 @@ def runner_environment(root=None):
                 OFFLINE_MUSIC_SOURCES=str(configured_lists(root)),
                 OFFLINE_MUSIC_LIBRARY=str(LIBRARY if root == ROOT else root / "audio"),
                 OFFLINE_MUSIC_PLAYLISTS=str(PLAYLIST_OUTPUT if root == ROOT else root / "playlists"),
-                OFFLINE_MUSIC_OUTPUTS=str((SETTINGS.get("reports_folder") if root == ROOT else None) or root / "reports"),
-                SOCKSEEK_BINARY=str(SETTINGS["sockseek_binary"]),
-                SOCKSEEK_CONFIG=str(SETTINGS["credentials_path"]))
+                OFFLINE_MUSIC_OUTPUTS=str((SETTINGS.get("reports_folder") if root == ROOT else None) or root / "reports"))
 
 
 class _MediaSources:
@@ -411,9 +408,6 @@ class _MediaSources:
 
     def request(self, request_id):
         return requests_store().get(request_id)
-
-    def share_folder(self):
-        return SETTINGS.get("share_folder", "")
 
 
 MEDIA = None  # Built by init() (plan 061 step 1).
@@ -487,12 +481,7 @@ def advance_library_migration():
 
 
 def download_ready(*, for_acquisition=False):
-    if engine_selection(SETTINGS) is not None:
-        return bool(shutil.which("ffprobe")) and engines_ready(SETTINGS, for_acquisition=for_acquisition)
-    return (Path(SETTINGS["credentials_path"]).is_file()
-            and Path(SETTINGS["sockseek_binary"]).is_file()
-            and os.access(SETTINGS["sockseek_binary"], os.X_OK)
-            and bool(shutil.which("ffprobe")))
+    return bool(shutil.which("ffprobe")) and engines_ready(SETTINGS, for_acquisition=for_acquisition)
 
 
 def runner_invocation(action, root=None, scope=None, download_format=None):
@@ -529,7 +518,7 @@ def start_genre_worker(job_id=None):
 
     Mutually exclusive with the download workers, like they are with
     each other: all three write pipeline state. The pass needs ffprobe
-    for file tags but not Sockseek, so download_ready() does not gate
+    for file tags, so download_ready() does not gate
     it; MusicBrainz pacing lives in the metadata module.
     """
     with _START_LOCK:
@@ -594,7 +583,7 @@ def start_worker(action, root=None, force=False, scope=None, download_format=Non
     with _START_LOCK:
         if update_draining() or SUPERVISOR is None or not RUNNER.is_file() or not download_ready(for_acquisition=True):
             return False
-        if (action == "requests" and job_id is None and engine_selection(SETTINGS) is not None
+        if (action == "requests" and job_id is None
                 and jobs is not None and jobs.waiting("requests")):
             return False
         if any_library_worker_running():
@@ -922,34 +911,6 @@ def save_settings():
     CONFIG.save()
 
 
-def write_sockseek_credentials(username, password):
-    if not username or not password or any("\n" in x or "\r" in x for x in (username, password)):
-        raise ValueError("Enter a Soulseek username and password without line breaks")
-    target = Path(SETTINGS["credentials_path"])
-    private_write(target, f"username = {username}\npassword = {password}\n")
-
-
-def share_config_path():
-    return CONFIG_PATH.parent / "nicotine-share.conf"
-
-
-def write_share_profile(username, password, folder):
-    if not username or not password or any("\n" in x or "\r" in x for x in (username, password)):
-        raise ValueError("Enter a separate sharing account and password")
-    config = configparser.ConfigParser(interpolation=None)
-    config.read(share_config_path())
-    for section in ("server", "transfers"):
-        if not config.has_section(section):
-            config.add_section(section)
-    config.set("server", "login", username)
-    config.set("server", "passw", password)
-    config.set("transfers", "shared", repr([("Listening Room", str(folder))]))
-    from io import StringIO
-    serialized = StringIO()
-    config.write(serialized)
-    private_write(share_config_path(), serialized.getvalue())
-
-
 def settings_snapshot(port, request_host=None, bind_host="0.0.0.0"):
     files = sorted(manifest_signature(source_dir()))
     collection = None
@@ -980,12 +941,6 @@ def settings_snapshot(port, request_host=None, bind_host="0.0.0.0"):
             "frontend_rebuild_needed": (install_kind() == "checkout"
                                         and frontend_build_needed(REPO_ROOT)),
             "music_folder": str(LIBRARY), "playlist_output": str(PLAYLIST_OUTPUT),
-            "share_folder": SETTINGS.get("share_folder", ""),
-            "share_username": SETTINGS.get("share_username", ""),
-            "sockseek_binary": SETTINGS["sockseek_binary"],
-            "nicotine_binary": SETTINGS.get("nicotine_binary", ""),
-            "has_credentials": Path(SETTINGS["credentials_path"]).is_file(),
-            "has_share_credentials": share_config_path().is_file(),
             "download_ready": download_ready(), "auto_download": bool(SETTINGS.get("auto_download")),
             "audio_store": SETTINGS.get("audio_store", "database"),
             "bulk_download_format": bulk_download_format(SETTINGS.get("bulk_download_format")),
@@ -996,9 +951,7 @@ def settings_snapshot(port, request_host=None, bind_host="0.0.0.0"):
             "onboarding": not files,
             "spotify": spotify.status(),
             "spotify_redirect_uri": f"http://127.0.0.1:{port}/api/spotify/callback",
-            "dependencies": {"ffprobe": bool(shutil.which("ffprobe")),
-                             "sockseek": Path(SETTINGS["sockseek_binary"]).is_file(),
-                             "nicotine": Path(SETTINGS.get("nicotine_binary", "")).is_file()}}
+            "dependencies": {"ffprobe": bool(shutil.which("ffprobe"))}}
 
 
 def redact_settings(snapshot):
@@ -1017,8 +970,7 @@ def redact_settings(snapshot):
     if "destination" in snapshot["export_status"]:
         redacted["export_status"] = {**snapshot["export_status"], "destination": ""}
     for key in ("folder", "lists_folder", "csv_folder", "music_folder",
-                "playlist_output", "share_folder", "sockseek_binary",
-                "nicotine_binary", "lan_url", "local_url", "version"):
+                "playlist_output", "lan_url", "local_url", "version"):
         redacted[key] = ""
     redacted["source_folders"] = [{"path": "", "count": entry["count"]}
                                   for entry in snapshot["source_folders"]]
@@ -1028,17 +980,9 @@ def redact_settings(snapshot):
 
 
 def recent_process_lines():
-    paths = [RUNNER_LOG]
-    batches = list(STATE.glob("batch-*.log"))
-    if batches:
-        paths.append(max(batches, key=lambda path: path.stat().st_mtime_ns))
-    rows = []
-    for path in paths:
-        if not path.is_file():
-            continue
-        for line in tail_lines(path, 35):
-            rows.append(f"{path.name}: {line[:300]}")
-    return rows[-60:]
+    if not RUNNER_LOG.is_file():
+        return []
+    return [f"{RUNNER_LOG.name}: {line[:300]}" for line in tail_lines(RUNNER_LOG, 35)]
 
 
 def resolve_ref(ref):
@@ -1447,17 +1391,12 @@ def activity_snapshot():
         status = "Library scanned"
     else:
         status = "Downloader restarting" if RUNNER.is_file() else "Downloader unavailable"
-    files = list(STATE.glob("batch-*.log"))
-    recent = recent_events(STATE, limit=6, batches=1)
-    batch = ""
-    if files:
-        latest = max(files, key=lambda path: path.stat().st_mtime_ns)
-        batch = latest.stem.removeprefix("batch-").replace("-", "–")
     categorized = sum(1 for record in catalog.records
                       if record.get("active", True) and catalog.genre_entry(record))
+    recent = recent_events(STATE, limit=6) if bulk else []
     return {"status": status, "running": bulk or requests or genres_running, "attempted": attempted,
             "total": total, "verified": summary.get("verified", 0), "free_gib": free_gib,
-            "batch": batch if bulk else "", "recent": recent if bulk else [],
+            "batch": recent[0]["batch"] if recent else "", "recent": recent,
             "queued_requests": count_queued_requests(),
             "genres": {"categorized": categorized, "total": total, "running": genres_running},
             "watchdog": dict(WATCHDOG_HEALTH)}
@@ -2561,8 +2500,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with ROOT_LOCK:
                 settings = dict(SETTINGS)
-                legacy_ready = engine_selection(settings) is None and download_ready()
-            return self.json_response(extension_health(settings, legacy_ready=legacy_ready))
+            return self.json_response(extension_health(settings))
         finally:
             EXTENSION_HEALTH_LOCK.release()
 
@@ -2621,6 +2559,13 @@ class Handler(BaseHTTPRequestHandler):
                 with EXTENSION_SELECTION_LOCK:
                     manager_call(action, engine=body.get("engine"), selection=engine_selection(SETTINGS),
                                  approval=approval, timeout=225)
+            elif action == "share":
+                operation = body.get("operation")
+                if operation not in ("status", "start", "stop"):
+                    raise ValueError("Choose a sharing action.")
+                response = manager_call(action, engine=body.get("engine"), operation=operation,
+                                        folder=body.get("folder", ""), timeout=40)
+                return self.json_response({key: response[key] for key in ("running", "folder", "available")})
             elif action == "configure":
                 manager_call(action, engine=body.get("engine"), settings=body.get("settings"), timeout=30)
             elif action == "update" and not (
@@ -2849,19 +2794,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/discover-local":
             if not self._is_owner():
                 return self.error_json("Search local files on the server computer", HTTPStatus.FORBIDDEN)
-            # Detection candidates (plan 044): PATH, then the managed
-            # binary the package routes provision into the application
-            # folder's bin/, then a copy at the application folder's
-            # root (where the owner's working copy has always lived),
-            # then the workspace bin/, and the saved setting last, so
-            # "Use detected Sockseek" repairs a wrong saved path.
-            return self.json_response({"folders": discover_folders(Path.home(), source_dir(), excluded=(ROOT,)),
-                                       "sockseek": next((str(path) for path in
-                                                         (Path(shutil.which("sockseek") or ""),
-                                                          CONFIG_PATH.parent / "bin/sockseek",
-                                                          CONFIG_PATH.parent / "sockseek",
-                                                          ROOT / "bin/sockseek", Path(SETTINGS["sockseek_binary"]))
-                                                         if path.is_file() and os.access(path, os.X_OK)), "")})
+            return self.json_response({"folders": discover_folders(Path.home(), source_dir(), excluded=(ROOT,))})
         if path == "/api/browse":
             # Item 36 (plan 042): the PathField directory browser.
             # Host-only like discovery, and confined to the home tree
@@ -2950,7 +2883,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_response({"activity": activity_snapshot(), "bulk_running": worker_running("downloads"),
                                        "requests_running": worker_running("requests"),
                                        "genres_running": worker_running("genres"),
-                                       "share_running": worker_running("share"),
                                        "auto_download": bool(SETTINGS.get("auto_download")),
                                        "logs": recent_process_lines() if host else []})
         if path == "/api/update":
@@ -2970,7 +2902,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error_json("Export on the host computer", HTTPStatus.FORBIDDEN)
             safe = {key: SETTINGS.get(key, "") for key in ("folder", "lists_folder", "music_folder",
                                                              "playlist_output", "source_folders", "source_files",
-                                                             "share_folder", "auto_download")}
+                                                             "auto_download")}
             payload = json.dumps(safe, indent=2).encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json")
@@ -3923,29 +3855,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if not isinstance(body, dict):
                     raise ValueError("Choose a process action")
-                action = body.get("action")
-                share_materialized = None
-                if action == "share_start":
-                    with _START_LOCK:
-                        if update_draining():
-                            return self.error_json("The room is restarting. Try again shortly.", HTTPStatus.SERVICE_UNAVAILABLE)
-                        binary = Path(SETTINGS.get("nicotine_binary", ""))
-                        if not binary.is_file() or not share_config_path().is_file() or not SETTINGS.get("share_folder"):
-                            raise ValueError("Configure Nicotine+, a share folder, and a separate sharing account first")
-                        # Plan 060 Q1: sharing starts by materializing
-                        # the database-held tracks into the share
-                        # folder, so a shared library is whole.
-                        share_materialized = MEDIA.materialize_share()
-                        if not worker_running("share"):
-                            argv = [str(binary), "--headless",
-                                    "--config", str(share_config_path()),
-                                    "--user-data", str(CONFIG_PATH.parent / "nicotine-data")]
-                            if SUPERVISOR is None or not SUPERVISOR.start(
-                                    "share", argv, log=CONFIG_PATH.parent / "share.log"):
-                                raise RuntimeError("Nicotine+ did not start")
-                elif action == "share_stop":
-                    stop_worker("share")
-                elif action == "update":
+                if body.get("action") == "update":
                     if install_kind() == "docker":
                         if not self._explicit_owner():
                             return self.error_json("Set up an owner login to manage updates.", HTTPStatus.FORBIDDEN)
@@ -3953,10 +3863,6 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json_response(perform_update())
                 else:
                     raise ValueError("Unknown process action")
-                response = {"status": "Updated", "activity": activity_snapshot()}
-                if share_materialized is not None:
-                    response["share_materialized"] = share_materialized
-                return self.json_response(response)
             except (ValueError, OSError, RuntimeError) as error:
                 return self.error_json(str(error)[:300])
         if self.path == "/api/open-source":
@@ -3996,9 +3902,6 @@ class Handler(BaseHTTPRequestHandler):
                         "source_files" in body and any(not Path(path).is_file() or not is_music_list(path)
                                                        for path in source_files)):
                     raise ValueError("Choose existing playlist files outside the portable lists folder")
-                share_folder = str(body.get("share_folder", SETTINGS.get("share_folder", ""))).strip()
-                if share_folder and not Path(share_folder).expanduser().is_dir():
-                    raise ValueError("Choose an existing folder to share")
                 audio_store = str(body.get("audio_store", SETTINGS.get("audio_store", "database")))
                 if audio_store not in ("files", "database"):
                     raise ValueError("Choose where new downloads land: files or the database")
@@ -4025,9 +3928,6 @@ class Handler(BaseHTTPRequestHandler):
                                          "source_folders": source_folders,
                                          "source_files": source_files,
                                          "music_folder": str(music_folder), "playlist_output": str(playlist_output),
-                                         "share_folder": str(Path(share_folder).expanduser().resolve()) if share_folder else "",
-                                         "sockseek_binary": str(Path(body.get("sockseek_binary") or SETTINGS["sockseek_binary"]).expanduser().resolve()),
-                                         "nicotine_binary": str(Path(body.get("nicotine_binary") or SETTINGS.get("nicotine_binary") or "").expanduser().resolve()) if body.get("nicotine_binary") or SETTINGS.get("nicotine_binary") else "",
                                          "auto_download": bool(body.get("auto_download", SETTINGS.get("auto_download"))),
                                          "audio_store": audio_store,
                                          "bulk_download_format": download_format})
@@ -4041,22 +3941,6 @@ class Handler(BaseHTTPRequestHandler):
                         if changed_paths:
                             with REFRESH_LOCK:
                                 apply_root(folder)
-                        if body.get("soulseek_username") or body.get("soulseek_password"):
-                            write_sockseek_credentials(str(body.get("soulseek_username", "")).strip(), str(body.get("soulseek_password", "")))
-                        if body.get("share_password"):
-                            if not SETTINGS["share_folder"]:
-                                raise ValueError("Choose a share folder before saving the sharing account")
-                            write_share_profile(str(body.get("share_username", "")).strip(), str(body.get("share_password", "")), SETTINGS["share_folder"])
-                            SETTINGS["share_username"] = str(body.get("share_username", "")).strip()
-                        elif SETTINGS.get("share_folder") and share_config_path().exists():
-                            config = configparser.ConfigParser(interpolation=None)
-                            config.read(share_config_path())
-                            saved_user = config.get("server", "login", fallback="")
-                            entered_user = str(body.get("share_username", "")).strip()
-                            if entered_user and entered_user != saved_user:
-                                raise ValueError("Enter the sharing password to change the account")
-                            write_share_profile(saved_user,
-                                                config.get("server", "passw", fallback=""), SETTINGS["share_folder"])
                         if not worker_running("downloads") and not worker_running("requests"):
                             refresh_library(force=changed_paths)
                         save_settings()

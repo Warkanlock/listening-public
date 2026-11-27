@@ -150,9 +150,7 @@ def merge_playlist_names(base, edited, canonical):
 class AppConfig:
     """The settings dict plus every path derived from it.
 
-    repo_root is the repository checkout (the sockseek fallback binary
-    and nothing else is resolved against it). load() reads the file;
-    save() writes it back. Workspace creation and legacy migration are
+    load() reads the file and fills defaults. save() writes it back. Workspace creation and legacy migration are
     the caller's job, in the caller's order.
     """
 
@@ -218,7 +216,8 @@ class AppConfig:
             settings = None
         previous_room = isinstance(settings, dict)
         if not previous_room:
-            settings = {"folder": fallback, "share_token": secrets.token_urlsafe(24), "download_engines": {}}
+            settings = {"folder": fallback, "share_token": secrets.token_urlsafe(24)}
+        settings.setdefault("download_engines", {})
         migrate_providers(settings, previous_room=previous_room)
         if not settings.get("share_token"):
             settings["share_token"] = secrets.token_urlsafe(24)
@@ -235,11 +234,6 @@ class AppConfig:
         settings.setdefault("source_files", [])
         settings.setdefault("allowed_hosts", [])
         settings.setdefault("spotify_client_id", "")
-        settings.setdefault("sockseek_binary", self._default_sockseek_binary())
-        settings.setdefault("credentials_path", str(self.config_path.parent / "sockseek.conf"))
-        settings.setdefault("share_folder", "")
-        settings.setdefault("share_username", "")
-        settings.setdefault("nicotine_binary", shutil.which("nicotine") or "")
         self.settings = settings
         self.root = Path(settings.get("folder", fallback)).expanduser().resolve()
         collection = self.root / "collection.sqlite3"
@@ -309,27 +303,6 @@ class AppConfig:
                 os.chmod(backup, 0o600)
                 os.link(backup, target)
 
-    def _default_sockseek_binary(self):
-        """Where a fresh install looks for Sockseek (plan 044).
-
-        In order: the baked-in binary the Docker image names through
-        `LISTENING_ROOM_SOCKSEEK_BINARY`; the managed binary the
-        package routes provision into `<application folder>/bin`
-        (scripts/provision_sockseek.py), when it is there and
-        executable; Sockseek on PATH; and the legacy repo `bin/`
-        fallback, kept so any install that genuinely uses it is
-        undisturbed. This is only the default a `setdefault` fills:
-        a saved setting always wins, so configured installs (the
-        owner's included) are untouched.
-        """
-        override = self.environ.get("LISTENING_ROOM_SOCKSEEK_BINARY")
-        if override:
-            return override
-        managed = self.config_path.parent / "bin" / "sockseek"
-        if managed.is_file() and os.access(managed, os.X_OK):
-            return str(managed)
-        return shutil.which("sockseek") or str(self.repo_root / "bin/sockseek")
-
     def save(self):
         collection = self.root / "collection.sqlite3" if self.root is not None else None
         if collection and collection.is_file() and hasattr(self, "loaded_names"):
@@ -361,7 +334,7 @@ class AppConfig:
 
         The name is kept because STATE in both processes means the
         app's working-state folder (the database, batch logs,
-        ``master.csv``, the ``requests/`` staging dir); since plan
+        the ``requests/`` staging dir); since plan
         043 all of it lives in the application folder, beside the
         settings, not in a ``state/`` folder inside the workspace.
         """

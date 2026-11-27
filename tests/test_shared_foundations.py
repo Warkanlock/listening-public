@@ -113,7 +113,7 @@ class PrivateWriteTest(unittest.TestCase):
         self.assertEqual([p.name for p in self.root.iterdir()], ["state.json"])
 
     def test_exclusive_write_refuses_to_overwrite(self):
-        target = self.root / "sockseek.conf"
+        target = self.root / "settings.conf"
         private_write(target, "username = a\n", exclusive=True)
         with self.assertRaises(FileExistsError):
             private_write(target, "username = b\n", exclusive=True)

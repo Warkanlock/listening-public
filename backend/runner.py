@@ -2,22 +2,17 @@
 """Prepare, run, and audit a resumable offline library from XSPF lists."""
 
 import argparse
-import configparser
-import csv
 import functools
-import io
 import json
 import os
 import re
 import shutil
-import signal
 import stat
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import quote
 
 from catalog import compact_audio
 from catalog.audio_resolution import locate_stored, stored_path
@@ -36,15 +31,15 @@ from catalog.media_reconciliation import (BlobIndex,
                                           dumps_migration_status,
                                           migrate_library,
                                           migration_status_record, unmigrated_files)
+from downloads.download_activity import record_event
 from downloads.engine_contract import (CandidateHandoffError, CandidateTimeout, EngineBusy, EngineCooldown, EngineError,
-                                       EngineTimeout, FetchTimeout, WorkerTimeout,
+                                       FetchTimeout, WorkerTimeout,
                                        InsufficientDownloadSpace,
                                        engine_recording, engine_selection, fetch_recording, request_recording, simplify_title, timed_stage)
 from downloads.requests_store import COPY_REVIEW_MESSAGE, RequestsStore
 from downloads.request_state import COPY_FAILURES
 from downloads.state_store import StateStore
-from downloads.verification import (CLI_LENGTH_TOLERANCE, FULL_DECODE_TIMEOUT, MIN_BITRATE_KBPS,
-                                    PROBE_CACHE_VERSION, PROBE_TIMEOUT, decode_audio, judge, judge_bulk_download,
+from downloads.verification import (FULL_DECODE_TIMEOUT, PROBE_CACHE_VERSION, PROBE_TIMEOUT, decode_audio, judge, judge_bulk_download,
                                     judge_download, probe, request_identity, title_is_generic)
 from adapters.spotify_sync import playlist_sources
 from library.catalog_imports import is_import_list
@@ -54,15 +49,11 @@ from library.library_protocol import (canonicalize_directory, playlist_identifie
 from metadata.external_metadata import ExternalMetadata
 from system.config import host_database
 from system.config import collection_databases, default_root, resolve_config_path
-from system.formats import (AUDIO_FORMATS, BULK_DOWNLOAD_FORMATS, LOSSLESS_DOWNLOAD_FORMATS,
-                            REQUEST_FORMAT_NAMES, REQUEST_SUFFIXES, bulk_download_format)
+from system.formats import AUDIO_FORMATS, BULK_DOWNLOAD_FORMATS, bulk_download_format
 from system.job_queue import JobQueue
 from system.normalize import normalize_title
 from system.private_files import private_write
 from system.refresh import directory_signature
-
-# Legacy song requests search native lossless candidates.
-CLI_FORMATS = ",".join(suffix[1:] for suffix in sorted(LOSSLESS_DOWNLOAD_FORMATS))
 
 ROOT = default_root().resolve()
 SOURCE_ROOT = Path(os.environ.get("OFFLINE_MUSIC_SOURCES", str(ROOT / "lists"))).expanduser().resolve()
@@ -74,11 +65,7 @@ STATE = Path(os.environ.get("OFFLINE_MUSIC_STATE",
                             str(resolve_config_path().parent))).expanduser().resolve()
 LIBRARY = Path(os.environ.get("OFFLINE_MUSIC_LIBRARY", str(ROOT / "audio"))).expanduser().resolve()
 PLAYLISTS = Path(os.environ.get("OFFLINE_MUSIC_PLAYLISTS", str(ROOT / "playlists"))).expanduser().resolve()
-WORK = Path(__file__).resolve().parent
 OUTPUTS = Path(os.environ.get("OFFLINE_MUSIC_OUTPUTS", str(ROOT / "reports")))
-SOCKSEEK = Path(os.environ.get("SOCKSEEK_BINARY", str(WORK.parent / "bin/sockseek"))).expanduser()
-CONFIG = Path(os.environ.get("SOCKSEEK_CONFIG", str(Path.home() / ".config/listening-room/sockseek.conf"))).expanduser()
-MASTER = STATE / "master.csv"
 REQUESTS_DB = collection_databases(ROOT, STATE)[0]
 if REQUESTS_DB == ROOT / "collection.sqlite3":
     try:
@@ -94,8 +81,6 @@ if REQUESTS_DB == ROOT / "collection.sqlite3":
     PLAYLISTS = Path(os.environ.get("OFFLINE_MUSIC_PLAYLISTS") or workspace["playlist_output"]).expanduser().resolve()
     OUTPUTS = Path(os.environ.get("OFFLINE_MUSIC_OUTPUTS") or workspace["reports_folder"]).expanduser().resolve()
 MIN_FREE = 20 * 1024**3
-# A single Sockseek request may search and download for minutes, but a
-# hung process must not freeze the serial request queue (A2 C-03).
 REQUEST_TIMEOUT = 600
 
 
@@ -315,14 +300,6 @@ def prepare():
     catalog_store().write_build(payload, sources=source_info, portable_lists=portable_lists, expected_lists=original_lists)
     if projection:
         projection.published(portable_lists)
-    buffer = io.StringIO(newline="")
-    writer = csv.DictWriter(buffer, fieldnames=["Artist", "Title", "Album", "Length", "Track URI", "ISRC"])
-    writer.writeheader()
-    for record in records:
-        writer.writerow({"Artist": record["artist"], "Title": record["title"],
-                         "Album": record["album"], "Length": record["length"],
-                         "Track URI": record["uri"], "ISRC": record["isrc"]})
-    private_write(MASTER, buffer.getvalue())
     print(json.dumps({"unique_tracks": len(records), "playlists": {k: len(v) for k, v in playlists.items()},
                       "metadata_issues": issues}, ensure_ascii=False))
 
@@ -337,19 +314,6 @@ def load_manifest():
         prepare()
         data = catalog_store().read_build()
     return data
-
-
-def setup_credentials():
-    if CONFIG.exists():
-        return
-    parser = configparser.ConfigParser(interpolation=None)
-    parser.read(Path.home() / ".config/nicotine/config")
-    user = parser.get("server", "login", fallback="").strip()
-    password = parser.get("server", "passw", fallback="").strip()
-    if not user or not password:
-        raise RuntimeError("Soulseek credentials are missing; add them in Listening Room setup")
-    private_write(CONFIG, f"username = {user}\npassword = {password}\n", exclusive=True)
-    print("Created private Sockseek config from Nicotine+ settings")
 
 
 def free_bytes():
@@ -505,191 +469,6 @@ def _coverage_paths(database, stamp):
     return paths
 
 
-def request_failure(output, returncode):
-    if "OutOfMemoryException" in output or "Out of memory" in output:
-        return "error", "Sockseek ran out of memory during search; retry this song"
-    if "Too many open files" in output:
-        return "error", "Sockseek exhausted its open files during download; retry this song"
-    if "Can't assign requested address" in output or "Cannot assign requested address" in output:
-        return "error", "Sockseek exhausted network connections during search; retry this song"
-    if "All downloads failed" in output:
-        return "error", "Soulseek found copies, but peers did not complete the transfer; retry this song"
-    if returncode:
-        return "error", "Sockseek stopped before returning a usable file; check the CLI log and retry"
-    return "not_found", "No verified lossless match found; try another search title"
-
-
-def focused_matches(groups, title, length, requested_format="any_lossless"):
-    matches = []
-    allowed = REQUEST_SUFFIXES[requested_format]
-    if not isinstance(groups, list):
-        return matches
-    for group in groups:
-        if not isinstance(group, dict):
-            continue
-        user = group.get("User") or {}
-        username = user.get("Username")
-        if not username:
-            continue
-        # Sockseek 3 emits one File per song result, or Files for an album result.
-        song_file = group.get("File")
-        files = [song_file] if isinstance(song_file, dict) else group.get("Files") or []
-        for item in files:
-            filename = item.get("Filename") or ""
-            if not filename.lower().endswith(allowed):
-                continue
-            if song_file is None:
-                # Legacy album results need a track match within the album.
-                basename = Path(filename.replace("\\", "/")).stem
-                listing = {"bitrate": int(item.get("Bitrate") or 0) * 1000,
-                           "duration": float(item.get("Length") or 0), "title": basename}
-                if not judge(title, length, listing).ok:
-                    continue
-            rank = (filename.lower().endswith(allowed[0]), bool(user.get("HasFreeUploadSlot")),
-                    float(user.get("UploadSpeed") or 0), int(item.get("Bitrate") or 0))
-            matches.append((rank, username, filename))
-    matches.sort(reverse=True)
-    return matches
-
-
-def staging_snapshot(staging):
-    """Map each file under staging to its (size, mtime) stamp."""
-    snapshot = {}
-    for path in staging.rglob("*"):
-        if path.is_file():
-            try:
-                stat = path.stat()
-            except OSError:
-                continue
-            snapshot[path] = (stat.st_size, stat.st_mtime_ns)
-    return snapshot
-
-
-def produced_files(staging, before):
-    """Files a download produced: new under staging, or changed since
-    the `before` snapshot. Files already sitting in staging are not
-    evidence that this download delivered anything (A2 S-02)."""
-    produced = []
-    for path in staging.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            stat = path.stat()
-        except OSError:
-            continue
-        if before.get(path) != (stat.st_size, stat.st_mtime_ns):
-            produced.append(path)
-    return produced
-
-
-def transfer_with_reserve(command, log, timeout):
-    """Bound a transfer and reap Sockseek before its private staging folder goes away."""
-    proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
-    deadline = time.monotonic() + timeout
-    try:
-        while proc.poll() is None:
-            if free_bytes() < MIN_FREE:
-                raise InsufficientDownloadSpace
-            if time.monotonic() >= deadline:
-                raise subprocess.TimeoutExpired(command, timeout)
-            time.sleep(1)
-        return proc.returncode
-    finally:
-        if proc.poll() is None:
-            proc.send_signal(signal.SIGINT)
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-
-
-def focused_download(subject, title, length, staging, log_path, *, requested_format="any_lossless",
-                     expected_title=None, recording_id="", version="", expected_artist="", performance=""):
-    # Confirmed requests search once, then inspect the matching peers in preference order.
-    individual = expected_title is not None
-    if individual:
-        query = f"{subject} - {title}" if subject else title
-    else:
-        album = re.sub(r"\s*\([^)]*\)", "", subject).strip()
-        if not album or not title:
-            return False
-        query = f"{album} {title}"
-    formats = [ext[1:] for ext in REQUEST_SUFFIXES[requested_format]]
-    command = [str(SOCKSEEK), query, "--config", str(CONFIG), "--print", "json-all",
-               "--format", ",".join(formats), "--pref-format", formats[0],
-               "--search-timeout", "6000", "--no-progress"]
-    if individual:
-        # Lossless peers can advertise a zero/absent bitrate. Judge their bytes with ffprobe.
-        command.extend(["--input-type", "string", "--song"])
-    else:
-        command.extend(["--min-bitrate", str(MIN_BITRATE_KBPS)])
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=18)
-        if individual and result.returncode:
-            raise RuntimeError(request_failure(result.stderr, result.returncode)[1])
-        groups = json.loads(result.stdout)
-    except subprocess.TimeoutExpired as error:
-        if individual:
-            raise EngineTimeout("The search timed out.") from error
-        groups = []
-    except (OSError, ValueError) as error:
-        if individual:
-            raise RuntimeError("Sockseek could not complete the search; retry this song") from error
-        groups = []
-    matches = focused_matches(groups, title, length, requested_format)
-    if not individual:
-        matches = matches[:3]
-    deadline = time.monotonic() + REQUEST_TIMEOUT
-    if not matches:
-        return False
-    transfer_timed_out = False
-    with log_path.open("a", encoding="utf-8") as log:
-        log.write(f"Focused search: {query}; {len(matches)} candidate peers\n")
-        log.flush()
-        for _, username, filename in matches:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                if individual:
-                    raise EngineTimeout("The search reached the time limit for this recording.")
-                raise RuntimeError("Sockseek timed out while checking candidate copies")
-            if individual and free_bytes() < MIN_FREE:
-                raise InsufficientDownloadSpace
-            remote_path = filename.replace("\\", "/")
-            link = f"slsk://{quote(username, safe='')}/{quote(remote_path, safe='/')}"
-            direct = [str(SOCKSEEK), link, "--config", str(CONFIG),
-                      "--output-dir", str(staging), "--max-retries", "2",
-                      "--max-stale-time", "30000", "--no-progress"]
-            before = staging_snapshot(staging)
-            try:
-                if individual:
-                    returncode = transfer_with_reserve(direct, log, min(90, remaining))
-                else:
-                    returncode = subprocess.run(direct, stdout=log, stderr=subprocess.STDOUT, timeout=90).returncode
-            except subprocess.TimeoutExpired:
-                transfer_timed_out = True
-                continue
-            except OSError:
-                continue
-            # Only a file this candidate's download produced can answer
-            # the request, and only after verification judges it (A2
-            # S-02). Anything else is left in staging and the search
-            # continues, exactly as a rejected verification does.
-            for path in produced_files(staging, before):
-                if (returncode == 0 and not path.is_symlink()
-                        and path.suffix.lower() in REQUEST_SUFFIXES[requested_format]
-                        and judge_download(expected_title or title, length, probe(path),
-                                           path.suffix, requested_format, recording_id=recording_id, version=version,
-                                           expected_artist=expected_artist, performance=performance).ok):
-                    return path
-                if individual:
-                    # This private staging directory belongs to this search alone.
-                    path.unlink(missing_ok=True)
-    if individual and transfer_timed_out:
-        raise CandidateTimeout("The download timed out while transferring a copy.")
-    return False
-
-
 def remove_staged_duplicate(path, staging, store, key=None, stamp=None):
     """Remove only a stable, byte-identical copy in a transfer directory."""
     try:
@@ -751,7 +530,7 @@ def configured_engines():
     try:
         settings = json.loads(resolve_config_path().read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return None
+        return {}
     except (OSError, ValueError) as error:
         raise EngineError("The room settings could not be read.") from error
     if not isinstance(settings, dict):
@@ -862,17 +641,14 @@ def managed_request(selection, request_dir, row, record, title, length, selected
                 if attempted_transfer:
                     return "rejected", "The copies found could not be downloaded.", ""
                 return "not_found", "No copy found", ""
-            return retain_request_file(path, path.parent, request_dir, row, record, title, length,
-                                       selected=bool(selected))
+            return retain_request_file(path, request_dir, row, record, title, length, selected=bool(selected))
     except InsufficientDownloadSpace:
         return "waiting_space", "Waiting for more free space", ""
 
 
 def run_request(row, record):
     request_id = row["id"]
-    artist = record["artist"] if record else row["artist"]
     title = record["title"] if record else row["title"]
-    search_title = row["search_title"] or simplify_title(title)
     length = record["length"] if record else row["length"]
     request_dir = STATE / "requests"
     choice = row.get("requested_format", "any_lossless")
@@ -907,86 +683,14 @@ def run_request(row, record):
     if free_bytes() - estimated_bytes([{"length": length}]) < MIN_FREE:
         return "waiting_space", "Waiting for more free space", ""
     request_dir.mkdir(exist_ok=True)
-    selection = configured_engines()
-    if selection is not None:
-        return managed_request(selection, request_dir, row, record, title, length, selected)
-    if selected:
-        return "error", "The request or its sources changed. Browse copies again.", ""
-    check_legacy_download_tools()
-    if row.get("format_confirmed"):
-        log_path = request_dir / f"request-{request_id}.log"
-        with tempfile.TemporaryDirectory(prefix=f"incoming-{request_id}-", dir=request_dir) as temp:
-            try:
-                path = focused_download(artist, search_title, length, Path(temp), log_path,
-                                        requested_format=choice, expected_title=title, **identity)
-            except InsufficientDownloadSpace:
-                return "waiting_space", "Waiting for more free space", ""
-            if not path:
-                return "not_found", f"No verified {REQUEST_FORMAT_NAMES[choice]} copy found", ""
-            return retain_request_file(path, Path(temp), request_dir, row, record, title, length)
-    # Pre-upgrade rows and bulk requests keep the album search and CSV fallback.
-    csv_path = request_dir / f"request-{request_id}.csv"
-    with csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["Artist", "Title", "Album", "Length"])
-        writer.writeheader()
-        writer.writerow({"Artist": artist, "Title": search_title,
-                         "Album": record["album"] if record else row["album"],
-                         "Length": length or ""})
-    with tempfile.TemporaryDirectory(prefix=f"incoming-{request_id}-", dir=request_dir) as temporary:
-        return download_request_candidate(Path(temporary), request_dir, csv_path, row, record, title,
-                                          search_title, length)
+    return managed_request(configured_engines(), request_dir, row, record, title, length, selected)
 
 
-def download_request_candidate(staging, request_dir, csv_path, row, record, title, search_title, length):
-    request_id = row["id"]
-    log_path = request_dir / f"request-{request_id}.log"
-    log_path.write_text("", encoding="utf-8")
-    focused = focused_download(record["album"] if record else row["album"],
-                               search_title, length, staging, log_path)
-    command = [str(SOCKSEEK), str(csv_path), "--config", str(CONFIG),
-               "--output-dir", str(staging), "--index-path", str(request_dir / f"index-{request_id}.csv"),
-               "--format", CLI_FORMATS, "--pref-format", "flac", "--min-bitrate", str(MIN_BITRATE_KBPS),
-               "--pref-min-bitrate", "256",
-               "--name-format", "{sartist} - {stitle}",
-               "--artist-maybe-wrong", "--desperate", "--fast-search", "--pref-strict-title",
-               "--pref-strict-artist", "--concurrent-jobs", "1", "--concurrent-searches", "1",
-               "--max-retries", "3", "--max-stale-time", "15000", "--no-progress"]
-    if length:
-        command += ["--length-tol", str(CLI_LENGTH_TOLERANCE)]
-    returncode = 0
-    if not focused:
-        with log_path.open("a", encoding="utf-8") as log:
-            try:
-                returncode = transfer_with_reserve(command, log, REQUEST_TIMEOUT)
-            except InsufficientDownloadSpace:
-                return "waiting_space", "Stopped at the 20 GiB free space reserve", ""
-            except subprocess.TimeoutExpired as error:
-                raise EngineTimeout("The download engine timed out during the request.") from error
-    candidates = []
-    for path in staging.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in AUDIO_FORMATS:
-            continue
-        stamp = source_stamp(path.stat())
-        media = probe(path)
-        if source_stamp(path.stat()) != stamp or not judge_download(title, length, media, path.suffix).ok:
-            continue
-        candidates.append((media["bitrate"], path))
-    if not candidates:
-        output = log_path.read_text(encoding="utf-8", errors="replace")
-        status, message = request_failure(output, returncode)
-        return status, message, ""
-    _, path = max(candidates, key=lambda item: item[0])
-    return retain_request_file(path, staging, request_dir, row, record, title, length)
-
-
-def retain_request_file(path, staging, request_dir, row, record, title, length, *, selected=False):
+def retain_request_file(path, request_dir, row, record, title, length, *, selected=False):
     request_id = row["id"]
     pending = request_pending_dir(request_dir, request_id, row["format_revision"] if selected else None)
     pending.mkdir(mode=0o700, parents=True, exist_ok=True)
-    staged_name = staging.name
-    if not staged_name.startswith("incoming-"):
-        staged_name = f"incoming-{request_id}-{staged_name}"
-    retained = pending / (staged_name + path.suffix.lower())
+    retained = pending / f"incoming-{request_id}-{path.parent.name}{path.suffix.lower()}"
     path.rename(retained)
     return land_request_file(retained, row, record, title, length, selected=selected)
 
@@ -1108,7 +812,7 @@ def process_requests(records, limit=3):
         # Per-request work only marks the report dirty (A3 PERF-02);
         # the full report is written once, after the loop.
         _REPORT_DIRTY = True
-        if provider_delay or (status == "waiting_space" and configured_engines() is not None):
+        if provider_delay or status == "waiting_space":
             record_download_progress(retry=message, retry_delay=provider_delay)
             save_probe_cache()
             flush_report()
@@ -1117,27 +821,27 @@ def process_requests(records, limit=3):
     flush_report()
 
 
-def run_batch(offset, count, pilot=False, advance_cursor=True):
-    # Keep original master offsets (and therefore filenames and cursor positions)
+def run_batch(offset, count, advance_cursor=True):
+    # Keep original catalog offsets (and therefore filenames and cursor positions)
     # while leaving individual requests to the format-aware worker.
     records = load_manifest()["records"]
     reserved = requests_store().reserved_tracks(offset + 1, offset + count)
     reserved.update(row["index"] for row in records[offset:offset + count] if row.get("manual_copy"))
     if not reserved:
-        return download_batch(offset, count, pilot, advance_cursor)
+        return download_batch(offset, count, advance_cursor)
     end = min(offset + count, len(records))
     for index in sorted(reserved):
         if index > end:
             break
-        if index - 1 > offset and not download_batch(offset, index - 1 - offset, pilot, advance_cursor):
+        if index - 1 > offset and not download_batch(offset, index - 1 - offset, advance_cursor):
             return False
         offset = index
         if advance_cursor:
             write_cursor(offset)
-    return offset >= end or download_batch(offset, end - offset, pilot, advance_cursor)
+    return offset >= end or download_batch(offset, end - offset, advance_cursor)
 
 
-def bulk_format_options():
+def bulk_formats():
     override = os.environ.get("OFFLINE_MUSIC_DOWNLOAD_FORMAT")
     if override is not None:
         mode = bulk_download_format(override)
@@ -1147,44 +851,23 @@ def bulk_format_options():
         except (OSError, ValueError):
             settings = {}
         mode = bulk_download_format(settings.get("bulk_download_format") if isinstance(settings, dict) else None)
-    suffixes, preferred = BULK_DOWNLOAD_FORMATS[mode]
-    return ["--format", ",".join(suffix[1:] for suffix in suffixes), "--pref-format", preferred]
-
-
-def batch_log_complete(log, expected, exit_code):
-    # Sockseek uses 1 for ordinary failed searches as well as infrastructure failures.
-    if exit_code not in (0, 1):
-        return False
-    summary_pattern = r"^(?:\[cli\] )?Completed:[ \t]*(\d+) succeeded,[ \t]*(\d+) failed\.?[ \t]*$"
-    summary = re.search(summary_pattern, log, re.MULTILINE)
-    if summary is not None:
-        succeeded, failed = map(int, summary.groups())
-        return succeeded + failed == expected and (exit_code == 0 or failed > 0)
-    # Sockseek 3 may log only terminal results. Retry warnings and repeated
-    # lines for the same job do not count as additional tracks.
-    pattern = r"^\[(\d+)\] SongJob: (succeeded|failed \[[^\]\r\n]+\]):"
-    terminal = dict(re.findall(pattern, log, re.MULTILINE))
-    return len(terminal) == expected and (
-        exit_code == 0 or any(result.startswith("failed") for result in terminal.values())
-    )
-
-
-def check_legacy_download_tools():
-    setup_credentials()
-    if not SOCKSEEK.is_file():
-        raise RuntimeError("Sockseek is missing; set its executable path in Settings")
+    return BULK_DOWNLOAD_FORMATS[mode]
 
 
 def managed_batch(selection, offset, batch, landing, advance_cursor):
-    _, suffixes, _, preferred = bulk_format_options()
-    formats = tuple("." + suffix for suffix in suffixes.split(","))
+    formats, preferred = bulk_formats()
+    label = f"{batch[0]['index']:05d}–{batch[-1]['index']:05d}"
     attempted = []
     for record in batch:
         recording = engine_recording(record, simplify_title(record["title"]), formats, preferred)
+        song = f"{record['artist']} - {record['title']}"
+        record_event(STATE, batch=label, song=song, state="searching")
         try:
             with managed_candidate(selection, recording, lambda path, remaining_time: verified_engine_audio(
                 path, lambda facts: judge_bulk_download(record["title"], record["length"], facts, path.suffix),
                 remaining_time,
+            ), on_transfer=lambda: record_event(
+                STATE, batch=label, song=song, state="downloading",
             )) as path:
                 if path is not None:
                     staging_id = path.parent.name
@@ -1199,6 +882,10 @@ def managed_batch(selection, offset, batch, landing, advance_cursor):
             record_download_progress(retry=str(error), scoped_attempted=attempted)
             print(str(error), flush=True)
             return False
+        if path is None:
+            record_event(STATE, batch=label, song=song, state="failed", reason="No verified copy found")
+        else:
+            record_event(STATE, batch=label, song=song, state="succeeded")
         if advance_cursor:
             offset += 1
             write_cursor(offset)
@@ -1209,76 +896,17 @@ def managed_batch(selection, offset, batch, landing, advance_cursor):
     return True
 
 
-def download_batch(offset, count, pilot, advance_cursor):
-    selection = configured_engines()
-    if selection is None:
-        check_legacy_download_tools()
-    data = load_manifest()
-    batch = data["records"][offset:offset + count]
+def download_batch(offset, count, advance_cursor):
+    batch = load_manifest()["records"][offset:offset + count]
     if not batch:
         return False
+    if free_bytes() - estimated_bytes(batch[:1]) < MIN_FREE and bulk_staging_has_audio():
+        report()
     landing = STATE / "bulk-incoming"
     global _REPORT_DIRTY
-    if selection is not None:
-        _REPORT_DIRTY = True
-        landing.mkdir(parents=True, exist_ok=True)
-        return managed_batch(selection, offset, batch, landing, advance_cursor)
-    free = free_bytes()
-    estimate = estimated_bytes(batch)
-    if free - estimate < MIN_FREE and bulk_staging_has_audio():
-        report()
-        free = free_bytes()
-    if free - estimate < MIN_FREE:
-        print(f"Space floor reached before batch: free={free / 1024**3:.2f} GiB, "
-              f"estimated_batch={estimate / 1024**3:.2f} GiB", flush=True)
-        return False
-    batch_index = STATE / f"index-{offset + 1:05d}-{offset + len(batch):05d}.csv"
     _REPORT_DIRTY = True
     landing.mkdir(parents=True, exist_ok=True)
-    # A previous index can suppress a song before Sockseek logs any result.
-    # The library and staged audio already handle resuming verified work.
-    with tempfile.TemporaryDirectory(prefix="sockseek-batch-", dir=STATE) as attempt:
-        attempt_index = Path(attempt) / batch_index.name
-        command = [str(SOCKSEEK), str(MASTER), "--config", str(CONFIG),
-                   "--output-dir", str(landing), "--index-path", str(attempt_index),
-                   "--offset", str(offset), "--number", str(len(batch)),
-                   *bulk_format_options(), "--min-bitrate", str(MIN_BITRATE_KBPS),
-                   "--pref-min-bitrate", "256", "--length-tol", str(CLI_LENGTH_TOLERANCE),
-                   "--pref-strict-title", "--pref-strict-artist",
-                   "--name-format", "{snum} - {sartist} - {stitle}",
-                   "--concurrent-jobs", "3", "--concurrent-searches", "1",
-                   "--max-retries", "3", "--max-stale-time", "15000",
-                   "--no-progress"]
-        print(f"Starting tracks {offset + 1}–{offset + len(batch)}; "
-              f"free={free / 1024**3:.2f} GiB", flush=True)
-        log_path = STATE / ("pilot.log" if pilot else f"batch-{offset + 1:05d}-{offset + len(batch):05d}.log")
-        with log_path.open("w", encoding="utf-8") as log:
-            log.write(f"=== tracks {offset + 1}–{offset + len(batch)} ===\n")
-            log.flush()
-            proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
-            while proc.poll() is None:
-                if free_bytes() < MIN_FREE:
-                    print("Space floor reached during batch; stopping Sockseek", flush=True)
-                    proc.send_signal(signal.SIGINT)
-                    try:
-                        proc.wait(timeout=30)
-                    except subprocess.TimeoutExpired:
-                        proc.terminate()
-                        try:
-                            proc.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            proc.kill()
-                            proc.wait()
-                    return False
-                time.sleep(5)
-        if attempt_index.is_file():
-            attempt_index.replace(batch_index)
-    print(f"Batch exit={proc.returncode}; free={free_bytes() / 1024**3:.2f} GiB", flush=True)
-    if not batch_log_complete(log_path.read_text(encoding="utf-8"), len(batch), proc.returncode):
-        return False
-    if advance_cursor:
-        write_cursor(offset + len(batch))
-    return True
+    return managed_batch(configured_engines(), offset, batch, landing, advance_cursor)
 
 
 def run_scoped(scope, batch_size=50):
@@ -1303,8 +931,6 @@ def run_scoped(scope, batch_size=50):
         prepare()
     if bulk_staging_has_audio():
         report()
-    if configured_engines() is None:
-        check_legacy_download_tools()
     data = load_manifest()
     records = data["records"]
     signature = data.get("source_signature")
@@ -1355,7 +981,7 @@ def run(pilot=False, batch_size=50):
     start = cursor_offset()
     write_cursor(start)
     if pilot:
-        run_batch(start, 20, pilot=True)
+        run_batch(start, 20)
         report()
         return
     records = load_manifest()["records"]
@@ -1949,8 +1575,7 @@ def report():
     lines.extend(["", f"Portable XSPF lists are in `{SOURCES}`.",
                   f"Audio is in `{LIBRARY}`; ordered M3U8 files are in `{PLAYLISTS}`.",
                   f"Detailed match and rejection reasons are in the coverage table of `{REQUESTS_DB}`.",
-                  "The downloader resumes from its saved cursor. Nicotine+ should stay closed while it uses "
-                  "the same Soulseek account.", ""])
+                  "The downloader resumes from its saved cursor.", ""])
     try:
         OUTPUTS.mkdir(exist_ok=True)
         (OUTPUTS / "offline_music_status.md").write_text("\n".join(lines), encoding="utf-8")
@@ -2016,7 +1641,7 @@ def run_genres():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["prepare", "credentials", "pilot", "run", "requests", "report", "genres", "export", "reclaim", "migrate"])
+    parser.add_argument("action", choices=["prepare", "pilot", "run", "requests", "report", "genres", "export", "reclaim", "migrate"])
     parser.add_argument("--batch-size", type=int, default=50)
     args = parser.parse_args()
     if args.action == "prepare":
@@ -2029,8 +1654,6 @@ def main():
         run_reclaim()
     elif args.action == "migrate":
         run_migrate()
-    elif args.action == "credentials":
-        setup_credentials()
     elif args.action == "pilot":
         run(pilot=True)
     elif args.action == "run":

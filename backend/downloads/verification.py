@@ -1,8 +1,8 @@
 """The one definition of a verified copy.
 
 Every place that decides whether a file counts as the song it claims to
-be calls judge() here: the library scan, the focused download, the
-request pipeline, the ISRC sharing pass, and the coverage report. The
+be calls judge() here: the library scan, the download and request
+pipelines, the ISRC sharing pass, and the coverage report. The
 thresholds live here and nowhere else: at least 192 kbps, duration
 within 5.5 seconds of the expected length when the length is known, and
 a title tag that matches. Generic placeholder tags ("Track 01" and its
@@ -10,7 +10,7 @@ translations) and empty tags are accepted, because real libraries carry
 them, but judge() records that acceptance as the coverage reason
 "title tag generic" so it stays visible (A2 C-06).
 
-New Soulseek downloads also verify that the encoding matches the advertised file type.
+New downloads also verify that the encoding matches the advertised file type.
 probe() captures descriptive fields that never feed the base judge():
 the audio stream's codec, sample rate, and bit depth, and the file's
 ReplayGain and R128 gain/peak tags (plan 042 stage 6). The player's
@@ -28,12 +28,8 @@ from system.formats import REQUEST_AUDIO_FORMATS, REQUEST_FORMAT_NAMES
 from system.normalize import normalize_title
 
 MIN_BITRATE = 192_000
-MIN_BITRATE_KBPS = 192
 DURATION_TOLERANCE = 5.5
 TITLE_SIMILARITY = 0.55
-# Sockseek's --length-tol takes whole seconds: it pre-filters candidates
-# at 5 s, and judge() then applies the real 5.5 s rule to what returns.
-CLI_LENGTH_TOLERANCE = 5
 # ffprobe runs on files that come from untrusted peers; a hung probe
 # must not stall the pipeline (A2 C-04).
 PROBE_TIMEOUT = 30

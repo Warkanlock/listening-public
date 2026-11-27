@@ -15,7 +15,7 @@ function sourceDescription(data: ExtensionSources, showProviders: boolean) {
     return time ? `A source couldn’t sign in. Your requests stay queued. Find copy can retry after ${time}.` :
       "The sign-in pause has ended. Queued requests can retry.";
   }
-  if (data.state === "ready" || data.state === "legacy") {
+  if (data.state === "ready") {
     if (showProviders && search && fetch)
       return `Search: ${search} · Download: ${fetch}`;
     return "Find copy uses the room’s configured download sources.";

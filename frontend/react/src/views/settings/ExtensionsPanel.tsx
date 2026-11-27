@@ -2,20 +2,20 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { Switch, SwitchThumb } from "@ui-sdk/react/switch";
 import { RoomAction, RoomConfirm, RoomSelect } from "../../components/RoomControls";
 import { RoomIcon, type RoomIconName } from "../../components/RoomIcon";
-import { api, postJson } from "../../api";
+import { api, postJson, type ExtensionRole } from "../../api";
 import { notify } from "../../toasts";
 import { useStore } from "../../store";
 import { ExtensionIconAction, ExtensionInventory, ExtensionInventoryRow, retryTime } from "./ExtensionInventory";
-import { ExtensionUpdateReview, type ExtensionPackage, type ExtensionRole } from "./ExtensionUpdateReview";
+import { ExtensionUpdateReview, type ExtensionPackage } from "./ExtensionUpdateReview";
+import { ExtensionShareSettings } from "./ExtensionShareSettings";
 
-type Role = ExtensionRole;
 type Engine = ExtensionPackage & {
   enabled?: boolean; ready?: boolean; retry_at?: number;
   previous?: unknown; configured_settings?: string[];
 };
 export type Extensions = {
   radio: string[]; installed: Engine[]; available: Engine[];
-  configured: boolean; error: string; selection: Partial<Record<Role, string>> | null; reviewed_updates?: boolean;
+  configured: boolean; error: string; selection: Partial<Record<ExtensionRole, string>> | null; reviewed_updates?: boolean;
 };
 
 function packageMetadata({ version, image, server_versions, capabilities, sources, settings }: Engine) {
@@ -54,7 +54,7 @@ function EngineSettings({ engine, busy, save }: {
     if (Object.keys(updates).length && await save(updates)) form.reset();
   }
 
-  return <form className="settings-form extension-config" aria-label={`Settings for ${engine.id}`} onSubmit={event => void submit(event)}>
+  return <form className="settings-form" aria-label={`Settings for ${engine.id}`} onSubmit={event => void submit(event)}>
     <p className="settings-note">Leave a field blank to keep its existing value. Required settings are checked when the engine starts.</p>
     {fields.map(field => {
       const saved = engine.configured_settings?.includes(field.key) ?? false;
@@ -79,7 +79,7 @@ export function ExtensionsPanel() {
   const [removing, setRemoving] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [extensions, setExtensions] = useState<Extensions>();
-  const [selection, setSelection] = useState<Partial<Record<Role, string>>>({});
+  const [selection, setSelection] = useState<Partial<Record<ExtensionRole, string>>>({});
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const busy = saving || loading;
@@ -148,7 +148,8 @@ export function ExtensionsPanel() {
   const active = extensions.selection;
   const catalog = extensions.available.filter(engine => !extensions.installed.some(entry => entry.id === engine.id));
   const selectedEngines = extensions.installed.filter(engine => engine.id === active?.search || engine.id === active?.fetch);
-  const ready = extensions.installed.filter(engine => engine.ready);
+  const ready = extensions.installed.filter(engine => engine.ready &&
+    (engine.capabilities.includes("search") || engine.capabilities.includes("fetch")));
   const search = ready.find(engine => engine.id === selection.search);
   const fetch = ready.find(engine => engine.id === selection.fetch);
   const compatible = !!search?.sources?.search?.length && !!fetch &&
@@ -165,7 +166,7 @@ export function ExtensionsPanel() {
       {error && <p className="extension-notice" role="alert">{error}</p>}
       {extensions.error && <p className="extension-notice" role="alert">{extensions.error}</p>}
       <p>Choose how Listening finds and downloads missing songs.</p>
-      {active === null ? <p>The room uses its existing downloader.</p> : hasSelection ?
+      {hasSelection ?
         <div className="extension-source-summary">
           <div><span>Search with</span><strong>{active.search}</strong></div>
           <div><span>Download with</span><strong>{active.fetch}</strong></div>
@@ -206,23 +207,25 @@ export function ExtensionsPanel() {
     </section>
     <section className="settings-card">
       <header className="settings-card-heading">
-        <h2>Download extensions</h2>
+        <h2>Listening plugins</h2>
         <ExtensionIconAction icon="refresh" label="Refresh extensions" disabled={busy} onClick={refresh} />
       </header>
-      {!extensions.configured && <p>Set up the host engine manager to install download extensions.</p>}
+      {!extensions.configured && <p>Set up the host engine manager to install plugins.</p>}
       {extensions.configured && !extensions.error && !extensions.installed.length && !catalog.length &&
-        <p>No compatible download extensions are listed in this room’s catalog.</p>}
-      {(extensions.installed.length > 0 || catalog.length > 0) && <ExtensionInventory label="Download extensions" manage>
+        <p>No compatible plugins are listed in this room’s catalog.</p>}
+      {(extensions.installed.length > 0 || catalog.length > 0) && <ExtensionInventory label="Listening plugins" manage>
         {extensions.installed.map(engine => {
           const retry = retryTime(engine.retry_at);
           const update = extensions.available.find(entry => entry.id === engine.id && packageMetadata(entry) !== packageMetadata(engine));
+          const canShare = engine.capabilities.includes("share");
+          const hasSettings = !!engine.settings?.length || canShare;
           const formId = `${settingsId}-${engine.id}`;
           return <ExtensionInventoryRow key={engine.id} engine={engine} settingsId={formId}
             settingsOpen={configuring === engine.id} actions={<>
               {action(engine.enabled ? "disable" : "enable", engine.enabled ? "pause" : "power",
                 engine.enabled ? "Disable" : "Enable", engine.id, !engine.enabled && !!retry)}
               {action("test", "check", "Check setup for", engine.id, !!retry)}
-              {!!engine.settings?.length && <ExtensionIconAction icon="settings" label={`Configure ${engine.id}`}
+              {hasSettings && <ExtensionIconAction icon="settings" label={`Configure ${engine.id}`}
                 disabled={busy} aria-expanded={configuring === engine.id} aria-controls={formId}
                 onClick={() => setConfiguring(value => value === engine.id ? null : engine.id)} />}
               {update && <ExtensionIconAction icon="up" label={`Update ${engine.id}`}
@@ -232,8 +235,13 @@ export function ExtensionsPanel() {
               <ExtensionIconAction icon="trash" label={`Remove ${engine.id}`} disabled={busy}
                 onClick={() => setRemoving(engine.id)} />
             </>}>
-            {!!engine.settings?.length && <EngineSettings engine={engine} busy={busy}
-              save={settings => change("configure", { engine: engine.id, settings })} />}
+            {hasSettings && <div className="extension-config">
+              <EngineSettings engine={engine} busy={busy}
+                save={settings => change("configure", { engine: engine.id, settings })} />
+              {canShare && configuring === engine.id && <ExtensionShareSettings
+                key={`${engine.image}:${engine.enabled}:${attempt}`} engine={engine.id}
+                busy={busy} setSaving={setSaving} />}
+            </div>}
           </ExtensionInventoryRow>;
         })}
         {catalog.map(engine => <ExtensionInventoryRow key={engine.id} engine={engine} available

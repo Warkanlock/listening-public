@@ -41,7 +41,7 @@ const CONSEQUENCES: Record<JobKind, string> = {
 const JOB_DETAILS: Record<JobKind, { input: string; source: string; result: string; start: string }> = {
   downloads: {
     input: "Missing songs in the selected playlists",
-    source: "Soulseek",
+    source: "Configured download extensions",
     result: "Saves verified copies to the room library.",
     start: "Download missing songs",
   },
@@ -53,7 +53,7 @@ const JOB_DETAILS: Record<JobKind, { input: string; source: string; result: stri
   },
   requests: {
     input: "Requests waiting in this room",
-    source: "Room library, then Soulseek",
+    source: "Room library, then configured download extensions",
     result: "Fills requests in order with verified copies.",
     start: "Process requests",
   },

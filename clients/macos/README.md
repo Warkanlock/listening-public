@@ -4,7 +4,7 @@ On an Apple silicon Mac running macOS 13 or later, drag Listening Room.app from 
 
 If macOS blocks the first launch of a trusted download, compare its checksum with the release and follow Apple’s first-launch steps. [Apple’s Gatekeeper guide](https://support.apple.com/en-us/102445)
 
-For local hosting, choose **Listening Room → Install terminal command…**. Open Terminal and run `~/.local/bin/listening setup` to choose a room and start the server. The bundled interpreter, FFmpeg, ffprobe, Sockseek and web app run without Homebrew or development tools. The room stays in the owner's data folders when replacing the application.
+For local hosting, choose **Listening Room → Install terminal command…**. Open Terminal and run `~/.local/bin/listening setup` to choose a room and start the server. The bundled interpreter, FFmpeg, ffprobe, and web app run without Homebrew or development tools. The room stays in the owner's data folders when replacing the application.
 
 ## Producing a personal disk image
 

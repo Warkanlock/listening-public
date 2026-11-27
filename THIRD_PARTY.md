@@ -1,7 +1,5 @@
 # Third-party software
 
-Sockseek and Nicotine+ are external programs and are not included in this repository. Listening Room invokes them when configured by the host. Sockseek is the current download adapter, the Soulseek search and download CLI; it is still a separate project, but the package routes fetch its pinned release and verify the checksum as part of installation, and a from-source install provisions it the same way with `scripts/provision_sockseek.py`. Nicotine+ is used only for optional sharing back to Soulseek and is never provisioned.
-
 The React frontend in `frontend/react/` (plan 042) builds on these packages, installed with yarn and recorded in `frontend/react/yarn.lock`:
 
 - react (MIT License)

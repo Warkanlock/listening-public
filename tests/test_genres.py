@@ -395,7 +395,6 @@ class RunnerGenreTestCase(unittest.TestCase):
             mock.patch.object(runner, "PLAYLISTS", self.playlists_dir),
             mock.patch.object(runner, "OUTPUTS", self.root / "reports"),
             mock.patch.object(runner, "SOURCES", self.sources),
-            mock.patch.object(runner, "MASTER", self.state / "master.csv"),
             mock.patch.object(runner, "REQUESTS_DB", self.state / "requests.sqlite3"),
             mock.patch.object(runner, "free_bytes", lambda: 100 * 1024**3),
         ]
