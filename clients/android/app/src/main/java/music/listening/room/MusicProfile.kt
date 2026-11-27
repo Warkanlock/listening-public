@@ -150,6 +150,7 @@ internal fun RoomUi.showMusicProfile(
                 addView(column(2).apply {
                     addView(label(title))
                     if (copyStatus == "not_found") addView(label("No copy found", 14f, secondary))
+                    else if (copyStatus == "unavailable") addView(label("Unavailable", 14f, secondary))
                     else if (retry == null && !canRequest) addView(label("Duration unavailable", 14f, secondary))
                 }, LinearLayout.LayoutParams(0, -2, 1f))
                 if (retry != null) addView(button("Try MP3") {}.apply {
@@ -164,7 +165,7 @@ internal fun RoomUi.showMusicProfile(
                         }
                     }
                 })
-                else if (canRequest) addView(button("Find a copy") {}.apply {
+                else if (canRequest && copyStatus != "unavailable") addView(button("Find a copy") {}.apply {
                     setOnClickListener { requestCopy(track, it, recording) }
                 })
             })

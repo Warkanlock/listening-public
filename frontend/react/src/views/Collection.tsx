@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogTrigger, DialogBackdrop, DialogClose, DialogTitle, DialogDescription } from "@ui-sdk/react/dialog";
 import { audioExportFormats, RoomAction, RoomSelect } from "../components/RoomControls";
 import { RoomIcon, RoomIconButton } from "../components/RoomIcon";
+import { RetryRequestButton } from "../components/RequestStatus";
 import { AddToPlaylist, usePlaylistComposer } from "../components/PlaylistComposer";
 import {
   createTabsController,
@@ -164,10 +165,12 @@ function Shelf() {
 function ExternalRow({ item }: { item: ExternalResult }) {
   const store = useStore();
   const ready = item.status === "verified";
+  const stopped = item.catalog_id != null && store.requestRows.find(row => row.status === "unavailable" &&
+    (row.track_index === item.catalog_id || row.original_track_index === item.catalog_id));
   const byline = [
     item.artist,
     item.album,
-    ready ? "Ready in library" : "",
+    ready ? "Ready in library" : stopped || item.status === "unavailable" ? "Unavailable" : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -194,7 +197,7 @@ function ExternalRow({ item }: { item: ExternalResult }) {
         >
           Play
         </button>
-      ) : (
+      ) : stopped ? <RetryRequestButton request={stopped} title={item.title} /> : item.status !== "unavailable" && (
         <button
           className="quiet-button"
           type="button"

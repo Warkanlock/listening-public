@@ -219,6 +219,8 @@ class FormatSelectionTests(StoreTestCase):
         self.assertEqual(self.store.by_track(), {1: stopped})
         self.assertEqual(self.create(individual=False), (stopped, False))
         self.assertEqual(self.store.queued(1), [])
+        self.enqueue_custom(title="Newer request")
+        self.assertIn(stopped, self.store.recent(1))
 
     def test_stopped_copy_review_is_skipped_by_weekly_queueing(self):
         track = {"id": "00000000-0000-4000-8000-000000000013", "artist": "Artist", "title": "Song",
