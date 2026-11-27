@@ -79,7 +79,7 @@ jobs:
             trap 'rm -rf -- "$previous"' EXIT
             previous_commit=$(git rev-parse --verify --end-of-options "$PREVIOUS_RELEASE_REF^{commit}")
             git archive "$previous_commit" | tar -x -C "$previous"
-            docker buildx build --load --platform linux/amd64 -t listening-room:upgrade-fixture "$previous"
+            docker buildx build --load --platform linux/amd64 --target core -t listening-room:upgrade-fixture "$previous"
             smoke+=(--previous-image listening-room:upgrade-fixture)
           else
             smoke+=(--skip-restore)
