@@ -685,10 +685,10 @@ class RequestsStore:
         return self._run(work)
 
     def recent(self, limit=80):
-        """The most recent requests, newest first, as dicts."""
+        """Recent requests and older ones that still need a choice or an explicit retry."""
         def work(conn):
             return [decode_request_row(row) for row in conn.execute(
-                "SELECT * FROM requests WHERE status='waiting_format' OR id IN "
+                "SELECT * FROM requests WHERE status IN ('waiting_format','unavailable') OR id IN "
                 "(SELECT id FROM requests ORDER BY id DESC LIMIT ?) ORDER BY id DESC", (limit,))]
         return self._run(work)
 
