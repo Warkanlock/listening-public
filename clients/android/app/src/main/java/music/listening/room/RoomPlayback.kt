@@ -241,6 +241,7 @@ class RoomPlayback : MediaSessionService() {
         if (intent?.action == COMMAND) {
             val op = intent.getStringExtra("op") ?: return START_NOT_STICKY
             val body = JSONObject(intent.getStringExtra("fields") ?: "{}")
+            if (body.optBoolean("requires_radio") && radioDevice == null) return START_NOT_STICKY
             val homeWifi = intent.getBooleanExtra("home_wifi", false)
             if (op != "snapshot") intentSequence++
             when (op) {

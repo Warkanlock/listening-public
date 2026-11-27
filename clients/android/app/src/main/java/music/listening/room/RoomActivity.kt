@@ -76,7 +76,8 @@ class RoomActivity : Activity() {
     private var insightsRequestGeneration: Int? = null
     private var playingBar: NowPlayingBar? = null
     private var renderedRadio = false
-    private data class DownloadNotice(val roomId: String, val summary: String, val songs: List<JSONObject>)
+    private data class DownloadNotice(val roomId: String, val summary: String, val songs: List<JSONObject>,
+                                      val feedKeys: List<String>)
     private enum class DownloadGroup(val label: String) {
         REVIEW("Needs review"), READY("Ready to play"), MISSING("No copy found")
     }
@@ -667,8 +668,12 @@ class RoomActivity : Activity() {
                     return@runOnUiThread
                 }
                 val pending = rows.filter { it.getString("key") !in previous }
-                val old = downloadNotice?.takeIf { it.roomId == target.id }?.songs.orEmpty()
-                if (pending.map { it.getString("key") } == old.map { it.getString("key") }) return@runOnUiThread
+                val feedKeys = rows.map { it.getString("key") }
+                val old = downloadNotice?.takeIf { it.roomId == target.id }
+                if (pending.map { it.getString("key") } == old?.songs.orEmpty().map { it.getString("key") }) {
+                    downloadNotice = old?.copy(songs = pending, feedKeys = feedKeys)
+                    return@runOnUiThread
+                }
                 val summary = when (pending.size) {
                     0 -> ""
                     1 -> "${pending.first().optString("title")} · ${downloadGroup(pending.first()).label}"
@@ -681,7 +686,7 @@ class RoomActivity : Activity() {
                             "$review ${if (review == 1) "needs" else "need"} review".takeIf { review > 0 }).joinToString(" · ")
                     }
                 }
-                downloadNotice = if (pending.isEmpty()) null else DownloadNotice(target.id, summary, pending)
+                downloadNotice = if (pending.isEmpty()) null else DownloadNotice(target.id, summary, pending, feedKeys)
                 renderDownloadNotice(target)
             }
         }
@@ -721,13 +726,15 @@ class RoomActivity : Activity() {
         slot.removeAllViews()
         val notice = downloadNotice?.takeIf { it.roomId == target.id } ?: return
         slot.addView(ui.button(notice.summary) {
+            val unread = downloadNotice?.takeIf { it.roomId == target.id } ?: return@button
             val preferences = getSharedPreferences("download_activity", MODE_PRIVATE)
             val seen = preferences.getStringSet(target.id, null).orEmpty()
-            val remembered = (notice.songs.map { it.getString("key") } + seen).take(96).toSet()
+            val recent = unread.songs.map { it.getString("key") } + unread.feedKeys.filter(seen::contains)
+            val remembered = (recent + seen).distinct().take(96).toSet()
             preferences.edit().putStringSet(target.id, remembered).apply()
             downloadNotice = null
             renderDownloadNotice(target)
-            showDownloadUpdates(target, notice.songs)
+            showDownloadUpdates(target, unread.songs)
         }.apply {
             contentDescription = "${notice.summary} · Open download updates"
             setCompoundDrawablesRelative(null, null, ui.mark(Mark.FORWARD, 17, ui.accentInk), null)
@@ -1979,10 +1986,8 @@ class RoomActivity : Activity() {
     }
 
     private fun sendTransport(op: String, fields: JSONObject = JSONObject()) {
-        if (renderedRadio && op in setOf("pause", "resume", "previous", "next", "seek") &&
-            room?.let { radioSnapshot(it.id) } == null) {
-            renderPlayer(JSONObject())
-            refreshPlayer()
+        if (renderedRadio && op in setOf("pause", "resume", "previous", "next", "seek")) {
+            send(op, fields.put("requires_radio", true))
         } else send(op, fields)
     }
 
