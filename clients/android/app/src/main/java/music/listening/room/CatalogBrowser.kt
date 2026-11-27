@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Toast
+import androidx.core.view.OneShotPreDrawListener
 import org.json.JSONArray
 import org.json.JSONObject
 import okhttp3.Call
@@ -65,10 +66,10 @@ internal class CatalogBrowser(private val activity: Activity, private val ui: Ro
         if (renderControls() && restored != null && unchanged && restored.source == source) {
             imported.putAll(restored.imported)
             when (val previous = restored.search) {
-                is CatalogBrowserState.Search.Loading -> search(previous.page, previous.query)
+                is CatalogBrowserState.Search.Loading -> search(previous.page, previous.query, scrollToResults = false)
                 else -> showSearch(previous)
             }
-            if (restored.scrollY > 0) post { scrollTo(0, restored.scrollY) }
+            if (restored.scrollY > 0) OneShotPreDrawListener.add(this) { scrollTo(0, restored.scrollY) }
         }
     }
 
@@ -138,7 +139,7 @@ internal class CatalogBrowser(private val activity: Activity, private val ui: Ro
         true
     }
 
-    private fun search(page: Int, text: String) {
+    private fun search(page: Int, text: String, scrollToResults: Boolean = true) {
         cancelSearch()
         val current = MetadataRequest()
         pending = current
@@ -149,10 +150,14 @@ internal class CatalogBrowser(private val activity: Activity, private val ui: Ro
         request(body, current::bind) { result ->
             if (current === pending) {
                 pending = null
-                showSearch(result.fold(
+                val search = result.fold(
                     { CatalogBrowserState.Search.Results(page, text, it.getJSONArray("groups")) },
                     { CatalogBrowserState.Search.Error(it.message ?: "Search failed. Try again.") }
-                ))
+                )
+                showSearch(search)
+                if (scrollToResults) OneShotPreDrawListener.add(this) {
+                    if (displayed === search) scrollTo(0, output.top)
+                }
             }
         }
     }
