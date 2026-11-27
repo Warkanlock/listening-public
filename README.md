@@ -40,6 +40,27 @@
 Choose a computer to host Listening. It holds the library. Open the room on the other devices you want to listen on.
 
 <details open>
+<summary><strong>Docker</strong></summary>
+
+With Docker running, pull the published image and start a room.
+
+```sh
+docker pull ghcr.io/warkanlock/listening-public:2.0.5
+docker run -d --name listening-room --restart unless-stopped \
+  -p 127.0.0.1:8765:8765 \
+  -e LISTENING_ROOM_REQUIRE_OWNER=1 \
+  -v listening-config:/config -v listening-library:/library \
+  ghcr.io/warkanlock/listening-public:2.0.5
+docker exec -it listening-room /app/listening account set-owner owner
+```
+
+Enter a password when prompted. On the Docker host, open [http://127.0.0.1:8765](http://127.0.0.1:8765) and sign in as `owner`. The two Docker volumes keep your settings and library when you replace the container.
+
+[Published image tags](https://github.com/Warkanlock/listening-public/pkgs/container/listening-public) · [Music folders, private access, and Compose](docs/private-install.md#start-a-room-with-docker-compose)
+
+</details>
+
+<details>
 <summary><strong>Mac</strong></summary>
 
 1. Download the Mac DMG, drag Listening Room to Applications, and open it. The Mac app runs on Apple silicon with macOS 13 or later.
@@ -47,17 +68,6 @@ Choose a computer to host Listening. It holds the library. Open the room on the 
 3. To host a new room, choose **Listening Room → Install terminal command**. Open Terminal, run `~/.local/bin/listening setup`, and choose a music folder.
 
 [Download for Mac](https://github.com/Warkanlock/listening-public/releases/latest) · [Mac setup guide](clients/macos/README.md)
-
-</details>
-
-<details>
-<summary><strong>Linux server</strong></summary>
-
-1. Install Docker with Compose and get the Listening release files.
-2. Follow the server guide to start your room, choose a music folder, and create your owner login.
-3. Open the address shown by setup. In the Library, open **Owned music** and play a track.
-
-[Linux server guide](docs/private-install.md#start-a-room-with-docker-compose) · [Run from source](docs/operations.md#from-source-developers-and-forks)
 
 </details>
 
@@ -103,6 +113,7 @@ Use a collection snapshot to move your catalog and original audio to another hos
 | Guide | Covers |
 | --- | --- |
 | [Server installation](docs/private-install.md) | Owner setup, music import, private access, and updates |
+| [Run from source](docs/operations.md#from-source-developers-and-forks) | Local development and forks |
 | [Music storage and playback](docs/music-storage-and-playback.md) | Import, play, buffer, export, and sync |
 | [Discovery and Radio](docs/operations.md#radio) | Library Radio, discovery, and optional sources |
 | [Spotify setup](docs/operations.md#spotify-adapter-optional) | Connect Spotify and sync or edit eligible playlists |

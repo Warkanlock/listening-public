@@ -47,6 +47,11 @@
   padding-block: clamp(48px, 8vw, 126px);
 }
 .about-screens-lead {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .5rem 2rem;
   margin-bottom: clamp(24px, 4vw, 58px);
 }
 .about-screens-lead h2 { margin-block: 0; }
@@ -55,7 +60,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: clamp(18px, 4vw, 48px) clamp(16px, 3vw, 38px);
 }
-.about-screen-leads { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.about-screen-leads {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: clamp(24px, 4vw, 48px);
+}
 .about-screen-grid figure { min-width: 0; }
 .about-screen-grid a {
   display: grid;
@@ -73,6 +81,63 @@
 .about-screen-grid figcaption { padding-block: 0.75rem 0.15rem; }
 .about-screen-grid h3 { font-size: 1.12rem; letter-spacing: -0.02em; }
 .about-screen-grid p { margin-top: 0.25rem; color: #405851; line-height: 1.4; }
+.about-feature-spread > figure {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: clamp(14px, 2vw, 28px);
+  background: #dce9df;
+  border-radius: 16px;
+}
+.about-feature-spread > figure + figure { background: #eee5d5; }
+.about-feature-spread figcaption { padding: 0; }
+.about-feature-spread h3,
+.about-listening h3 {
+  font-size: clamp(1.35rem, 2.35vw, 2.1rem);
+  line-height: 1.06;
+  letter-spacing: -.045em;
+}
+.about-feature-spread p { max-width: 42ch; }
+.about-feature-spread a { margin-top: auto; }
+
+.about-listening {
+  padding-block: clamp(48px, 8vw, 110px);
+  background: var(--ocean);
+  color: var(--paper);
+}
+.about-listening h2 em { color: var(--mint); }
+.about-listening-grid {
+  display: grid;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  gap: clamp(24px, 4vw, 54px);
+  margin-top: clamp(26px, 4vw, 54px);
+}
+.about-listening-grid article { display: grid; align-content: start; gap: 1.15rem; min-width: 0; }
+.about-listening-grid p { max-width: 58ch; margin-top: .45rem; color: #d1dfd7; line-height: 1.5; }
+.about-listening-grid .about-inline { margin-top: .15rem; color: var(--mint); }
+.about-listening-screen {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  block-size: clamp(215px, 26vw, 360px);
+  padding: clamp(12px, 2vw, 26px);
+  border: 1px solid #65887b;
+  border-radius: 15px;
+  background: #234942;
+}
+.about-phone-screen { background: radial-gradient(ellipse at center, #517165, #234942 75%); }
+.about-pair-screen { background: #365a50; }
+.about-listening-screen img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  box-shadow: 0 12px 26px #081d1a66;
+}
+.about-listening-screen:hover { border-color: var(--mint); }
+
 .about-more-screens { margin-top: 2.5rem; border-block: 1px solid var(--light-rule); }
 .about-more-screens summary {
   display: flex;
@@ -95,10 +160,8 @@
 
 .about-feature-search { margin-bottom: 1.5rem; }
 .about-feature-search > label { display: block; margin-bottom: .45rem; font-weight: 700; }
-.about-feature-input { display: flex; align-items: center; gap: .6rem; }
-.about-feature-input > input {
-  flex: 1;
-  min-width: 0;
+.about-feature-search > input {
+  width: 100%;
   min-height: 46px;
   padding: .6rem .75rem;
   border: 1px solid var(--accent);
@@ -107,17 +170,7 @@
   color: var(--ink);
   font: inherit;
 }
-.about-pattern-toggle {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  gap: .4rem;
-  padding-inline: .55rem;
-  font-size: .9rem;
-  cursor: pointer;
-}
-.about-pattern-toggle input { accent-color: var(--accent-deep); }
-#feature-status { margin-top: .45rem; min-height: 1.5em; font-size: .9rem; }
+#feature-status:not(:empty) { margin-top: .45rem; font-size: .9rem; }
 .about-install-tabs { display: flex; flex-wrap: wrap; gap: .2rem .6rem; border-bottom: 1px solid var(--light-rule); }
 .about-install-tabs button {
   min-height: 44px;
@@ -154,7 +207,8 @@
 }
 
 @media (max-width: 560px) {
-  .about-screen-grid { grid-template-columns: minmax(0, 1fr); }
+  .about-screen-grid,
+  .about-listening-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (min-width: 801px) {
