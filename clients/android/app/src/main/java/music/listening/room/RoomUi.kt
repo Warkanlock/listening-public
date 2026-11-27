@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
@@ -11,6 +12,7 @@ import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.widget.*
 
 internal data class Entry(val title: String, val subtitle: String = "", val detail: String = "",
@@ -20,16 +22,16 @@ internal data class Entry(val title: String, val subtitle: String = "", val deta
 
 /** Native controls for room and offline players. */
 internal class RoomUi(private val context: Context) {
-    val eInk = RoomTheme.isKompakt
     val theme = RoomTheme.load(context)
-    private val palette = RoomPalettes.load(context, theme)
+    val eInk = theme == RoomTheme.E_INK
+    private val palette by lazy { RoomPalettes.load(context, theme) }
     val compactPlayerLandscape get() = eInk && context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     private fun tone(kompakt: Int, token: String) = if (eInk) Color.rgb(kompakt, kompakt, kompakt)
         else RoomPalettes.color(palette, token)
     val ink = tone(0, "text")
     val paper = tone(255, "panel")
     val card = tone(255, "card")
-    val fog = tone(234, "tint")
+    val fog = tone(245, "tint")
     val secondary = tone(51, "muted")
     val accent = tone(0, "accent")
     val accentInk = tone(0, "accent-ink")
@@ -83,7 +85,7 @@ internal class RoomUi(private val context: Context) {
 
     fun surface(fill: Int, stroke: Int? = rule) = GradientDrawable().apply {
         setColor(fill)
-        cornerRadius = dp(if (eInk) 4 else 8).toFloat()
+        cornerRadius = if (eInk) 0f else dp(8).toFloat()
         if (stroke != null) setStroke(dp(1), stroke)
     }
 
@@ -140,7 +142,7 @@ internal class RoomUi(private val context: Context) {
                 intArrayOf(secondary, active, active, onAccent, active))
             val rest = if (solid) accent else paper
             fun disc(color: Int, outline: Boolean = false) = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
+                shape = if (eInk) GradientDrawable.RECTANGLE else GradientDrawable.OVAL
                 setColor(color)
                 if (outline || (outlined && glyph != Mark.INFO)) {
                     setStroke(dp(if (outline) 2 else 1), if (outline) ink else controlEdge)
@@ -201,9 +203,13 @@ internal class RoomUi(private val context: Context) {
 
     fun tab(name: String, glyph: Mark, selected: Boolean, action: () -> Unit) =
         button(name, action = action).apply {
-            setCompoundDrawables(null, mark(glyph, 18), null, null)
-            compoundDrawableTintList = textColors
-            compoundDrawablePadding = dp(2)
+            if (eInk) {
+                if (selected) paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
+            } else {
+                setCompoundDrawables(null, mark(glyph, 18), null, null)
+                compoundDrawableTintList = textColors
+                compoundDrawablePadding = dp(2)
+            }
             setPadding(0, dp(4), 0, dp(4))
             textSize = 13f
             typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
@@ -258,6 +264,10 @@ internal class RoomUi(private val context: Context) {
     fun line() = View(context).apply { setBackgroundColor(rule); layoutParams = LinearLayout.LayoutParams(-1, dp(1)) }
 
     fun index(items: List<Entry>, header: View? = null) = ListView(context).apply {
+        if (eInk) {
+            overScrollMode = View.OVER_SCROLL_NEVER
+            setFriction(ViewConfiguration.getScrollFriction() * 3)
+        }
         divider = null
         itemsCanFocus = true
         if (header != null) addHeaderView(header, null, false)

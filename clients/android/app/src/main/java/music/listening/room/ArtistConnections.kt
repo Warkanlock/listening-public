@@ -199,17 +199,26 @@ private class ArtistConnectionsDialog(
     private fun render(credits: Credits, from: CreditEdge?) = with(ui) {
         when (credits) {
             is Credits.Ready -> {
-                val graph = CreditGraph(activity, ui, credits, ::follow)
-                stage.section(graph)
-                if (ValueAnimator.areAnimatorsEnabled()) {
-                    graph.alpha = 0f
-                    graph.translationY = ui.dp(8).toFloat()
-                    graph.animate().alpha(1f).translationY(0f).setDuration(240)
-                        .setInterpolator(DecelerateInterpolator()).start()
-                }
                 val root = credits.root
                 subject.text = if (root.name == title) "Connections" else root.name
                 if (!subject.isInTouchMode) subject.requestFocus()
+                if (ui.eInk) {
+                    for (edge in credits.branches) {
+                        val name = listOf(edge.node.name, edge.label).filter(String::isNotBlank).joinToString("\n")
+                        stage.section(button(name) { follow(edge) }.apply {
+                            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                        }, gap = 6)
+                    }
+                } else {
+                    val graph = CreditGraph(activity, ui, credits, ::follow)
+                    stage.section(graph)
+                    if (ValueAnimator.areAnimatorsEnabled()) {
+                        graph.alpha = 0f
+                        graph.translationY = ui.dp(8).toFloat()
+                        graph.animate().alpha(1f).translationY(0f).setDuration(240)
+                            .setInterpolator(DecelerateInterpolator()).start()
+                    }
+                }
                 val facts = listOf(root.detail, from?.label.orEmpty(), from?.note.orEmpty())
                     .filter(String::isNotBlank).joinToString(" · ")
                 stage.section(panel().apply {
