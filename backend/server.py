@@ -2337,8 +2337,8 @@ class Handler(BaseHTTPRequestHandler):
                 for track in result["tracks"]:
                     if track_id := track.get("track_id"):
                         request = linked.get(track_id)
-                        if not track.get("ready") and request and request["status"] == "not_found":
-                            track["copy_status"] = "not_found"
+                        if not track.get("ready") and request and request["status"] in ("not_found", "unavailable"):
+                            track["copy_status"] = request["status"]
                             if retry := mp3_retry(request):
                                 track["mp3_retry"] = retry
                     elif request := picks.get(("", "", track["musicbrainz_id"])):

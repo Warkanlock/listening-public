@@ -13,6 +13,7 @@ import {
   TabsTab,
 } from "@ui-sdk/react/tabs";
 import {
+  canQueueTrackCopy,
   isHost,
   postJson,
   readable,
@@ -307,12 +308,7 @@ function ExplorePanel({ onClear }: { onClear: () => void }) {
 
 function LibraryTracks({ libraryCount }: { libraryCount: number | null }) {
   const store = useStore();
-  const missingShown = store.tracks.filter(
-    (track) =>
-      !["verified", "waiting_format", "queued", "searching", "waiting_space"].includes(
-        track.status,
-      ),
-  );
+  const missingShown = store.tracks.filter(canQueueTrackCopy);
   const destination = isDestinationFilter(store.filter)
     ? DESTINATION_DESCRIPTORS[store.filter]
     : undefined;

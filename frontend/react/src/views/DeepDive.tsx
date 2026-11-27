@@ -65,7 +65,7 @@ function RecordingActions({ track, branch }: { track: DiscoverTrack; branch?: Br
         rel="noopener noreferrer" aria-label={listenLabel} title={listenLabel}>
         <RoomIcon name={branch?.source ? "listen" : "search"} />
       </a>
-      {stage !== "copy_missing" && <RoomIconButton primary label={requestLabel}
+      {stage !== "copy_missing" && stage !== "unavailable" && <RoomIconButton primary label={requestLabel}
         icon={ready ? "play" : review ? "catalogs" : choosing ? "settings" : busy ? "recent" : "download"}
         onClick={() => void request()}
         disabled={submitting || (!ready && !choosing && (busy || !track.duration))} />}

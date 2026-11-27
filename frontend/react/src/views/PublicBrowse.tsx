@@ -6,6 +6,7 @@ import { RoomIcon, RoomIconButton, type RoomIconName } from "../components/RoomI
 import { AddToPlaylist } from "../components/PlaylistComposer";
 import { useStore } from "../store";
 import { api, postJson } from "../api";
+import { RetryRequestButton } from "../components/RequestStatus";
 
 type Kind = "archive" | "peertube" | "funkwhale";
 type Scope = "public" | "room";
@@ -138,11 +139,14 @@ function ImportSong({ item }: { item: Item }) {
     }
   }
   const trackId = saved?.track_id;
+  const stopped = trackId && store.requestRows.find(row => row.status === "unavailable" &&
+    (row.track_index === trackId || row.original_track_index === trackId));
   return <>
     {saved ? <>
       <small role="status">{saved.track_id ? "In library" : "Imported · waiting for library refresh"}</small>
       {trackId && (saved.ready
         ? <RoomAction icon="play" onClick={event => void store.openRoomPlayer(trackId, event.currentTarget)}>Play</RoomAction>
+        : stopped ? <RetryRequestButton request={stopped} title={item.title} />
         : <RoomAction disabled={store.requestingIds.has(trackId)} onClick={() => void store.requestTrack(trackId)}>Find a copy</RoomAction>)}
     </> : <RoomAction icon="add" disabled={busy} onClick={() => void save()}>{busy ? "Importing…" : "Import song"}</RoomAction>}
     {error && <small role="alert">{error}</small>}

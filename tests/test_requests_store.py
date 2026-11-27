@@ -204,6 +204,22 @@ class FormatSelectionTests(StoreTestCase):
             self.store.stop_search(request_id, revision)
         self.assertEqual(self.store.get(request_id), restarted)
 
+    def test_stopped_replacement_marks_the_original_catalog_track_unavailable(self):
+        row, _ = self.create()
+        request_id = row["id"]
+        replacement, _ = self.store.replace_recording(
+            request_id, row["format_revision"], "Artist", "Song", "Live", 200, "Song live",
+            musicbrainz_id="00000000-0000-4000-8000-000000000014", version="Live", performance="",
+        )
+        queued, _ = self.store.confirm_format(request_id, "mp3", replacement["format_revision"])
+        self.assertTrue(self.store.claim(request_id))
+        self.store.finish(request_id, "rejected", COPY_REVIEW_MESSAGE, "")
+        stopped = self.store.stop_search(request_id, queued["format_revision"])
+
+        self.assertEqual(self.store.by_track(), {1: stopped})
+        self.assertEqual(self.create(individual=False), (stopped, False))
+        self.assertEqual(self.store.queued(1), [])
+
     def test_stopped_copy_review_is_skipped_by_weekly_queueing(self):
         track = {"id": "00000000-0000-4000-8000-000000000013", "artist": "Artist", "title": "Song",
                  "album": "Album", "seconds": 200, "version": ""}
