@@ -1261,7 +1261,7 @@ class RoomActivity : Activity() {
                     track.optString("status") == "not_found" -> "No copy found"
                     else -> "Not downloaded"
                 }
-                val subtitle = listOf(artist, availability).filter(String::isNotEmpty).joinToString(" · ")
+                val subtitle = listOf(availability, artist).filter(String::isNotEmpty).joinToString(" · ")
                 val queueAction: ((String) -> Unit)? = if (ready && !local) { op ->
                     load({ target.action(op, JSONObject().put("track_id", track.getInt("id"))) }) { snapshot ->
                         if (radioSnapshot(target.id) == null) renderPlayer(snapshot)
@@ -1387,12 +1387,15 @@ class RoomActivity : Activity() {
         load({ target.requireCatalog(); target.get("/api/tracks?limit=1&facets=moods&facets=mood-availability") }) { facets ->
             val moods = facets.optJSONArray("moods") ?: JSONArray()
             val groups = (0 until moods.length()).mapNotNull { RoomMood.read(moods.getJSONObject(it)) }
-            if (groups.isEmpty()) {
-                showEmpty("No moods yet", "Add and play songs from your library to start exploring.",
+            val readyGenres = facets.optJSONObject("ready_genres")
+            if (groups.isEmpty() || (readyGenres != null && groups.none { mood ->
+                    mood.genres.any { genre -> readyGenres.optInt(genre) > 0 }
+                })) {
+                showEmpty("No playable moods yet", "Add playable songs with genres to start a mood mix.",
                     Entry("Browse songs") { openCollection(CatalogPage()) })
                 return@load
             }
-            val canPlayMix = facets.has("ready_genres")
+            val canPlayMix = readyGenres != null
             fun playMood(mix: MoodMix, genre: String = "") {
                 if (canPlayMix) {
                     send("play_mood", mix.fields(genre))
