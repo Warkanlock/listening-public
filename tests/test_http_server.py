@@ -1693,6 +1693,26 @@ class CatalogFreshnessTests(ServerFixture, unittest.TestCase):
         self.assertEqual(ready["audio"], "/api/audio/1")
         self.assertEqual(first_bytes(), b"ID3")
 
+    def test_audio_range_reports_length_and_streams_across_chunks(self):
+        filename = "1 - First Song.flac"
+        audio = b"fLaC" + bytes(range(256)) * 2049
+        server.LIBRARY.mkdir(parents=True, exist_ok=True)
+        (server.LIBRARY / filename).write_bytes(audio)
+        self.settle("verified")
+        CatalogStore(server.DB).update_coverage_path(1, filename)
+        server.catalog.refresh()
+        endpoint = "/api/audio/1"
+
+        status, headers, data = self.request(self.loop_port, "GET", endpoint, headers={"Range": "bytes=4-"})
+        self.assertEqual(status, 206)
+        self.assertEqual(headers["Content-Range"], f"bytes 4-{len(audio) - 1}/{len(audio)}")
+        self.assertEqual(data, audio[4:])
+
+        status, headers, _ = self.request(self.loop_port, "GET", endpoint,
+                                          headers={"Range": f"bytes={len(audio)}-"})
+        self.assertEqual(status, 416)
+        self.assertEqual(headers["Content-Range"], f"bytes */{len(audio)}")
+
     def test_watchdog_pass_refreshes_the_catalog(self):
         self.settle("pending")
         self.write_coverage(Path(server.STATE), "verified")
