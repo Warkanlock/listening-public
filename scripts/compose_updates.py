@@ -180,15 +180,6 @@ class ComposeUpdater:
         self.recreate(image, pending["storage"])
         self.pending.unlink()
 
-    def verify_provider_compatibility(self, previous, candidate):
-        def bundled(image):
-            environment = json.loads(run(["docker", "image", "inspect", "--format",
-                                          "{{json .Config.Env}}", image]))
-            return any(entry.startswith("LISTENING_ROOM_SOCKSEEK_BINARY=")
-                       for entry in environment or ())
-        if bundled(previous) and not bundled(candidate):
-            raise UpdateError("This installation requires the compatible full image during upgrade.")
-
     def drain(self, action, *arguments):
         return subprocess.run([*self.compose, "exec", "-T", self.service, "python3",
                                "/app/scripts/update_drain.py", action, *arguments], check=False,
@@ -231,11 +222,6 @@ class ComposeUpdater:
                 candidate_image = iid.read_text().strip()
                 if not IMAGE_ID.fullmatch(candidate_image) or not IMAGE_ID.fullmatch(previous_image):
                     raise UpdateError("Docker returned an invalid image ID.")
-                try:
-                    self.verify_provider_compatibility(previous_image, candidate_image)
-                except UpdateError as failure:
-                    error = str(failure)
-                    raise
                 managed = bool(ENGINE_MOUNTS.intersection(storage))
                 if managed and (stopped_room or self.drain("engines", candidate_version)):
                     error = "The selected engines are unavailable for the candidate release. Update deferred."
@@ -328,7 +314,7 @@ def main():
     parser.add_argument("--compose-file", action="append", required=True)
     parser.add_argument("--service", required=True)
     parser.add_argument("--image", required=True, help="local image tag used by the Compose service")
-    parser.add_argument("--target", choices=("core", "full"), default="full")
+    parser.add_argument("--target", choices=("core", "full"), default="core")
     parser.add_argument("--from-stopped-room", action="store_true",
                         help="one-time upgrade of a manually stopped legacy room")
     args = parser.parse_args()

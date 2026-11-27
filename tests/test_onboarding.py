@@ -79,7 +79,7 @@ class OnboardingTests(unittest.TestCase):
                     config = Path(work).resolve() / "private/config.json"
                     os.environ["LISTENING_ROOM_CONFIG"] = str(config)
                 config.parent.mkdir(parents=True)
-                credentials = config.parent / "sockseek.conf"
+                credentials = config.parent / "existing-private.conf"
                 credentials.write_bytes(b"fixture")
                 self.assertEqual(cli.main(["setup"]), 0)
                 self.assertEqual(cli.selected_config(config), config)
@@ -113,23 +113,6 @@ class OnboardingTests(unittest.TestCase):
                 self.assertEqual(cli.main(["setup", "--non-interactive"]), 0)
                 self.assertIn("docker compose port listening-room 8765", out.getvalue())
                 self.assertNotIn("http://127.0.0.1:8765", out.getvalue())
-
-    def test_explicit_legacy_downloads_activate_on_a_new_room(self):
-        import json
-
-        with tempfile.TemporaryDirectory() as work:
-            temp = Path(work).resolve()
-            config = temp / "config" / "listening-room.json"
-            with patch.dict(os.environ, {
-                "HOME": work, "LISTENING_ROOM_CONFIG": str(config), "OFFLINE_MUSIC_ROOT": str(temp / "library"),
-            }, clear=True), patch.object(onboarding.shutil, "which", return_value="yarn"), patch.object(
-                onboarding.subprocess, "run"
-            ) as run, patch.object(cli, "install_command"), redirect_stdout(io.StringIO()):
-                self.assertEqual(cli.main(["setup", "--downloads", "--non-interactive"]), 0)
-                self.assertIn("provision_sockseek.py", run.call_args.args[0][1])
-                data = json.loads(config.read_text())
-                self.assertNotIn("download_engines", data)
-                self.assertEqual(data["radio_providers"], [])
 
     def test_resume_preserves_owner_and_song_index_and_accepts_a_server_address(self):
         import json

@@ -1,19 +1,3 @@
-# The core image supports local media on amd64 and arm64. The default
-# full target also bundles checksum-verified Sockseek on supported
-# architectures. Sockseek's Linux ARM asset is 32-bit armhf.
-
-FROM python:3.12-slim-bookworm AS sockseek
-ARG TARGETARCH
-COPY scripts/provision_sockseek.py /tmp/tree/scripts/provision_sockseek.py
-COPY packaging/sockseek-pin.json /tmp/tree/packaging/sockseek-pin.json
-RUN case "$TARGETARCH" in \
-      amd64) KEY=linux-x64 ;; \
-      arm) KEY=linux-arm ;; \
-      arm64) echo "Sockseek has no arm64 Linux release. Build the Listening Room core target (--target core)." >&2; exit 1 ;; \
-      *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
-    esac \
-    && python3 /tmp/tree/scripts/provision_sockseek.py --app-dir /opt/sockseek-app --platform-key "$KEY"
-
 # The frontend stage mirrors the checkout's own build (the
 # Makefile's install/build targets): yarn classic against the
 # frozen lockfile, then `yarn build`, whose Vite outDir is
@@ -52,6 +36,5 @@ USER listening
 EXPOSE 8765
 CMD ["/app/listening", "server", "start", "--foreground"]
 
+# Compatibility with existing host build commands.
 FROM core AS full
-COPY --from=sockseek /opt/sockseek-app/bin/sockseek /opt/sockseek/sockseek
-ENV LISTENING_ROOM_SOCKSEEK_BINARY=/opt/sockseek/sockseek

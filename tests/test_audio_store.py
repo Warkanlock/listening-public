@@ -428,7 +428,6 @@ class RunnerStoreTestCase(unittest.TestCase):
             mock.patch.object(runner, "PLAYLISTS", self.playlists_dir),
             mock.patch.object(runner, "OUTPUTS", self.outputs),
             mock.patch.object(runner, "SOURCES", self.sources),
-            mock.patch.object(runner, "MASTER", self.state / "master.csv"),
             mock.patch.object(runner, "REQUESTS_DB",
                               self.state / "requests.sqlite3"),
             mock.patch.object(runner, "free_bytes", lambda: 100 * 1024**3),
@@ -475,6 +474,19 @@ class RunnerStoreTestCase(unittest.TestCase):
     def media_store(self):
         path = self.root / "media.sqlite3"
         return MediaStore(path) if path.is_file() else None
+
+    def receive_candidate(self, source, row, record):
+        @contextlib.contextmanager
+        def transfer(selection, recording, accept, **options):
+            with tempfile.TemporaryDirectory(dir=self.state) as directory:
+                candidate = Path(directory) / source.name
+                shutil.copyfile(source, candidate)
+                options["on_transfer"]()
+                yield candidate if accept(candidate, lambda: 45) else None
+
+        with mock.patch.object(runner, "managed_candidate", transfer), mock.patch.object(
+                runner, "configured_engines", return_value={"search": "fixture", "fetch": "fixture"}):
+            return runner.run_request(row, record)
 
 
 class ReportBlobTests(RunnerStoreTestCase):
@@ -558,13 +570,10 @@ class ReportBlobTests(RunnerStoreTestCase):
         original.write_bytes(AUDIO_BYTES)
         store = MediaStore(self.root / "media.sqlite3")
         store.put_file(original, self.media(), owners=(("catalog", "other-track"),))
-        with mock.patch.object(runner, "setup_credentials"), \
-                mock.patch.object(runner, "SOCKSEEK", original), \
-                mock.patch.object(runner, "free_bytes", return_value=runner.MIN_FREE), \
+        with mock.patch.object(runner, "free_bytes", return_value=runner.MIN_FREE), \
                 mock.patch.object(runner, "probe", return_value=None), \
-                mock.patch.object(runner.subprocess, "Popen", side_effect=AssertionError("unexpected transfer")), \
                 contextlib.redirect_stdout(io.StringIO()):
-            self.assertFalse(runner.download_batch(0, 1, False, False))
+            self.assertFalse(runner.download_batch(0, 1, False))
         self.assertFalse(different_name.exists())
         self.assertEqual(unique.read_bytes(), b"different recording")
         self.assertEqual(original.read_bytes(), AUDIO_BYTES)
@@ -752,21 +761,15 @@ class RequestLandingTests(RunnerStoreTestCase):
     blob reference in database mode."""
 
     def run_one_request(self, record):
-        sockseek = self.root / "sockseek"
-        sockseek.write_bytes(b"bin")
+        source = self.root / "Artist 1 - Song One.flac"
+        source.write_bytes(AUDIO_BYTES)
         row = {"id": 7, "artist": "Artist 1", "title": "Song One",
                "album": "Album", "length": 200, "search_title": ""}
 
-        def fake_download(album, search_title, length, staging, log_path):
-            (staging / "Artist 1 - Song One.flac").write_bytes(AUDIO_BYTES)
-            return True
-
-        with mock.patch.object(runner, "SOCKSEEK", sockseek), \
-                mock.patch.object(runner, "setup_credentials", lambda: None), \
-                mock.patch.object(runner, "focused_download", fake_download), \
+        with mock.patch.object(runner, "decode_audio"), \
                 mock.patch.object(runner, "probe",
-                                  lambda path: dict(self.media(), codec="flac", container="flac")):
-            return runner.run_request(row, record)
+                                  return_value=dict(self.media(), codec="flac", container="flac")):
+            return self.receive_candidate(source, row, record)
 
     def test_retry_uses_the_verified_file_after_a_failed_commit(self):
         self.set_mode("database")
@@ -775,7 +778,7 @@ class RequestLandingTests(RunnerStoreTestCase):
                 self.run_one_request(None)
         pending = self.state / "requests/verified/7"
         self.assertEqual([p.read_bytes() for p in pending.iterdir()], [AUDIO_BYTES])
-        with mock.patch.object(runner, "setup_credentials", side_effect=AssertionError("unexpected network retry")), \
+        with mock.patch.object(runner, "managed_candidate", side_effect=AssertionError("unexpected transfer")), \
                 mock.patch.object(runner, "probe", return_value=dict(self.media(), codec="flac", container="flac")):
             row = {"id": 7, "artist": "Artist 1", "title": "Song One", "album": "Album", "length": 200,
                    "search_title": ""}
@@ -792,7 +795,7 @@ class RequestLandingTests(RunnerStoreTestCase):
         row = {"id": 7, "artist": "Artist 1", "title": "Song One", "length": 200, "search_title": ""}
 
         with mock.patch.object(runner, "free_bytes", return_value=0), \
-                mock.patch.object(runner, "setup_credentials", side_effect=AssertionError("unexpected network retry")):
+                mock.patch.object(runner, "managed_candidate", side_effect=AssertionError("unexpected transfer")):
             self.assertEqual(runner.run_request(row, None), ("downloaded", "Ready to play", blob_ref(key)))
 
         self.assertFalse(candidate.exists())
@@ -1003,7 +1006,7 @@ class ExportTests(RunnerStoreTestCase):
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "requires FFmpeg")
 class LosslessIntakeTests(RunnerStoreTestCase):
-    def test_alac_only_rejects_aac_in_m4a_and_reports_the_requested_format(self):
+    def test_alac_only_rejects_aac_in_m4a(self):
         self.set_mode("database")
         title = "Format fixture"
         path = self.root / "aac.m4a"
@@ -1011,30 +1014,19 @@ class LosslessIntakeTests(RunnerStoreTestCase):
                         "anoisesrc=color=white:duration=2:sample_rate=44100:seed=7",
                         "-ac", "2", "-c:a", "aac", "-b:a", "320k", "-metadata",
                         "title=" + title, str(path)], check=True)
-        sockseek = self.root / "sockseek"
-        shutil.copyfile(Path(__file__).parent / "fixtures/format_sockseek.py", sockseek)
-        sockseek.chmod(0o700)
-        # Both candidate paths deliver the exact same AAC fixture, including the peer named alac.
-        shutil.copyfile(path, self.root / "alac.m4a")
         facts = runner.probe(path)
         self.assertEqual(facts["codec"], "aac")
         self.assertGreaterEqual(facts["bitrate"], 192000)
         row = {"id": 1, "artist": "Fixture", "title": title, "length": 2,
                "album": "", "search_title": title, "format_confirmed": 1, "requested_format": "alac"}
-        with mock.patch.object(runner, "SOCKSEEK", sockseek), mock.patch.object(runner, "setup_credentials"):
-            status, message, ref = runner.run_request(row, None)
-        self.assertEqual((status, ref), ("not_found", ""))
-        self.assertIn("ALAC", message)
-        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
-        self.assertEqual(len(calls), 3)
-        self.assertEqual(calls[0][calls[0].index("--format") + 1], "m4a")
+        status, message, ref = self.receive_candidate(path, row, None)
+        self.assertEqual((status, ref), ("rejected", ""))
+        self.assertIn("audio verification", message)
 
     def test_new_downloads_and_export_recover_original_lossless_files(self):
         room = self.root / "portable"
         create_empty_collection(room)
         database = room / "collection.sqlite3"
-        request_dir = self.state / "requests"
-        request_dir.mkdir()
         # A migrated host can retain an old file-landing setting on disk.
         self.set_mode("files")
         original_bytes = {}
@@ -1050,20 +1042,13 @@ class LosslessIntakeTests(RunnerStoreTestCase):
                                 "-ac", "2", "-c:a", codec, "-b:a", "320k", "-metadata", "title=" + title,
                                 str(song)], check=True, timeout=30)
 
-                def transfer(album, query, length, staging, log_path):
-                    shutil.copyfile(song, staging / song.name)
-                    return True
-
                 record = self.record(i, title, length=2)
-                row = {"id": i, "title": title, "album": "Album"}
-                with tempfile.TemporaryDirectory(dir=request_dir, prefix="incoming-") as temp, \
-                        mock.patch.object(runner, "focused_download", transfer):
-                    status, reason, ref = runner.download_request_candidate(
-                        Path(temp), request_dir, request_dir / "query.csv", row, record, title, title, 2)
+                row = {"id": i, "title": title, "album": "Album", "search_title": ""}
+                status, reason, ref = self.receive_candidate(song, row, record)
                 if codec == "aac":
                     # Identical M4A container and a qualifying bitrate. Its stream is lossy.
                     self.assertGreaterEqual(runner.probe(song)["bitrate"], 192000)
-                    self.assertEqual((status, ref), ("not_found", ""))
+                    self.assertEqual((status, ref), ("rejected", ""))
                     continue
                 self.assertEqual(status, "downloaded", reason)
                 self.assertEqual(ref, blob_ref(sha256(song.read_bytes())))

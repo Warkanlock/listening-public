@@ -14,7 +14,6 @@ import server
 from catalog.audio_resolution import track_file
 from catalog.catalog import Catalog, CatalogPaths
 from catalog.catalog_store import CatalogStore
-from system.formats import AUDIO_FORMATS
 from system.refresh import (RefreshPipeline, directory_signature,
                             manifest_signature, stat_signature)
 
@@ -56,7 +55,6 @@ class RunnerWorkspaceTestCase(unittest.TestCase):
             mock.patch.object(runner, "PLAYLISTS", self.playlists_dir),
             mock.patch.object(runner, "OUTPUTS", self.outputs),
             mock.patch.object(runner, "SOURCES", self.sources),
-            mock.patch.object(runner, "MASTER", self.state / "master.csv"),
             mock.patch.object(runner, "REQUESTS_DB", self.state / "requests.sqlite3"),
             mock.patch.object(runner, "free_bytes", lambda: 100 * 1024**3),
         ]
@@ -230,20 +228,15 @@ class FlacAdmissionTests(RunnerWorkspaceTestCase):
     serves through the catalog's playable path, which is what lets
     the player's lossless readout light up."""
 
-    def test_legacy_request_format_filter_stays_lossless(self):
-        candidates = {f".{name}" for name in runner.CLI_FORMATS.split(",")}
-        self.assertEqual(candidates, {".flac", ".m4a"})
-        self.assertLess(candidates, AUDIO_FORMATS)
-
     def test_bulk_download_uses_the_room_default_and_honors_a_run_override(self):
         config = self.state / "download-settings.json"
         config.write_text("{}")
         with mock.patch.object(runner, "resolve_config_path", return_value=config):
-            self.assertEqual(runner.bulk_format_options(), ["--format", "mp3,flac,m4a", "--pref-format", "mp3"])
+            self.assertEqual(runner.bulk_formats(), ((".mp3", ".flac", ".m4a"), "mp3"))
             config.write_text('{"bulk_download_format": "lossless_only"}')
-            self.assertEqual(runner.bulk_format_options(), ["--format", "flac,m4a", "--pref-format", "flac"])
+            self.assertEqual(runner.bulk_formats(), ((".flac", ".m4a"), "flac"))
             with mock.patch.dict(runner.os.environ, {"OFFLINE_MUSIC_DOWNLOAD_FORMAT": "mp3_only"}):
-                self.assertEqual(runner.bulk_format_options(), ["--format", "mp3", "--pref-format", "mp3"])
+                self.assertEqual(runner.bulk_formats(), ((".mp3",), "mp3"))
 
     def test_flac_above_the_floor_verifies_and_serves(self):
         record = self.record(1, "Blue in Green", artist="Miles Davis",

@@ -55,14 +55,16 @@ import os
 import re
 import shutil
 import socket
+import socketserver
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
@@ -145,17 +147,6 @@ def build_fixture(root):
              "-metadata", f"album={album}", "-metadata", f"BPM={TEMPOS[slug]}", str(out)],
             check=True, capture_output=True)
 
-    lines = []
-    for i, (slug, title, artist, album, secs) in enumerate(SONGS, start=1):
-        lines.append(f"[{i:03d}] SongJob: searching: {artist} - {title}")
-        lines.append(f"[{i:03d}] SongJob: downloading: {artist} - {title}: "
-                     f"downloads\\{slug}.mp3")
-        lines.append(f"[{i:03d}] SongJob: succeeded: {artist} - {title}: "
-                     f"downloads\\{slug}.mp3")
-    lines.append("[005] SongJob: searching: Ghost Artist - Missing Song")
-    lines.append("[005] SongJob: failed [No search results]: "
-                 "Ghost Artist - Missing Song")
-    (app / "batch-00001-00005.log").write_text("\n".join(lines) + "\n")
     (app / "runner.log").write_text(
         "runner started\nbatch 00001-00005 finished\nwatchdog idle\n")
     return app, music, watched
@@ -229,10 +220,15 @@ def seed_state(app):
 
     sys.path.insert(0, str(REPO_ROOT / "backend"))
     from catalog.genres import GenreStore
+    from downloads.download_activity import record_event
     from downloads.requests_store import RequestsStore
     from metadata.artist_connections import quote_search
     from metadata.external_metadata import GENRE_MATCH_PREFIX
     store = GenreStore(database)
+    batch = "00001–00005"
+    for _, title, artist, _, _ in SONGS:
+        record_event(app, batch=batch, song=f"{artist} - {title}", state="succeeded")
+    record_event(app, batch=batch, song="Ghost Artist - Missing Song", state="failed", reason="No copy found")
     # Dialog controls render after release metadata resolves. Keep this fixture
     # independent of MusicBrainz latency while exercising the real route.
     metadata_store = RequestsStore(database)
@@ -304,19 +300,19 @@ def free_port():
 
 
 class Server:
-    def __init__(self, root, app, port):
+    def __init__(self, root, app, port, *, engine_env=None):
         self.port = port
         self.base = f"http://127.0.0.1:{port}"
         self.log_path = root / "server.log"
         self.process = None
         self._log = None
-        prefixes = ("LISTENING_ROOM_", "OFFLINE_MUSIC_", "SOCKSEEK_", "LISTENING_YOUTUBE_",
-                    "LISTENING_JELLYFIN_", "LISTENING_AUDIOBOOKSHELF_")
+        prefixes = ("LISTENING_ROOM_", "OFFLINE_MUSIC_", "LISTENING_YOUTUBE_",
+                    "LISTENING_JELLYFIN_", "LISTENING_AUDIOBOOKSHELF_", "LISTENING_ENGINE_")
         env = {key: value for key, value in os.environ.items() if not key.startswith(prefixes)}
         env["HOME"] = str(root / "home")
         env["LISTENING_ROOM_CONFIG"] = str(app / "listening-room.json")
         env["PYTHONUNBUFFERED"] = "1"
-        self._env = env
+        self._env = {**env, **(engine_env or {})}
 
     def start(self):
         self._log = self.log_path.open("ab")
@@ -385,6 +381,65 @@ class Surface:
         self.detail = ""
 
 
+@contextmanager
+def request_fixture_engine(root, selection):
+    staging = root / "engine-staging"
+    staging.mkdir()
+    mp3_titles = {"Older song": "older", "Direct song": "direct"}
+    media = {"older": "Older song.mp3", "direct": "Direct song.mp3",
+             "aac-fallback": "AAC fallback.m4a", "aac": "aac.m4a", "alac": "alac.m4a"}
+
+    class Handler(socketserver.StreamRequestHandler):
+        def handle(self):
+            request = json.loads(self.rfile.readline())
+            assert request["version"] == 1
+            action = request["action"]
+            if action in {"search", "fetch"}:
+                with (root / "calls.jsonl").open("a", encoding="utf-8") as calls:
+                    calls.write(json.dumps(request) + "\n")
+                assert request["engine"] == selection[action]
+            if action == "status":
+                reply = {"ok": True, "health_check": True, "engines": [
+                    {"id": engine, "version": "1.0", "capabilities": [role], "enabled": True,
+                     "ready": True, "sources": {role: ["fixture"]}}
+                    for role, engine in selection.items()
+                ]}
+            elif action == "catalog":
+                reply = {"ok": True, "engines": []}
+            elif action == "search":
+                recording = request["recording"]
+                title = recording["title"]
+                if title in mp3_titles:
+                    candidates = [mp3_titles[title]] if ".mp3" in recording["formats"] else []
+                elif title == "AAC fallback":
+                    candidates = ["aac-fallback"] if ".m4a" in recording["formats"] else []
+                else:
+                    assert title == "Format fixture"
+                    candidates = ["aac", "alac"]
+                reply = {"ok": True, "candidates": [
+                    {"source": "fixture", "id": candidate, "format": Path(media[candidate]).suffix[1:]}
+                    for candidate in candidates
+                ]}
+            elif action == "fetch":
+                name = media[request["candidate"]["id"]]
+                shutil.copyfile(root / name, staging / request["job"] / name)
+                reply = {"ok": True, "file": name}
+            else:
+                raise AssertionError(f"Unexpected plugin action {action!r}")
+            self.wfile.write(json.dumps(reply).encode() + b"\n")
+
+    with tempfile.TemporaryDirectory(prefix="listening-ui-engine-", dir="/tmp") as directory:
+        address = str(Path(directory) / "worker.sock")
+        with socketserver.UnixStreamServer(address, Handler) as manager:
+            thread = threading.Thread(target=manager.serve_forever, daemon=True)
+            thread.start()
+            try:
+                yield {"LISTENING_ENGINE_SOCKET": address, "LISTENING_ENGINE_STAGING": str(staging)}
+            finally:
+                manager.shutdown()
+                thread.join()
+
+
 def verify_request_restart(page, root, screenshot):
     """Drive the picker and real restarted server/worker against local peer files."""
     app, music = root / "app", root / "music"
@@ -392,13 +447,10 @@ def verify_request_restart(page, root, screenshot):
     (music / "lists").mkdir(parents=True)
     (music / "lists" / "test.csv").write_text(
         "title,artist,album\nOlder song,Fixture,Album\nDirect song,Fixture,Album\nAAC fallback,Fixture,Album\n")
-    sockseek = root / "sockseek"
-    shutil.copyfile(REPO_ROOT / "tests/fixtures/format_sockseek.py", sockseek)
-    sockseek.chmod(0o700)
-    (app / "sockseek.conf").write_text("username = fixture\npassword = fixture\n")
+    selection = {"search": "fixture-search", "fetch": "fixture-download"}
     port = free_port()
     (app / "listening-room.json").write_text(json.dumps({
-        "folder": str(music), "sockseek_binary": str(sockseek), "port": port,
+        "folder": str(music), "download_engines": selection, "port": port,
         "library_migrated": 1, "audio_store": "database", "auto_download": False,
     }))
     for codec in ("aac", "alac"):
@@ -414,7 +466,11 @@ def verify_request_restart(page, root, screenshot):
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=duration=2:seed=9",
                     "-ac", "2", "-c:a", "aac", "-b:a", "320k", "-metadata", "title=AAC fallback",
                     "-metadata", "artist=Fixture", str(root / "AAC fallback.m4a")], check=True)
-    server = Server(root, app, port)
+    with request_fixture_engine(root, selection) as engine_env:
+        drive_request_restart(page, Server(root, app, port, engine_env=engine_env), app, root, screenshot)
+
+
+def drive_request_restart(page, server, app, root, screenshot):
     def rows():
         return server.request("GET", "/api/requests")[1]["requests"]
 
@@ -423,11 +479,6 @@ def verify_request_restart(page, root, screenshot):
         page.get_by_role("heading", name="Recent requests").wait_for()
 
     calls = root / "calls.jsonl"
-    sources_url = "**/api/extensions/sources"
-    page.route(sources_url, lambda route: route.fulfill(json={
-        "inventory_available": True, "state": "ready", "installed": [],
-        "selection": {"search": "fixture-search", "fetch": "fixture-download"},
-    }))
     try:
         server.start()
         wait_for("isolated server", lambda: server.request("GET", "/")[0] == 200)
@@ -460,13 +511,13 @@ def verify_request_restart(page, root, screenshot):
         page.goto(server.base)
         open_requests()
         assert [(r["id"], r["status"]) for r in rows()] == [(r["id"], "waiting_format") for r in original]
-        assert not calls.exists(), "Sockseek ran before explicit confirmation"
+        assert not calls.exists(), "A plugin searched or fetched before explicit confirmation"
         row = page.locator(".request-item", has_text="Format fixture")
         row.get_by_role("button", name="Choose format").click()
         picker.get_by_role("radio", name="Apple Lossless (ALAC) only").check()
         picker.get_by_role("button", name="View extensions").click()
         extensions = page.get_by_role("dialog", name="Extensions")
-        extensions.get_by_role("heading", name="Download extensions").wait_for()
+        extensions.get_by_role("heading", name="Listening plugins").wait_for()
         back = extensions.get_by_role("button", name="Back to format")
         assert back.locator("svg").is_visible() and back.inner_text() == ""
         heading = extensions.get_by_role("heading", name="Extensions", exact=True)
@@ -485,15 +536,13 @@ def verify_request_restart(page, root, screenshot):
             "request_id": result["id"], "requested_format": "alac", "format_revision": 0})
         assert status == 200 and rows()[0]["status"] == "downloaded"
         assert rows()[1]["status"] == "waiting_format"
-        commands = [json.loads(line) for line in calls.read_text().splitlines()]
-        searches = [cmd for cmd in commands if "--print" in cmd]
-        assert len(searches) == 1 and searches[0][searches[0].index("--format") + 1] == "m4a"
-        assert [cmd[0].split("/")[2] for cmd in commands if cmd[0].startswith("slsk://")] == ["aac", "alac"]
+        operations = [json.loads(line) for line in calls.read_text().splitlines()]
+        searches = [operation["recording"] for operation in operations if operation["action"] == "search"]
+        assert len(searches) == 1 and searches[0]["formats"] == [".m4a"]
+        assert [operation["candidate"]["id"] for operation in operations if operation["action"] == "fetch"] == ["aac", "alac"]
         import hashlib
         assert result["audio_path"] == "blob:" + hashlib.sha256((root / "alac.m4a").read_bytes()).hexdigest()
 
-        # A same-titled legacy download already exists. A new version must get
-        # its own picker, verified audio reference, and room playback target.
         recording_id = "00000000-0000-4000-8000-000000000025"
         song = {"artist": "Fixture", "title": "Format fixture", "seed_artist": "Starting artist",
                 "album": "Concert", "version": "Live", "duration": 2, "musicbrainz_id": recording_id}
@@ -561,9 +610,11 @@ def verify_request_restart(page, root, screenshot):
             page.set_viewport_size({"width": 1440, "height": 900})
         assert sum(r["title"] == "Older song" for r in rows()) == 1
         assert [r["requested_format"] for r in rows() if r["title"] == "Format fixture"] == ["alac", "alac"]
-        formats = [cmd[cmd.index("--format") + 1] for cmd in map(json.loads, calls.read_text().splitlines())
-                   if "--print" in cmd and cmd[0] == "Fixture - Older song"]
-        assert formats == ["flac,m4a", "mp3"]
+        def searches_for(title):
+            return [request["recording"] for request in map(json.loads, calls.read_text().splitlines())
+                    if request["action"] == "search" and request["recording"]["title"] == title]
+
+        assert [recording["formats"] for recording in searches_for("Older song")] == [[".flac", ".m4a"], [".mp3"]]
 
         page.get_by_role("button", name="Find a copy of Direct song").click()
         assert picker.get_by_role("radio", name="Any lossless (prefer FLAC)").is_checked()
@@ -572,9 +623,7 @@ def verify_request_restart(page, root, screenshot):
         direct = wait_for("worker to verify the first-choice MP3", lambda: next((
             r for r in rows() if r["title"] == "Direct song"
             and r["status"] == "downloaded" and r["requested_format"] == "mp3"), None), timeout=60)
-        direct_searches = [cmd[cmd.index("--format") + 1] for cmd in map(json.loads, calls.read_text().splitlines())
-                           if "--print" in cmd and cmd[0] == "Fixture - Direct song"]
-        assert direct_searches == ["mp3"]
+        assert [recording["formats"] for recording in searches_for("Direct song")] == [[".mp3"]]
 
         page.get_by_role("button", name="Find a copy of AAC fallback").click()
         assert picker.get_by_role("radio", name="Any lossless (prefer FLAC)").is_checked()
@@ -583,10 +632,9 @@ def verify_request_restart(page, root, screenshot):
         fallback = wait_for("worker to verify AAC when MP3 is absent", lambda: next((
             row for row in rows() if row["title"] == "AAC fallback" and row["status"] == "downloaded"), None), timeout=60)
         assert fallback["requested_format"] == "any_lossy"
-        search = next(cmd for cmd in map(json.loads, calls.read_text().splitlines())
-                      if "--print" in cmd and cmd[0] == "Fixture - AAC fallback")
-        assert search[search.index("--format") + 1] == "mp3,m4a"
-        assert search[search.index("--pref-format") + 1] == "mp3"
+        search, = searches_for("AAC fallback")
+        assert search["formats"] == [".mp3", ".m4a"]
+        assert search["preferred_format"] == "mp3"
         with urllib.request.urlopen(server.base + fallback["audio"], timeout=10) as response:
             assert response.status == 200 and response.headers["Content-Type"] == "audio/mp4"
 
@@ -599,7 +647,6 @@ def verify_request_restart(page, root, screenshot):
 
         assert wait_for("analysis of the newly downloaded MP3", downloaded_analysis, timeout=75)[0] == 112.0
     finally:
-        page.unroute(sources_url)
         page.goto("about:blank")
         server.stop()
 
@@ -3197,7 +3244,7 @@ def run_browser(server, output):
 
             # -- Settings, every tab ---------------------------------------
             tabs = ["Room setup", "Sources", "Downloads", "Spotify", "Playback",
-                    "Radio", "Devices", "Sharing", "Storage", "Extensions"]
+                    "Radio", "Devices", "Storage", "Extensions"]
             plugin = {"id": "fixture", "version": "1.0", "capabilities": ["search", "fetch"], "enabled": False,
                       "sources": {"search": ["fixture"], "fetch": ["fixture"]}, "image": "fixture@sha256:same",
                       "settings": [{"key": "api_token", "label": "Catalog token",
@@ -3209,7 +3256,11 @@ def run_browser(server, output):
                         "enabled": False, "ready": False}
             healthy = {**disabled, "id": "ready-engine", "enabled": True, "ready": True}
             available = {**disabled, "id": "example-catalog"}
-            extension_settings = {"radio": [], "installed": [plugin, disabled, healthy], "available": [signed_update, available],
+            shared = {**healthy, "id": "share-fixture", "capabilities": ["share"], "sources": {}}
+            share_status = {"running": False, "folder": "", "available": True}
+            share_operations = []
+            extension_settings = {"radio": [], "installed": [plugin, disabled, healthy, shared],
+                                  "available": [signed_update, available],
                                   "configured": True, "reviewed_updates": True,
                                   "selection": {"search": "paused-engine", "fetch": "paused-engine"}, "error": ""}
             reviewed_updates = []
@@ -3222,12 +3273,28 @@ def run_browser(server, output):
                         disabled["retry_at"] = int(time.time()) + 1800
                         route.fulfill(status=503, json={"error": "Unable to start the source."})
                         return
-                    if body["action"] == "select":
+                    if body["action"] == "disable":
+                        assert body == {"action": "disable", "engine": "share-fixture"}
+                        shared.update(enabled=False, ready=False)
+                    elif body["action"] == "select":
                         assert body["selection"] == {"search": "ready-engine", "fetch": "ready-engine"}
                         extension_settings["selection"] = body["selection"]
                     elif body["action"] == "radio":
                         assert body == {"action": "radio", "provider": "youtube", "enabled": True}
                         extension_settings["radio"] = ["youtube"]
+                    elif body["action"] == "share":
+                        operation = body["operation"]
+                        assert body["engine"] == "share-fixture"
+                        share_operations.append(operation)
+                        if operation == "start":
+                            assert body["folder"] == "Records/Evening "
+                            share_status.update(running=True, folder=body["folder"])
+                        elif operation == "stop":
+                            share_status["running"] = False
+                        else:
+                            assert operation == "status"
+                        route.fulfill(json=share_status)
+                        return
                     elif body["action"] == "update_preview":
                         assert body == {"action": "update_preview", "engine": "fixture"}
                         approval = "a" * 64 if not reviewed_updates else "b" * 64
@@ -3299,13 +3366,15 @@ def run_browser(server, output):
                         default_format.click()
                         page.get_by_role("option", name="MP3 first", exact=True).click()
                     if label == "Extensions":
+                        assert not page.get_by_role("tab", name="Sharing", exact=True).count()
+                        assert share_operations == []
                         for name, url in (
                             ("Plugin setup guide", "https://github.com/Warkanlock/listening-public/blob/main/docs/download-engines.md"),
                             ("Listening Plugins on GitHub", "https://github.com/Warkanlock/listening-plugins-public"),
                         ):
                             link = visible_panel.get_by_role("link", name=name, exact=True)
                             assert link.is_visible() and link.get_attribute("href") == url
-                        table = visible_panel.get_by_role("table", name="Download extensions")
+                        table = visible_panel.get_by_role("table", name="Listening plugins")
                         assert table.get_by_role("columnheader").all_text_contents() == ["Extension", "Version", "Status", "Actions"]
                         install = table.get_by_role("button", name="Install example-catalog", exact=True)
                         assert install.is_enabled() and install.inner_text() == ""
@@ -3324,6 +3393,7 @@ def run_browser(server, output):
                         visible_panel.get_by_text("Change download sources", exact=True).click()
                         for role in ("Search with", "Download with"):
                             visible_panel.get_by_role("combobox", name=role).click()
+                            assert not page.get_by_role("option", name="share-fixture", exact=True).count()
                             page.get_by_role("option", name="ready-engine", exact=True).click()
                         visible_panel.get_by_role("button", name="Save sources").click()
                         wait_for("Source selection saved", lambda: visible_panel.locator(".extension-source-summary").inner_text().count("ready-engine") == 2)
@@ -3345,6 +3415,7 @@ def run_browser(server, output):
                         page.get_by_role("alertdialog", name="Remove fixture?").get_by_role("button", name="Cancel").click()
                         assert table.get_by_role("rowheader", name="fixture", exact=True).is_visible()
                         table.get_by_role("button", name="Configure fixture", exact=True).click()
+                        assert not visible_panel.get_by_role("heading", name="Library sharing", exact=True).is_visible()
                         token = visible_panel.get_by_label("Catalog token (required to start)", exact=True)
                         assert token.get_attribute("type") == "password"
                         token.fill("disposable-playwright-credential")
@@ -3362,8 +3433,28 @@ def run_browser(server, output):
                         confirm.click()
                         review.wait_for(state="hidden")
                         assert reviewed_updates == ["a" * 64, "b" * 64]
+                        sharing_row = table.get_by_role("row").filter(
+                            has=page.get_by_role("rowheader", name="share-fixture", exact=True))
+                        sharing_row.get_by_role("button", name="Disable share-fixture", exact=True).click()
+                        sharing_row.get_by_text("Disabled", exact=True).wait_for()
+                        configure_sharing = sharing_row.get_by_role("button", name="Configure share-fixture", exact=True)
+                        configure_sharing.click()
+                        share = table.get_by_role("form", name="Library sharing with share-fixture")
+                        share.get_by_role("status").get_by_text("Sharing is stopped.").wait_for()
+                        share.get_by_label("Folder to share").fill("Records/Evening ")
+                        share.get_by_role("button", name="Start sharing", exact=True).click()
+                        share.get_by_role("status").get_by_text("Sharing is running.").wait_for()
+                        assert share.get_by_label("Folder to share").input_value() == "Records/Evening "
+                        share.get_by_role("button", name="Stop sharing", exact=True).click()
+                        share.get_by_role("status").get_by_text("Sharing is stopped.").wait_for()
+                        assert share_operations == ["status", "start", "stop"]
+                        configure_sharing.click()
+                        share.wait_for(state="hidden")
+                        configure_sharing.click()
+                        share.get_by_role("status").get_by_text("Sharing is stopped.").wait_for()
+                        assert share_operations == ["status", "start", "stop", "status"]
                     item.ok = True
-                    item.detail = ("Reviewed update refresh on conflict, disabled source recovery, and write-only settings"
+                    item.detail = ("Reviewed updates, source recovery, write-only settings, and sharing inside the capable plugin"
                                    if label == "Extensions" else f"{label} panel renders")
                     shot(item, f"11-settings-{label.lower().replace(' ', '-')}.png")
                 except Exception as error:
@@ -3375,7 +3466,7 @@ def run_browser(server, output):
                 page.goto(server.base + "/#extensions")
                 view = page.locator('[data-view="extensions"]')
                 view.get_by_role("heading", name="Extensions", exact=True).wait_for()
-                view.get_by_role("heading", name="Download extensions").wait_for()
+                view.get_by_role("heading", name="Listening plugins").wait_for()
                 shot(item, "34-extensions-desktop.png")
                 page.set_viewport_size({"width": 390, "height": 844})
                 refresh = view.get_by_role("button", name="Refresh extensions")

@@ -44,7 +44,7 @@ candidates explicitly marked uncertain.
 The signed catalog entry declares the candidate namespaces for each capability
 it offers. For example, the catalog worker declares
 `"sources":{"search":["example-catalog"],"fetch":["example-catalog"]}`
-and the Sockseek worker declares `"sources":{"search":["soulseek"],"fetch":["soulseek"]}`.
+and a fetch-only worker declares `"sources":{"fetch":["example-catalog"]}`.
 A search-only entry lists just `search`, and a fetch-only entry lists just
 `fetch`. A fetcher must accept every namespace advertised by the selected
 searcher. Use the same namespace only for candidates with the same ID
@@ -55,7 +55,15 @@ receives only its own scratch directory and credentials. Listening checks
 free space, probes the returned bytes, and commits verified audio. No
 provider response can grant playback eligibility.
 
-### Temporary sign-in failures
+### Optional sharing method
+
+A plugin may declare `"share"` in its signed `capabilities`. Only `search` and `fetch` have source namespaces, so a share-only plugin declares `"sources":{}`. Declare settings for the sharing account in the same signed settings schema as other plugin settings.
+
+The owner sends `POST /api/extensions` with `action: "share"`, the installed plugin ID in `engine`, and an `operation` of `status`, `start`, or `stop`. With `start`, `folder` names a directory relative to the operator's sharing root. An empty string selects the root. The reply includes `available`, `running`, and the saved relative `folder`. Running means the plugin process is alive.
+
+The manager invokes `/usr/local/bin/listening-engine --share` as the foreground process in a separate container. The process receives the selected folder at `/share` and plugin settings at `/credentials`, both read-only. It can write to its own `/scratch` and `/tmp`. The plugin owns account validation and any external network protocol. The manager owns the process lifecycle.
+
+## Temporary sign-in failures
 
 If the provider cannot establish an authenticated session, the SDK can raise `LoginUnavailable(retry_after_seconds=1800)`. Workers that implement the protocol directly return:
 
@@ -77,6 +85,6 @@ The owner enters values under **Settings → Extensions → Configure**. The man
 
 ## Get the example plugins
 
-[Listening Plugins](https://github.com/Warkanlock/listening-plugins-public) contains a catalog strategy and the Sockseek strategy. Its protocol driver dispatches `test`, `search`, and `fetch` to the installed implementation. Each plugin owns its query, matching, returned candidate IDs, and retrieval. The room can pair one plugin's search with another plugin's fetch when their signed source declarations match.
+[Listening Plugins](https://github.com/Warkanlock/listening-plugins-public) contains implementations of this protocol. Its protocol driver dispatches `test`, `search`, and `fetch` to the installed implementation. Each plugin owns its query, matching, returned candidate IDs, and retrieval. The room can pair one plugin's search with another plugin's fetch when their signed source declarations match.
 
 [Install a signed plugin catalog](../../docs/download-engines.md)

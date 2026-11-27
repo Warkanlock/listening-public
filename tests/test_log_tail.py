@@ -13,7 +13,6 @@ import tempfile
 import unittest
 from unittest import mock
 
-from downloads.download_activity import recent_events
 from system.logtail import BLOCK, tail_lines
 
 
@@ -101,25 +100,6 @@ class TailLinesTests(unittest.TestCase):
         with mock.patch.object(Path, "open", counting_open):
             self.assertEqual(tail_lines(self.path, 10), expected)
         self.assertLess(counter[0], size)
-
-
-class RecentEventsWindowTests(unittest.TestCase):
-    """The activity history sees only the last 700 lines of a batch
-    log; the bounded reader must keep that window exact."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.state = Path(self.tmp.name)
-
-    def test_events_older_than_the_window_are_invisible(self):
-        lines = ["SongJob: succeeded: Old Song"]
-        lines += [f"noise {index}" for index in range(750)]
-        lines.append("SongJob: succeeded: New Song")
-        (self.state / "batch-00001-00002.log").write_text(
-            "\n".join(lines) + "\n", encoding="utf-8")
-        events = recent_events(self.state)
-        self.assertEqual([event["song"] for event in events], ["New Song"])
 
 
 if __name__ == "__main__":

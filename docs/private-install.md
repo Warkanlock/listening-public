@@ -35,8 +35,6 @@ Open the address printed by setup and sign in. If you did not supply a URL for C
 
 Place the release-matched signed APK, Mac DMG and `client-installers.json` together in a directory readable by Listening. Put them in `clients/` beside the room's private config file. For a separate read-only directory, use `packaging/compose.clients.yaml` and set `LISTENING_CLIENT_DIR` to its absolute path. Include the override with the same Compose commands above. The room checks each installer's name, version, size and SHA-256 before offering a download. A client on the room network can download a staged installer after signing in or pairing.
 
-For an existing amd64 Compose room that uses bundled Sockseek, keep its compatible full image until the optional adapter has been verified on that room. The existing source build settings are `LISTENING_IMAGE_TARGET=full` and `LISTENING_IMAGE=listening-room:full-local`.
-
 If the operator distributes images through a private registry, sign in and run `docker compose pull` before starting. The **Verify and build install images** workflow can produce a private archive, matching Compose files and checksums. [Install and maintain versioned images](release-images.md)
 
 ### Add download engines
@@ -59,7 +57,7 @@ The owner can install a newer revision under **Settings → Room setup → App u
 
 1. On a Linux host running Docker Engine, clone Listening into a private directory under a deployment account with Docker access. Use an SSH deploy key with read-only access to this repository for a private origin. Keep the key and clone on the host. The host needs Git and Python 3.12 or later.
 2. Configure an owner login and require it with `LISTENING_ROOM_REQUIRE_OWNER=1`. Create a private socket directory owned by the account running the updater. Its UID must match the container's Listening UID, 1000 by default. Mount the directory read-only at `/run/listening-updates` and set `LISTENING_ROOM_UPDATE_SOCKET=/run/listening-updates/control.sock` in the Listening service. The supplied `packaging/compose.updates.yaml` override mounts the socket for the standard service using `LISTENING_UPDATE_SOCKET_DIR` from the Compose environment. For a custom service name, put these settings on that service.
-3. Run `python3 scripts/compose_updates.py` on the host as a supervised service with startup at boot. Pass `--socket /path/to/socket-dir/control.sock`, `--repository /path/to/clone`, and the project's `--project-directory` and ordered `--compose-file` arguments. Also pass `--service listening-room`, `--image` with the local image tag used by that service, and `--target core` or `--target full` to match the installed image. Keep Docker access and Git credentials with this host process.
+3. Run `python3 scripts/compose_updates.py` on the host as a supervised service with startup at boot. Pass `--socket /path/to/socket-dir/control.sock`, `--repository /path/to/clone`, and the project's `--project-directory` and ordered `--compose-file` arguments. Also pass `--service listening-room`, `--image` with the local image tag used by that service, and `--target core`. Keep Docker access and Git credentials with this host process.
 4. Rebuild and recreate the Listening service once from a revision that includes the updater, keeping its existing data mounts. Pass `LISTENING_ROOM_REVISION=$(git rev-parse HEAD)` as a Docker build argument to identify this initial image. Then sign in as the owner and check for updates from the room page.
 
 ### Check for updates on a schedule

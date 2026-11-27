@@ -1,7 +1,6 @@
 """Audio containers accepted by the library and by download requests."""
 
-# Sockseek filters advertised filename extensions. The downloaded stream
-# must also match the codec and container identified by ffprobe.
+# Verification checks the suffix, codec, and container of each download.
 FLAC = (".flac", "flac", "flac")
 ALAC = (".m4a", "alac", "mov")
 MP3 = (".mp3", "mp3", "mp3")
@@ -28,11 +27,10 @@ REQUEST_FORMAT_NAMES = {"flac": "FLAC", "alac": "Apple Lossless (ALAC)",
 
 
 DEFAULT_BULK_DOWNLOAD_FORMAT = "mp3_preferred"
-# Each policy supplies the formats Sockseek can accept and the one it ranks first.
 BULK_DOWNLOAD_FORMATS = {
     "mp3_preferred": ((".mp3", *LOSSLESS_DOWNLOAD_FORMATS), "mp3"),
     "mp3_only": ((".mp3",), "mp3"),
-    "lossless_only": (tuple(LOSSLESS_DOWNLOAD_FORMATS), "flac"),
+    "lossless_only": (LOSSLESS_DOWNLOAD_FORMATS, "flac"),
 }
 
 

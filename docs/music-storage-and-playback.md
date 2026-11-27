@@ -13,7 +13,7 @@ These are the default host directories next to the Compose file. You can choose 
 | Optional import folder | A folder of music you already have. Listening reads it and preserves the files you put there. Its `Playlists/` folder can supply track lists. |
 | Export folder | Playable files and an M3U8 manifest in playlist order. Choose where to keep the files you export. |
 
-A playlist can name songs before audio is available. Bring your own files through the import folder or request a copy through Soulseek. Sockseek transfers into the application folder’s `bulk-incoming` or `requests` directory. Listening verifies the audio before it can be played. It releases byte-identical staging files once it has confirmed the stored copy. Verified transfers can wait in staging when there is too little room to land them within the 20 GiB free-space reserve.
+A playlist can name songs before audio is available. Bring your own files through the import folder or request a copy through your configured download plugins. Listening keeps incoming files in private staging. Listening verifies the audio before it can be played. It releases byte-identical staging files once it has confirmed the stored copy. Verified transfers can wait in staging when there is too little room to land them within the 20 GiB free-space reserve.
 
 SQLite keeps one payload per SHA-256 hash of the original bytes. Multiple tracks can point to the same payload. Different encodings of the same recording have different hashes. When reversible compression saves space, Listening stores the smaller representation and recovers the original bytes for playback or export. Music share originals, explicit exports, and device saves each take up space where you keep them. [Collection storage decision](../adrs/0006-collection-ownership.md)
 
@@ -38,7 +38,7 @@ sequenceDiagram
 
 **Original** is the default. In the web and Apple players, enable **Settings → Playback → Compact mobile audio** for smaller AAC streams. Android offers **Compact AAC** and **Compact Opus** under **Mobile audio**. The first request can take longer while the server prepares a Compact copy. Listening reuses compatible already-small originals or cached copies. The original stays in SQLite.
 
-If a song has no verified copy, **Find copy** opens the request flow. Confirm a lossless format to start the Soulseek search. **Find on YouTube** opens an artist-and-title search when you want to listen elsewhere.
+If a song has no verified copy, **Find copy** opens the request flow. Confirm a lossless format to start the search. **Find on YouTube** opens an artist-and-title search when you want to listen elsewhere.
 
 ## Playback Insights
 

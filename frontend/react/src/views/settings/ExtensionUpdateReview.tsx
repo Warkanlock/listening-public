@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import { Dialog, DialogBackdrop, DialogDescription, DialogTitle } from "@ui-sdk/react/dialog";
-import { ApiError, postJson } from "../../api";
+import { ApiError, postJson, type ExtensionCapability, type ExtensionRole } from "../../api";
 import { RoomAction } from "../../components/RoomControls";
 import { RoomIconButton } from "../../components/RoomIcon";
 import { RoomDialogContent } from "../../components/WindowContent";
 import type { Extensions } from "./ExtensionsPanel";
 
-export type ExtensionRole = "search" | "fetch";
 type Setting = { key: string; label: string; type: "text" | "secret"; required: boolean };
 export type ExtensionPackage = {
-  id: string; version: string; image: string; capabilities: ExtensionRole[]; server_versions: string[];
+  id: string; version: string; image: string; capabilities: ExtensionCapability[]; server_versions: string[];
   sources: Partial<Record<ExtensionRole, string[]>>; settings?: Setting[];
 };
 
@@ -31,6 +30,10 @@ function changes({ installed, proposed }: Preview) {
   const details: { label: string; description: string }[] = [];
   if (installed.image !== proposed.image) {
     details.push({ label: "Worker image", description: "A new worker image will be installed." });
+  }
+  const sharedBefore = installed.capabilities.includes("share");
+  if (sharedBefore !== proposed.capabilities.includes("share")) {
+    details.push({ label: "Library sharing", description: sharedBefore ? "Removes sharing support." : "Adds sharing support." });
   }
   for (const role of ["search", "fetch"] as const) {
     const before = installed.sources?.[role] ?? [];

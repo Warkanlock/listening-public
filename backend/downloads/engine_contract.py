@@ -107,10 +107,7 @@ class InsufficientDownloadSpace(Exception):
 
 
 def engine_selection(settings):
-    """Absent means an existing room can use its legacy downloader."""
-    if "download_engines" not in settings:
-        return None
-    selected = settings["download_engines"]
+    selected = settings.get("download_engines")
     if not isinstance(selected, dict):
         return {}
     if not all(isinstance(selected.get(role), str) and selected[role] for role in ("search", "fetch")):
@@ -232,7 +229,7 @@ def source_summary(settings):
     """Expose source choices to listeners without catalog internals or credentials."""
     selection = engine_selection(settings)
     summary = {"selection": selection, "installed": [], "inventory_available": False,
-               "state": "legacy" if selection is None else "unconfigured"}
+               "state": "unconfigured"}
     if not os.environ.get("LISTENING_ENGINE_SOCKET"):
         if selection:
             summary["state"] = "unavailable"
@@ -256,7 +253,7 @@ def source_summary(settings):
     return summary
 
 
-def extension_health(settings, *, legacy_ready):
+def extension_health(settings):
     """Check the active download path without requesting or transferring a song."""
     checks = []
 
@@ -267,10 +264,6 @@ def extension_health(settings, *, legacy_ready):
     report("Audio verification", "ready" if tools else "failed",
            "Audio verification tools are available." if tools else "Install FFmpeg on the room server.")
     selection = engine_selection(settings)
-    if selection is None:
-        report("Existing downloader", "unverified" if legacy_ready else "failed",
-               "Setup is present. Sign-in was not tested." if legacy_ready else "Check the download setup in Settings.")
-        return {"checks": checks}
     if not selection:
         report("Download sources", "failed", "Choose search and download sources in Extensions.")
         return {"checks": checks}

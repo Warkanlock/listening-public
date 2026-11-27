@@ -107,14 +107,14 @@ The room creates its configuration at first start. For a private Compose room, [
 
 1. **Play your music.** Follow [Private installation](private-install.md) to bring in a music folder or generate a playable demo with `listening music demo`. If you already have a playlist, **Sources** accepts CSV, M3U, or XSPF.
 2. **Connect another device.** Copy an invitation from **Settings → Devices** and open it on the device you want to use.
-3. **Find missing music if you wish.** Set up Soulseek in **Settings → Downloads**, then request a copy from the catalog. The optional downloader is bundled in the full container image on amd64.
+3. **Find missing music if you wish.** Set up an optional plugin in **Extensions**, then request a copy from the catalog.
 
 The listening directory may start empty. The app creates its folders when you
 save setup.
 
 ### Bootstrap a home server
 
-Run `scripts/bootstrap.sh` from a checkout with access to its origin. To select a different source repository, use `--repo GIT_URL`. It installs the current `main` branch under `~/listening-room`, builds the web app, and registers the CLI. Add `--downloads` for the checksum-verified Sockseek binary. Use `--dry-run` to inspect its actions. Subsequent installs fast-forward a clean checkout. Set the owner with `listening account set-owner OWNER`, then start with `listening server start --host 127.0.0.1`.
+Run `scripts/bootstrap.sh` from a checkout with access to its origin. To select a different source repository, use `--repo GIT_URL`. It installs the current `main` branch under `~/listening-room`, builds the web app, and registers the CLI. Use `--dry-run` to inspect its actions. Subsequent installs fast-forward a clean checkout. Set the owner with `listening account set-owner OWNER`, then start with `listening server start --host 127.0.0.1`.
 
 ### From source (developers and forks)
 
@@ -129,7 +129,7 @@ In a terminal, `listening setup` walks through hosting the server and browser pl
 
 For unattended setup, use `listening setup --client web --room /path/to/new-room --start`, or `listening setup --client apk --client dmg --output /path/to/installers` on a build machine with both toolchains. Add `--non-interactive` for the default host install without prompts.
 
-Source setup builds the web app and registers `~/.local/bin/listening`. Add that directory to PATH as directed. To enable downloads, run `listening setup --downloads` to provision the checksum-verified Sockseek tool. Developers can still run the Make targets for development, testing and the rendered UI gate. The server accepts `--port` (default 8765) and `--host` (default 0.0.0.0).
+Source setup builds the web app and registers `~/.local/bin/listening`. Add that directory to PATH as directed. To enable downloads, [install and select compatible plugins](download-engines.md). Developers can still run the Make targets for development, testing and the rendered UI gate. The server accepts `--port` (default 8765) and `--host` (default 0.0.0.0).
 
 ### If something is missing
 
@@ -139,10 +139,8 @@ Three layers tell you what is wrong, in order:
    and `ffprobe` are required or warned about, and each
    message names the fix.
 2. The server starts regardless. Settings → Downloads shows the live
-   dependency checklist.
-3. The download and sharing workers refuse to start until every dependency
-   is present and Soulseek is connected; Settings → Downloads and the
-   Jobs view show which piece is missing.
+   audio verification check.
+3. Open **Extensions** to check plugin availability and configuration.
 
 ### Upgrading and rolling back
 
@@ -177,12 +175,12 @@ copying the library and application folders.
 | --- | --- |
 | Room setup | Check playlist sources and download readiness, open Jobs, and update the app. |
 | Sources | Find local list folders, watch folders, link a single playlist file, import files, and check for changes. |
-| Downloads | Connect Soulseek and choose whether to download new songs automatically. |
+| Downloads | Choose download formats and whether to download new songs automatically. |
 | Spotify | Connect, sync, or disconnect your Spotify account. |
 | Playback | Set crossfade and volume normalization on this device. |
 | Radio | Choose the room’s SomaFM stations and manage saved YouTube mixes. |
 | Devices | Pair browsers, name them, and send announcements. |
-| Sharing | Offer a folder back to Soulseek with Nicotine+. |
+| Extensions | Configure sources and manage sharing for plugins that support it. |
 | Storage | Change the Library folder and export or import host settings. |
 
 Paired web and Mac clients have access to Playback, Radio, and Devices. Open Settings on the server to manage the room.
@@ -354,24 +352,9 @@ personal application folder, audio library, credentials file, or server log.
 3. If you also want to reuse settings, choose **Export host settings** on the
    old host, then **Load settings JSON** on the new one. Review every path
    before saving it.
-4. Enter that host's Soulseek credentials, because credentials and
-   the pairing token are never exported. Sockseek itself is
-   provisioned by the install.
+4. Set up the plugins on the new host and enter their settings. The export omits credentials and the pairing token.
 5. Copy your music directory separately if you want to keep the downloaded
    library. The export intentionally contains no audio.
-
-## Sharing with Soulseek
-
-Sockseek 3.x [does not upload files](https://github.com/fiso64/sockseek/blob/master/README.md),
-so downloading and sharing are two separate mechanisms here.
-
-To share: install [Nicotine+](https://nicotine-plus.org/), pick a share folder,
-and enter a **separate sharing account** in Settings → Sharing. Listening Room runs an
-isolated headless Nicotine+ profile for that folder only, and Settings reports
-whether it is running. A separate account avoids the connection conflict that
-occurs when two clients use one Soulseek login at the same time.
-
-Only share files you have the right to distribute.
 
 ## Devices and installation
 
@@ -427,15 +410,12 @@ Listening stores the music collection, host settings, and account data on your s
 - **Radio** streams library songs from your room or connects to SomaFM. A saved YouTube mix opens a YouTube embed. If YouTube discovery is configured, the server sends Mood map discovery queries to the YouTube Data API. White and brown noise are generated on the device.
 - **Artwork hosts** serve images when imported metadata includes album-cover URLs.
 - **Spotify** receives authorized requests after you connect an app for playlist sync and editing.
-- **Optional downloading and sharing** use Soulseek through the external tools you configure. Searches may reach other peers, and enabling sharing makes files from the selected directory available to those peers.
+- **Optional downloading and sharing** use the plugins you configure. Searches may reach other peers, and enabling sharing makes files from the selected directory available to those peers.
 - **Fediverse sharing** is an explicit export. Publishing with the CLI sends the playlist title, track count, and public page link to your chosen Mastodon instance. [Fediverse sharing](fediverse-playlists.md)
 
 ## Troubleshooting
 
-- **Settings says a dependency is missing.** The Downloads tab shows a live
-  checklist for `ffprobe`, Sockseek, and Nicotine+. Downloads only
-  report ready when credentials exist, the Sockseek binary is present and
-  executable, and `ffprobe` is found.
+- **Settings says a dependency is missing.** Check the download status in **Extensions**. Make sure FFmpeg is installed and your selected plugins are ready.
 - **Nothing is downloading.** Open the Jobs view. It shows
   whether the bulk and request jobs are running; the activity view
   (click the progress strip) shows their latest output. Bulk also pauses itself when free space approaches the 20 GiB
@@ -448,9 +428,7 @@ Listening stores the music collection, host settings, and account data on your s
 - **A familiar song is missing.** Search the library and use **Find copy** on
   its row, or **Find copies shown** for up to 50 visible missing tracks. A
   request first looks for a specific album and track, checks candidate duration
-  and bitrate, then tries a broader search when needed. Transfers that exhaust
-  Sockseek's memory, file handles, or connections appear as retryable errors
-  instead of “not found.” Tracks with the same ISRC share a verified local copy
+  and bitrate, then tries a broader search when needed. Temporary transfer errors can be retried. Tracks with the same ISRC share a verified local copy
   across imported and Spotify lists when their title and duration agree.
 - **A paired device gets "Open this app using the paired link".** Open the
   exact link from Settings once on that device and browser, so it can set its
@@ -458,21 +436,10 @@ Listening stores the music collection, host settings, and account data on your s
 - **Downloads seem stuck after a crash.** Restarting the server is safe. Its
   background watchdog re-syncs changed lists, returns interrupted requests to
   the queue, and resumes bulk from the saved cursor instead of starting over.
-- **Two Soulseek clients fight over one login.** That is expected. Keep the
-  searching account and the sharing account different, as described above.
 
 ## Optional downloads
 
-### To find new audio
-
-| Need | Why |
-| --- | --- |
-| FFmpeg (`ffprobe`) | Verifies every downloaded file before it can be played. |
-| Sockseek executable | The Soulseek search and download CLI. A separate project; the package routes fetch the pinned release and verify its checksum during installation. Developed against Sockseek 3.x (current release: 3.0.6). |
-| A Soulseek account | Used by Sockseek for searching and downloading. There is no sign-up form: choose a username and password and sign in with the official client from [slsknet.org](https://www.slsknet.org), or with Sockseek itself; if the name is free, that first sign-in creates the account. Sharing needs a second, separate account. |
-| Nicotine+ (optional) | Only needed if you want to share a folder back to Soulseek. |
-
-The full amd64 server image ships with Sockseek at `/opt/sockseek/sockseek`. Add your Soulseek credentials in **Settings → Downloads**. The CLI transfers into private staging under `/config/bulk-incoming` for bulk jobs and `/config/requests` for individual requests. SQLite rooms release the transfer file after verifying the stored copy. Identical audio shares one SQLite payload. Playback uses a small rolling buffer, and exports create files at the destination you choose.
+Configure [search and download plugins](download-engines.md) in **Extensions**. Listening uses FFmpeg to verify audio before it enters the library.
 
 When a song has no playable copy, **Find on YouTube** opens an artist-and-title search from its details. You can also use it on a failed request or a Deep Dive pick.
 
@@ -484,9 +451,7 @@ Individual requests keep their confirmed format. Older requests without a format
 
 Use **Settings → Storage → Export library audio** to recover the original media bytes with their original format extensions. A whole portable-room export includes stored audio without a current track reference under `exported/originals/`. Playlist exports follow the selected playlist’s track order.
 
-Choose the full container or provision the optional downloader with
-`listening setup --downloads` in a source checkout. On
-macOS, `brew install ffmpeg` supplies the audio tools. On
+On macOS, `brew install ffmpeg` supplies the audio tools. On
 Debian or Ubuntu, `apt install ffmpeg`; on Fedora, `dnf install
 ffmpeg`. Windows is not supported natively; WSL2 works and is
 treated as Linux.
