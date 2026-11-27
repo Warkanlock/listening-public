@@ -17,7 +17,7 @@ def private_write(path, contents, *, exclusive=False):
 
     With `exclusive=True` the file must not already exist: it is created
     directly with O_EXCL and FileExistsError propagates, for
-    create-once files such as the Sockseek credentials config.
+    files that must retain their original contents if they already exist.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,6 @@
 """The server's door to the media database (plan 061 step 1).
 
-Plan 060 taught the server to serve, share, and report on
+Plan 060 taught the server to serve and report on
 database-held audio through loose functions reading its globals;
 this module is that cluster as one object. The server builds one
 MediaAccess over its paths and a sources object bound to its live
@@ -19,21 +19,20 @@ from pathlib import Path
 import sqlite3
 
 from catalog.audio_store import (MediaStore, PlaybackBuffer, blob_targets,
-                                 custom_request_rows, materialize,
+                                 custom_request_rows,
                                  read_export_status)
 
 
 class MediaAccess:
     """Media database reads for one process: the serving pair, the
     settings facts, the jobs layer's dead bytes, the export and
-    share work list, and the export's recorded progress.
+    work list, and the export's recorded progress.
 
     Constructed with the media database path, the playback buffer
     directory, the export-status path, and a sources object with
-    five methods: coverage() (the coverage row dicts), records()
+    four methods: coverage() (the coverage row dicts), records()
     (records by index), downloaded() (the downloaded-audio entry
-    dicts), request(id) (one request dict or None), and
-    share_folder(). A fresh MediaStore is built per call, matching
+    dicts), and request(id) (one request dict or None). A fresh MediaStore is built per call, matching
     the store's own one-connection-per-operation discipline.
     """
 
@@ -101,23 +100,6 @@ class MediaAccess:
         customs = custom_request_rows(downloaded, self._sources.request)
         return blob_targets(store, self._sources.coverage(),
                             self._sources.records(), downloaded, customs)
-
-    def materialize_share(self):
-        """Write the blob tracks into the share folder (plan 060 Q1).
-
-        Starting sharing materializes the database-held tracks
-        beside the file-held ones, through the export machinery:
-        incremental after the first pass, hash-checked as written.
-        No media database or no share folder, no work. Returns how
-        many files were written.
-        """
-        store = self.store()
-        folder = self._sources.share_folder()
-        if store is None or not folder:
-            return 0
-        written, _failed = materialize(store, self.targets(),
-                                       Path(folder), preserve_existing=True)
-        return written
 
     def export_status(self):
         """The last export run's recorded progress (plan 060 step 6)."""

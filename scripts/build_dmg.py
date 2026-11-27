@@ -98,9 +98,8 @@ def verify_volume(image, mount, version):
                                             env=env, text=True).strip()
             if found != version:
                 raise ValueError(f"Bundled command reports {found}, expected {version}")
-            for tool in ("ffmpeg", "ffprobe", "sockseek"):
-                option = "--help" if tool == "sockseek" else "-version"
-                subprocess.run([resources / "bin" / tool, option], env=env,
+            for tool in ("ffmpeg", "ffprobe"):
+                subprocess.run([resources / "bin" / tool, "-version"], env=env,
                                stdout=subprocess.DEVNULL, check=True)
             for extension, encoder in (("opus", "libopus"), ("m4a", "aac")):
                 output = Path(temporary) / f"tone.{extension}"

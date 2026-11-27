@@ -374,7 +374,6 @@ class PrepareCoverMapTests(unittest.TestCase):
             mock.patch.object(runner, "LIBRARY", self.library),
             mock.patch.object(runner, "PLAYLISTS", self.playlists_dir),
             mock.patch.object(runner, "SOURCES", self.sources),
-            mock.patch.object(runner, "MASTER", self.state / "master.csv"),
             mock.patch.object(runner, "REQUESTS_DB", self.state / "requests.sqlite3"),
         ]
         for patcher in patchers:

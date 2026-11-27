@@ -22,7 +22,6 @@ import { DownloadsPanel } from "./settings/DownloadsPanel";
 import { PlaybackPanel } from "./settings/PlaybackPanel";
 import { RadioPanel } from "./settings/RadioPanel";
 import { SetupPanel } from "./settings/SetupPanel";
-import { SharingPanel } from "./settings/SharingPanel";
 import { SourcesPanel } from "./settings/SourcesPanel";
 import { StoragePanel } from "./settings/StoragePanel";
 
@@ -52,20 +51,12 @@ function RoomSettings() {
   const [discoveryDone, setDiscoveryDone] = useState(false);
   const [scanError, setScanError] = useState("");
   const [scanStatus, setScanStatus] = useState("Searching nearby folders…");
-  const [detectedSockseek, setDetectedSockseek] = useState("");
 
-  // Form values follow the loaded settings, as vanilla loadSettings()
-  // rewrites every input; passwords are local and survive until a
-  // save clears them.
   useEffect(() => {
     if (!settings) return;
     setFormState((previous) => ({
       ...previous,
       folder: settings.folder,
-      sockseek: settings.sockseek_binary,
-      nicotine: settings.nicotine_binary,
-      shareFolder: settings.share_folder,
-      shareUsername: settings.share_username,
       autoDownload: settings.auto_download,
       bulkDownloadFormat: settings.bulk_download_format ?? "mp3_preferred",
       audioStore: settings.audio_store || "database",
@@ -82,7 +73,6 @@ function RoomSettings() {
       const result = await api<DiscoverLocal>("/api/discover-local");
       setDiscovered(result.folders);
       setDiscoveryDone(true);
-      setDetectedSockseek(result.sockseek);
       setScanStatus(
         `${result.folders.length} nearby folder${result.folders.length === 1 ? "" : "s"} found`,
       );
@@ -117,13 +107,6 @@ function RoomSettings() {
       lists_folder: derived.lists_folder,
       music_folder: derived.music_folder,
       playlist_output: derived.playlist_output,
-      sockseek_binary: form.sockseek.trim(),
-      nicotine_binary: form.nicotine.trim(),
-      soulseek_username: form.soulseekUsername.trim(),
-      soulseek_password: form.soulseekPassword,
-      share_folder: form.shareFolder.trim(),
-      share_username: form.shareUsername.trim(),
-      share_password: form.sharePassword,
       auto_download: form.autoDownload,
       bulk_download_format: form.bulkDownloadFormat,
       audio_store: form.audioStore,
@@ -133,14 +116,7 @@ function RoomSettings() {
   const onSave = useCallback(
     async (message: string): Promise<boolean> => {
       const ok = await store.saveSettings(buildBody());
-      if (ok) {
-        setFormState((previous) => ({
-          ...previous,
-          soulseekPassword: "",
-          sharePassword: "",
-        }));
-        notify(message);
-      }
+      if (ok) notify(message);
       return ok;
     },
     [store, buildBody],
@@ -148,7 +124,6 @@ function RoomSettings() {
 
   const openTab = (tab: string) => {
     store.setSettingsTab(tab);
-    if (tab === "sharing") void store.refreshProcess();
     if (tab === "devices") void store.heartbeat();
   };
 
@@ -170,9 +145,8 @@ function RoomSettings() {
         discovered={discovered} discoveryDone={discoveryDone} scanError={scanError}
         scanStatus={scanStatus} discoverLocal={discoverLocal} /> },
       { key: "downloads", name: "Downloads", panel: <DownloadsPanel settings={settings} form={form}
-        setForm={setForm} detectedSockseek={detectedSockseek} onSave={onSave} /> },
+        setForm={setForm} onSave={onSave} onOpenExtensions={() => openTab("extensions")} /> },
       { key: "spotify", name: "Spotify", panel: <ConnectionsPanel settings={settings} form={form} setForm={setForm} /> },
-      { key: "sharing", name: "Sharing", panel: <SharingPanel form={form} setForm={setForm} onSave={onSave} /> },
       { key: "storage", name: "Storage", panel: <StoragePanel settings={settings} form={form} setForm={setForm} onSave={onSave} /> },
     ] : []),
     ...(appearance ? [{ key: "appearance", name: "Appearance", panel: <AppearancePanel /> }] : []),

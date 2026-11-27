@@ -28,7 +28,6 @@ def add_options(command):
     command.add_argument("--room", type=Path, help="create an empty room or open a portable collection")
     command.add_argument("--start", action="store_true", help="start the selected server and print its address")
     command.add_argument("--port", type=int, help="local server port with --start (default 8765)")
-    command.add_argument("--downloads", action="store_true", help="provision the verified download tool")
     command.add_argument("--systemd", action="store_true", help="install and start the Linux user service")
     command.add_argument("--source", type=Path, help="source checkout for native builds")
     command.add_argument("--output", type=Path, help="directory for native clients and checksums")
@@ -137,39 +136,20 @@ def _update_room(args, config, *, interactive, origin, root):
     return scan
 
 
-def enable_legacy_downloads(root, base, config):
-    with lock_file(control_path(base).with_suffix(".installation")):
-        try:
-            with lock_file(control_path(config).with_suffix(".owner"), wait=False):
-                subprocess.run([sys.executable, str(root / "scripts/provision_sockseek.py")], cwd=root,
-                               check=True, env={**os.environ, "LISTENING_ROOM_CONFIG": str(config)})
-                app = AppConfig(config, root)
-                data = app.load()
-                fallback = root / "bin/sockseek"
-                installed = config.parent / "bin/sockseek"
-                if data["sockseek_binary"] == str(fallback) and not fallback.is_file() and installed.is_file():
-                    data["sockseek_binary"] = str(installed)
-                if data.get("download_engines") == {}:
-                    data.pop("download_engines")
-                app.save()
-        except BlockingIOError:
-            raise ValueError("Stop this room before switching to the legacy download tool.") from None
-
-
 def run(args, *, root, selected_config, select_room, install_command, build, start_server, join):
     base = resolve_config_path().expanduser().resolve()
     config = selected_config(base)
     existing = config if config.is_file() else legacy_config_path(config)
     current = None
     needs_current_room = (not args.client or "web" in args.client or args.room or args.start
-                          or args.downloads or args.systemd or args.music or args.origin is not None or args.owner)
+                          or args.systemd or args.music or args.origin is not None or args.owner)
     if needs_current_room and existing and existing.is_file():
         current = Path(json.loads(existing.read_text()).get("folder") or default_root()).expanduser().resolve()
     elif needs_current_room and config == base and any(base.parent.glob("*.sqlite3")):
         # A preconfigured host can already own a state database before its
         # settings are first saved. The normal boot path adopts that room.
         current = default_root().resolve()
-    supplied = any((args.client, args.room, args.start, args.port is not None, args.downloads, args.systemd,
+    supplied = any((args.client, args.room, args.start, args.port is not None, args.systemd,
                     args.source, args.output, args.music, args.origin is not None, args.owner, args.bind))
     interactive = sys.stdin.isatty() and not args.non_interactive and not supplied
     if interactive and not _walk(args, current, existing if existing and existing.is_file() else config):
@@ -186,7 +166,7 @@ def run(args, *, root, selected_config, select_room, install_command, build, sta
         raise ValueError("Use --port 0–65535 with --start for a local server")
     if (args.output or args.source) and not any(t != "web" for t in targets):
         raise ValueError("Choose a native --client to specify a client source or output folder")
-    host = ("web" in targets or args.room or args.start or args.downloads or args.systemd
+    host = ("web" in targets or args.room or args.start or args.systemd
             or args.music or args.origin is not None or args.owner)
     kind = install_kind()
     packaged = kind != "checkout"
@@ -229,8 +209,6 @@ def run(args, *, root, selected_config, select_room, install_command, build, sta
                         raise ValueError("Stop this room before changing its source folder or advertised URL.") from None
                 else:
                     _update_room(args, config, interactive=interactive, origin=origin, root=root)
-        if args.downloads and not packaged:
-            enable_legacy_downloads(root, base, config)
         if args.systemd:
             # The installer works in the checkout. Keep a caller-relative host
             # config tied to the same room it selected before that chdir.

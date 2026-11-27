@@ -56,9 +56,7 @@ KIND_LABELS = {"downloads": "Download missing songs",
                "reclaim": "Reclaim database space",
                "migrate": "Copy library into the database"}
 
-DOWNLOAD_SETUP_BLOCKER = ("Finish the download setup first "
-                          "(Settings, Downloads): the Sockseek app, "
-                          "your Soulseek account, and ffprobe.")
+DOWNLOAD_SETUP_BLOCKER = "Choose compatible download sources in Extensions and install FFmpeg on the server."
 
 GENRE_SETUP_BLOCKER = ("The genre pass needs ffprobe on the "
                        "server computer.")

@@ -96,10 +96,6 @@ export function StoragePanel({
           !collection && typeof imported.folder === "string" && imported.folder
             ? imported.folder
             : previous.folder,
-        shareFolder:
-          typeof imported.share_folder === "string" && imported.share_folder
-            ? imported.share_folder
-            : previous.shareFolder,
         autoDownload:
           imported.auto_download !== undefined
             ? !!imported.auto_download

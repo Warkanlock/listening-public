@@ -1,6 +1,6 @@
 # Install and maintain versioned images
 
-The standard Compose file defaults to localhost and requires an owner account. A fork can publish a versioned core image for amd64 and arm64, and a full amd64 image that bundles Sockseek. You can also build from source or use a private release archive. [Private installation](private-install.md)
+The standard Compose file defaults to localhost and requires an owner account. A fork can publish a versioned image for amd64 and arm64. You can also build from source or use a private release archive. [Private installation](private-install.md)
 
 ## Install from a registry
 
@@ -10,7 +10,7 @@ Download `docker-compose.yml` and `packaging/compose.import.yaml` from the same 
 LISTENING_IMAGE=ghcr.io/your-org/listening:1.2.0
 ```
 
-Use the `1.2.0-full` suffix only on amd64 if you want the bundled downloader. You can pin the registry's image digest in place of a version for repeatable installs.
+You can pin the registry's image digest in place of a version for repeatable installs.
 
 ```sh
 mkdir -p config library

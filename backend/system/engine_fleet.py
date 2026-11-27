@@ -1,5 +1,6 @@
 """Host-side lifecycle for isolated, digest-pinned acquisition workers."""
 
+import csv
 import fcntl
 import hashlib
 import json
@@ -12,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from io import StringIO
 from pathlib import Path
 
 from downloads.engine_contract import PROGRESS_FILE, WORKER_TIMEOUT_SECONDS, read_transfer_percent
@@ -25,7 +27,8 @@ RELEASE = re.compile(r"[0-9]+(?:\.[0-9]+){1,2}")
 IMAGE = re.compile(r"[a-z0-9][a-z0-9.:/_-]+@sha256:[0-9a-f]{64}")
 TOKEN = re.compile(r"[0-9a-f]{16,64}")
 FILENAME = re.compile(r"[^/\\\x00-\x1f]{1,255}")
-CAPABILITIES = {"search", "fetch"}
+ACQUISITION_METHODS = {"search", "fetch"}
+CAPABILITIES = ACQUISITION_METHODS | {"share"}
 PACKAGE_FIELDS = ("id", "version", "image", "capabilities", "server_versions", "sources", "settings")
 LIMIT = 256 * 1024
 RESERVE = 20 * 1024 ** 3
@@ -39,10 +42,17 @@ class WorkerDeadlineExceeded(RuntimeError):
 def declares_sources(engine):
     sources = engine.get("sources")
     capabilities = engine["capabilities"]
-    return (isinstance(sources, dict) and set(sources) == set(capabilities)
+    return (isinstance(sources, dict) and set(sources) == ACQUISITION_METHODS.intersection(capabilities)
             and all(isinstance(names, list) and names
                     and all(isinstance(name, str) and SOURCE.fullmatch(name) for name in names)
                     for names in sources.values()))
+
+
+def bind_mount(source, destination, *options):
+    fields = ["type=bind", f"src={source}", f"dst={destination}"]
+    output = StringIO()
+    csv.writer(output, lineterminator="\n").writerow([*fields, *options])
+    return output.getvalue().removesuffix("\n")
 
 
 def supports_release(engine, release):
@@ -117,9 +127,15 @@ def verify_catalog(path, public_key, architecture, version):
 
 
 class Fleet:
-    def __init__(self, state, staging, catalog, public_key, architecture, version):
+    def __init__(self, state, staging, catalog, public_key, architecture, version, *, share_root=None):
         self.state = state.resolve()
         self.staging = staging.resolve()
+        self.share_root = share_root.resolve(strict=True) if share_root is not None else None
+        if self.share_root is not None and (
+                not self.share_root.is_dir()
+                or any(self.share_root.is_relative_to(path) or path.is_relative_to(self.share_root)
+                       for path in (self.state, self.staging))):
+            raise ValueError("Choose a sharing root separate from the manager's state and staging folders.")
         self.catalog = catalog
         self.public_key = public_key
         self.architecture = architecture
@@ -144,6 +160,9 @@ class Fleet:
 
     def container(self, identity):
         return f"listening-engine-{self.namespace}-{identity}"
+
+    def share_container(self, identity):
+        return f"listening-share-{self.namespace}-{identity}"
 
     def docker(self, *arguments, timeout=20, check=True):
         result = subprocess.run(["docker", *arguments], stdout=subprocess.PIPE,
@@ -182,25 +201,85 @@ class Fleet:
             raise ValueError("The verified image does not match this host architecture.")
 
     def start(self, engine):
+        identity = engine["id"]
+        mounts = ["--mount", bind_mount(self.mount(identity), "/scratch")]
+        self.run_container(engine, self.container(identity), mounts, "/bin/sleep", "infinity",
+                           restart="unless-stopped")
+
+    def run_container(self, engine, name, mounts, entrypoint, argument, *, restart, labels=()):
         self.validate_image(engine["image"])
         identity = engine["id"]
         credentials = self.state / identity / "credentials"
         credentials.mkdir(mode=0o700, parents=True, exist_ok=True)
-        mounts = ["--mount", f"type=bind,src={self.mount(identity)},dst=/scratch",
-                  "--mount", f"type=bind,src={credentials},dst=/credentials,readonly"]
-        self.docker("run", "--detach", "--init", "--name", self.container(identity),
+        self.docker("run", "--detach", "--init", "--name", name,
                     "--platform", f"linux/{self.architecture}",
                     "--label", f"music.listening.fleet={self.namespace}",
-                    "--restart", "unless-stopped", "--user", f"{os.getuid()}:{os.getgid()}",
+                    *labels,
+                    "--restart", restart, "--user", f"{os.getuid()}:{os.getgid()}",
                     "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
                     "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                     "--memory", "512m", "--cpus", "1", "--pids-limit", "128",
-                    *mounts, "--entrypoint", "/bin/sleep", engine["image"], "infinity")
+                    *mounts, "--mount", bind_mount(credentials, "/credentials", "readonly"),
+                    "--entrypoint", entrypoint, engine["image"], argument)
         self.invalidate_status()
 
     def stop(self, identity):
         self.docker("rm", "-f", self.container(identity), check=False)
         self.invalidate_status()
+
+    def share(self, engine, operation, folder):
+        identity = engine["id"]
+        name = self.share_container(identity)
+        saved = self.state / identity / "share-folder"
+        try:
+            previous = saved.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            previous = ""
+        root = self.share_root
+        available = root is not None and root.is_dir()
+        result = self.docker("ps", "--all", "--filter", f"name=^{name}$", "--format",
+                             '{{.State}}\t{{.Label "music.listening.share-folder"}}', timeout=2)
+        state, _, mounted = result.stdout.decode("utf-8").rstrip("\n").partition("\t")
+        running = state == "running"
+        if operation == "stop" and state:
+            self.docker("rm", "-f", name)
+            running = False
+        elif operation == "start":
+            if not available:
+                raise ValueError("Configure a sharing root on the manager.")
+            if not isinstance(folder, str) or len(folder) > 4096 or (folder and not folder.isprintable()):
+                raise ValueError("Choose a folder inside the sharing root.")
+            relative = Path(folder)
+            path = (root / relative).resolve()
+            if relative.is_absolute() or ".." in relative.parts or not path.is_relative_to(root) or not path.is_dir():
+                raise ValueError("Choose a folder inside the sharing root.")
+            folder = "" if path == root else path.relative_to(root).as_posix()
+            if folder and not folder.isprintable():
+                raise ValueError("Choose a folder inside the sharing root.")
+            if running and folder != mounted:
+                raise ValueError("Stop sharing before choosing a different folder.")
+            if not running:
+                if state:
+                    self.docker("rm", "-f", name)
+                index = hashlib.sha256(os.fsencode(path)).hexdigest()
+                scratch = self.state / identity / "share-scratch" / index
+                scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
+                mounts = ["--mount", bind_mount(path, "/share", "readonly", "bind-recursive=disabled"),
+                          "--mount", bind_mount(scratch, "/scratch")]
+                try:
+                    self.run_container(engine, name, mounts, "/usr/local/bin/listening-engine", "--share",
+                                       restart="no", labels=("--label", f"music.listening.share-folder={folder}"))
+                    time.sleep(1)
+                    result = self.docker("inspect", "--format", "{{.State.Running}}", name, timeout=2)
+                    if result.stdout.strip() != b"true":
+                        raise RuntimeError("The sharing worker stopped during startup.")
+                    private_write(saved, folder)
+                except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                    self.docker("rm", "-f", name, check=False)
+                    raise
+                running, mounted = True, folder
+        return {"ok": True, "available": available, "running": running,
+                "folder": mounted if running else previous}
 
     def worker(self, identity, request, connection, *, scratch=None, on_tick=None):
         # Keep protocol output bounded independently of the worker implementation.
@@ -422,6 +501,14 @@ class Fleet:
                 fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 if action == "configure":
                     return self.configure(identity, request.get("settings"), release)
+                if action == "share":
+                    operation = request.get("operation")
+                    engine = self.engines.get(identity)
+                    if (operation not in ("status", "start", "stop") or engine is None
+                            or "share" not in engine["capabilities"]
+                            or (operation == "start" and not self.compatible(engine, release))):
+                        raise ValueError("Choose a compatible extension that supports sharing.")
+                    return self.share(engine, operation, request.get("folder", ""))
                 return self.change(identity, action, connection, release,
                                    approval=request.get("approval"), selection=request.get("selection"))
 
@@ -503,6 +590,8 @@ class Fleet:
             if (action == "install") != (current is None):
                 raise ValueError("Choose install for a new engine or update for an installed engine.")
             if current and current["image"] == candidate["image"]:
+                if "share" in current["capabilities"] and "share" not in candidate["capabilities"]:
+                    self.share(current, "stop", "")
                 refreshed = {**current, **candidate}
                 if "settings" not in candidate:
                     refreshed.pop("settings", None)
@@ -522,6 +611,8 @@ class Fleet:
             previous = {key: value for key, value in current.items() if key not in {"enabled", "previous"}}
             replacement = {**current["previous"], "enabled": current["enabled"], "previous": previous}
         elif action == "remove":
+            if "share" in current["capabilities"]:
+                self.share(current, "stop", "")
             self.stop(identity)
             (self.state / identity / "login-retry-at").unlink(missing_ok=True)
             del self.engines[identity]
@@ -545,11 +636,15 @@ class Fleet:
             replacement = {**current, "enabled": action == "enable"}
             if replacement == current and (not current["enabled"]
                                            or self.container(identity) in self.running_containers()):
+                if action == "disable" and "share" in current["capabilities"]:
+                    self.share(current, "stop", "")
                 return {"ok": True, "engine": current}
         else:
             raise ValueError("Unknown engine action.")
         if replacement["enabled"] and (paused := self.login_pause(identity)):
             return paused
+        if current and "share" in current["capabilities"] and action != "enable":
+            self.share(current, "stop", "")
         self.stop(identity)
         result = {}
         try:
