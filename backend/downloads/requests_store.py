@@ -706,12 +706,14 @@ class RequestsStore:
     def by_track(self):
         """The requests-by-track map the catalog read path needs.
 
-        Every request that names a library track, keyed by track index;
-        when a track has several, the newest row wins.
+        When a track has several requests, the newest row wins. A
+        stopped replacement also holds its original track out of search.
         """
         def work(conn):
-            return {row["track_index"]: decode_request_row(row) for row in conn.execute(
-                "SELECT * FROM requests WHERE track_index IS NOT NULL ORDER BY id")}
+            return {row["track_index"] or row["original_track_index"]: decode_request_row(row)
+                    for row in conn.execute("SELECT * FROM requests WHERE track_index IS NOT NULL "
+                                            "OR (status='unavailable' AND original_track_index IS NOT NULL) "
+                                            "ORDER BY id")}
         return self._run(work)
 
     @staticmethod

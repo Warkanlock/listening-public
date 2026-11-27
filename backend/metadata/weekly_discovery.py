@@ -36,7 +36,7 @@ def download_progress(tracks):
             downloaded += 1
         elif request["status"] in ("queued", "searching", "waiting_space"):
             pending += 1
-        else:
+        elif request["status"] != "unavailable":
             attention.append(identity)
     return {"total": total, "downloaded": downloaded, "pending": pending,
             "needs_attention": len(attention), "attention_ids": attention,
