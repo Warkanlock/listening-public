@@ -128,7 +128,8 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
     confirming.current = false;
     setSaving(false);
   };
-  const dialogClass = panel === "extensions" ? "extensions-dialog" : "format-dialog";
+  const dialogClass = panel === "extensions" ? "extensions-dialog" : panel === "picker" && browsing
+    ? "format-dialog copy-dialog" : "format-dialog";
   return (
     <Dialog open onOpenChange={open => { if (!open) dismiss(); }}>
       <DialogBackdrop />
@@ -173,19 +174,19 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
             })}
           </div> : <p role="status">No copies found in this format.</p>)}
           {error && <p role="alert">{error}</p>}
-          <div className="format-dialog-footer">
-            {review && !store.member && <RoomAction ref={recordingsReturn} icon="album" disabled={saving} onClick={() => {
+          <footer className="dialog-actions">
+            {review && !store.member && <RoomAction ref={recordingsReturn} disabled={saving} onClick={() => {
               restoreRecordingsFocus.current = true;
               setRecordingError("");
               setPanel("recordings");
             }}>Other recordings</RoomAction>}
-            <RoomAction icon="settings" disabled={saving} onClick={leaveMatches}>Change format</RoomAction>
-            <RoomAction icon="refresh" disabled={saving || browse.kind === "searching"}
+            <RoomAction disabled={saving} onClick={leaveMatches}>Change format</RoomAction>
+            <RoomAction primary disabled={saving || browse.kind === "searching"}
               onClick={() => showMatches(browse.format, true)}>Search again</RoomAction>
-            {review && !store.member && <RoomAction disabled={saving} onClick={() => void stopSearch()}>
+            {review && !store.member && <RoomAction data-stop-search disabled={saving} onClick={() => void stopSearch()}>
               Stop searching
             </RoomAction>}
-          </div>
+          </footer>
         </> : <>
         <header className="format-dialog-header">
           <DialogTitle>Choose format</DialogTitle>
@@ -209,13 +210,12 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
           }} />
         } />
         {error && <p role="alert">{error}</p>}
-        <div className="format-dialog-footer">
+        <footer className="dialog-actions">
           <RoomAction ref={browseButton} icon="catalogs" disabled={saving} onClick={() => showMatches(choice)}>Browse copies</RoomAction>
-          <button className="primary-action" type="button" disabled={saving} onClick={() => void confirm(choice)}>
-            <RoomIcon name="search" />
+          <RoomAction primary icon="search" disabled={saving} onClick={() => void confirm(choice)}>
             {saving ? "Confirming…" : "Confirm and search"}
-          </button>
-        </div>
+          </RoomAction>
+        </footer>
         </>}
       </RoomDialogContent>
     </Dialog>
