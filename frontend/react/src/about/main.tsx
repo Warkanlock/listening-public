@@ -5,7 +5,7 @@ import "@fontsource-variable/figtree";
 import recording from "./first-light.mp3";
 import sleeve from "./first-light.webp";
 import { enableFeatureSearch } from "./feature-search";
-import { enableInstallTabs } from "./install-tabs";
+import { enableDockerCopy, enableInstallTabs } from "./install-tabs";
 
 function Audition() {
   const player = useRef<HTMLAudioElement>(null);
@@ -108,3 +108,4 @@ if (preview) createRoot(preview).render(<Tour />);
 
 enableFeatureSearch();
 enableInstallTabs();
+enableDockerCopy();

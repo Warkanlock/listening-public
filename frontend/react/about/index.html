@@ -235,7 +235,7 @@
         <p class="about-install-note" id="connect">Joining an existing room? Get its address or invitation in <strong>Settings → Connect a device</strong>, then choose the device you’ll listen on.</p>
         <div class="about-install-tabs" data-install-tabs role="tablist" aria-label="Installation by platform" hidden>
           <button type="button" role="tab" id="tab-macos" aria-controls="install-macos">Mac</button>
-          <button type="button" role="tab" id="tab-linux" aria-controls="install-linux">Linux</button>
+          <button type="button" role="tab" id="tab-linux" aria-controls="install-linux">Docker</button>
           <button type="button" role="tab" id="tab-ios" aria-controls="install-ios">iPhone &amp; iPad</button>
           <button type="button" role="tab" id="tab-android" aria-controls="install-android">Android</button>
           <button type="button" role="tab" id="tab-web" aria-controls="install-web">Browser</button>
@@ -252,12 +252,23 @@
           <a href="https://github.com/Warkanlock/listening-public/blob/main/clients/macos/README.md">Mac setup guide</a>
         </article>
         <article id="install-linux" data-install-panel>
-          <h3 id="first-album">Linux server</h3>
-          <ol class="about-steps">
-            <li>Install Docker with Compose and get the Listening release files.</li>
-            <li>Follow the server guide to start a room, choose your music folder, and create your owner login.</li>
-            <li>Open the address shown by setup. In your library, choose <strong>Owned music</strong> and play a track.</li>
-          </ol>
+          <h3 id="first-album">Docker quick start</h3>
+          <p>With Docker running, open a terminal and run these commands.</p>
+          <div class="about-docker">
+            <div class="about-docker-toolbar" hidden>
+              <button id="copy-docker-commands" type="button">Copy commands</button>
+              <span id="docker-copy-status" role="status"></span>
+            </div>
+            <pre><code id="docker-commands">docker pull ghcr.io/warkanlock/listening-public:2.0.5
+docker run -d --name listening-room --restart unless-stopped \
+  -p 127.0.0.1:8765:8765 \
+  -e LISTENING_ROOM_REQUIRE_OWNER=1 \
+  -v listening-config:/config -v listening-library:/library \
+  ghcr.io/warkanlock/listening-public:2.0.5
+docker exec -it listening-room /app/listening account set-owner owner</code></pre>
+          </div>
+          <p>Enter a password when prompted. On the Docker host, open <a href="http://127.0.0.1:8765">http://127.0.0.1:8765</a> and sign in as <code>owner</code>.</p>
+          <p>The two Docker volumes keep your settings and library when you replace the container.</p>
           <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/onboarding-walkthrough.md">Illustrated setup guide</a>
           <a href="%BASE_URL%?setup=room" data-room-only>Open this room’s setup</a>
         </article>
