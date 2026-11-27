@@ -32,6 +32,7 @@ done <<'SCREENS'
 01b-playlist-share share
 11-settings-devices devices
 13-requests requests
+13-copy-review copy-review
 30-insights insights
 SCREENS
 

@@ -1,25 +1,34 @@
-# Listening Room
-
-## Stream the records you own.
-
-Build a music library from the files on your computer, external drive, or home server. Play it across your devices, explore the artists behind a record, and save a mix for the road.
-
-[Get started](#your-first-run) · [See what it supports](#what-you-can-do) · [Download apps](https://github.com/Warkanlock/listening-public/releases)
-
-<a href="frontend/react/public/assets/about-showcase/room/library.webp"><img src="frontend/react/public/assets/about-showcase/room/library.webp" alt="Listening Library and playback queue with a demo collection" width="720"></a>
+<div align="center">
+  <img src="frontend/react/public/assets/icons/favicon.svg" alt="" width="96" height="96">
+  <h1>Listening Room</h1>
+  <p><strong>Stream the records you own.</strong></p>
+  <p>Listening Room is an open-source, self-hosted music player. Run it on your Mac or Linux server, import the music you own, and listen on your other devices.</p>
+  <p>
+    <a href="https://listening-room-tour.vercel.app/">Website</a> ·
+    <a href="#your-first-run">Get started</a> ·
+    <a href="https://github.com/Warkanlock/listening-public/releases/latest">Download apps</a> ·
+    <a href="#documentation">Docs</a>
+  </p>
+  <a href="frontend/react/public/assets/about-showcase/room/library.webp"><img src="frontend/react/public/assets/about-showcase/room/library.webp" alt="Listening Room library and playback queue with a demo collection" width="840"></a>
+</div>
 
 ## What you can do
 
-| | |
-| --- | --- |
-| **Bring your collection** | Import tagged MP3, AAC, M4A, and FLAC files from folders you choose. Add or merge portable playlists, watch for new files, and search by artist, album, song, or genre. |
-| **Follow the music** | Browse artist and album pages, trace recording credits, read synced lyrics when available, and find recommendations through Mood Map and Deep Dive. |
-| **Play it your way** | Build a queue, shuffle a genre with Library Radio, and resume a song where you left off on another device. |
-| **Make it a room** | Pair devices and set up separate household profiles. Play together with Nearby Jams or share a playlist as a portable track list. |
-| **Take it offline** | Buffer upcoming songs or save a Camping mix for a trip. Android also plays files on your device or removable storage. |
-| **Keep it portable** | Export your audio, connect another compatible player, or move the whole collection with a backup. Optional add-ons can handle search and audio retrieval. |
+- Import MP3, AAC, M4A, and FLAC files from your own folders. Watch for new files and search by artist, album, song, or genre.
+- Browse recording credits, read synced lyrics where available, and find music through Mood Map and Deep Dive.
+- Sync your Spotify Liked Songs and playlists you own or collaborate on. Import portable playlists and group copies of the same playlist in your library.
+- Start Library Radio, hand off playback to another device, or listen together with Nearby Jams. Give household listeners their own profiles.
+- Save a Camping mix for offline listening. Android can also keep an offline copy of your room library, play files stored on the device, and switch to a high-contrast E Ink theme.
+- Add optional plugins to find and retrieve missing recordings. Listening verifies audio before adding it to your library. Compatible plugins can also share a folder you choose.
 
-Open **About** in your room for the full searchable feature list and a tour of the player. [Local feature tour](http://127.0.0.1:8765/about/)
+## What's new in 2.0.6 and 2.0.5
+
+- **Stop searching on web and Android.** In **Review copies**, choose **Stop searching** to mark a request **Unavailable** and remove it from automatic searches. The request stays visible. Select **Retry now** to search again.
+- **Find your way around Settings.** Use a sidebar on a computer or scroll the tabs on a phone. Spotify account controls and playlist tools have their own sections. In **Sources → Playlist matches**, open a suggested match to compare recordings before linking playlists.
+- **Manage sharing in Extensions.** Open the plugin that provides sharing to choose a folder and start or stop sharing. [Folder sharing setup](docs/download-engines.md#share-a-folder-through-a-plugin)
+- **Search and update on Android.** Use the dedicated **Search** screen to find songs, artists, and albums. Check for a new APK from **Settings → App updates**. [Android guide](clients/android/README.md)
+
+[2.0.6 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.6) · [2.0.5 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.5)
 
 ## Your first run
 
@@ -32,7 +41,7 @@ Choose a computer to host Listening. It holds the library. Open the room on the 
 2. To join a room, enter its address or paste your invitation.
 3. To host a new room, choose **Listening Room → Install terminal command**. Open Terminal, run `~/.local/bin/listening setup`, and choose a music folder.
 
-[Download for Mac](https://github.com/Warkanlock/listening-public/releases) · [Mac setup guide](clients/macos/README.md)
+[Download for Mac](https://github.com/Warkanlock/listening-public/releases/latest) · [Mac setup guide](clients/macos/README.md)
 
 </details>
 
@@ -63,7 +72,7 @@ Use a trusted HTTPS room and save the mix from the Home Screen app for offline C
 1. Download and open the Listening APK. Allow installation from your browser or Files app if prompted.
 2. Open Listening and enter your room address or invitation. You can also open music already on the device.
 
-[Download for Android](https://github.com/Warkanlock/listening-public/releases) · [Android guide](clients/android/README.md)
+[Download for Android](https://github.com/Warkanlock/listening-public/releases/latest) · [Android guide](clients/android/README.md)
 
 </details>
 
@@ -76,7 +85,9 @@ Open your room address or invitation in a browser on the room’s private networ
 
 Already have a room? **Settings → Connect a device** shows the address, pairing options, and any installers available from that room. [Private network setup](docs/private-install.md#choose-how-devices-reach-the-room)
 
-To find missing recordings, open **Settings → Extensions** in your room. Follow the [plugin setup guide](docs/download-engines.md) to configure **Find copy**, or browse the [Listening Plugins repository](https://github.com/Warkanlock/listening-plugins-public) for available engines.
+## Add a listening plugin
+
+On a Linux Docker host, set up the plugin manager to add search, downloads, or folder sharing. Choose an engine for **Find copy** under **Settings → Extensions**. For folder sharing, open a plugin that supports sharing and choose a folder from the host's configured sharing directory. [Plugin setup guide](docs/download-engines.md) · [Listening Plugins](https://github.com/Warkanlock/listening-plugins-public)
 
 ## Preserve or move a collection
 
@@ -89,6 +100,8 @@ Use a collection snapshot to move your catalog and original audio to another hos
 | [Server installation](docs/private-install.md) | Owner setup, music import, private access, and updates |
 | [Music storage and playback](docs/music-storage-and-playback.md) | Import, play, buffer, export, and sync |
 | [Discovery and Radio](docs/operations.md#radio) | Library Radio, discovery, and optional sources |
+| [Spotify setup](docs/operations.md#spotify-adapter-optional) | Connect Spotify and sync or edit eligible playlists |
+| [Find copy states](docs/request-states.md) | Read request status and choose the next action |
 | [Build an add-on](examples/engines/README.md) | Search and retrieval engines and a working example |
 | [Operations](docs/operations.md) | CLI, backups, sharing, and troubleshooting |
 | [Portable formats](SPEC.md) | CSV, M3U, XSPF, and other portable formats |
