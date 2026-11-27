@@ -288,13 +288,13 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
         copyMessage = "Searching for copies…"
         message(copyMessage)
         with(ui) {
-            val search = iconButton("Search again", Mark.REFRESH) { showCopies(fresh = true) }
+            val search = button("Search again", solid = true) { showCopies(fresh = true) }
             search.isEnabled = false
-            copyPanel.section(actionStrip(buildList {
+            val actions = buildList {
                 if (row.needsCopyReview() && row.canReplaceRecording()) {
-                    add(iconButton("Other recordings", Mark.ALBUM) { showRecordings() })
+                    add(button("Other recordings") { showRecordings() })
                 }
-                add(iconButton("Change format", Mark.SETTINGS) {
+                add(button("Change format") {
                     if (!saving) {
                         copyListing++
                         message("")
@@ -302,10 +302,18 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
                     }
                 })
                 add(search)
-            }, alignEnd = true))
-            if (row.needsCopyReview()) copyPanel.section(button("Stop searching") {
-                submit("Stopping search…") { room.stopCopySearch(row) }
-            })
+                if (row.needsCopyReview()) add(button("Stop searching") {
+                    submit("Stopping search…") { room.stopCopySearch(row) }
+                })
+            }
+            copyPanel.section(column(6).apply {
+                for (pair in actions.chunked(2)) {
+                    addView(row(6).apply {
+                        isBaselineAligned = false
+                        for (action in pair) addView(action, LinearLayout.LayoutParams(0, -1, 1f))
+                    }, LinearLayout.LayoutParams(-1, -2))
+                }
+            }, gap = 8)
             Thread {
                 val result = runCatching { room.browseCopies(row, format, fresh).getJSONArray("matches") }
                 runOnUiThread {

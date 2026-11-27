@@ -533,7 +533,7 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
   width: min(530px, calc(100vw - 24px));
   max-height: min(85dvh, 720px);
   overflow: auto;
-  padding: var(--space-11);
+  padding: var(--space-9);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--panel);
@@ -547,8 +547,10 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
   color: var(--muted);
 }
 .playlist-share-tracks li { padding-block: var(--space-2); }
-.playlist-share-dialog .primary-action { display: inline-flex; text-decoration: none; }
-.playlist-share-dialog .quiet-button { margin-inline-start: var(--space-5); }
+.playlist-share-dialog .primary-action { text-decoration: none; }
+.playlist-share-dialog [data-slot="dialog-title"], .playlist-share-dialog h3 { margin: 0; }
+.playlist-share-dialog [data-slot="dialog-description"] { margin: var(--space-2) 0 var(--space-7); color: var(--muted); }
+.playlist-share-dialog .format-dialog-header > button { width: 44px; padding: 0; }
 .playlist-share-dialog textarea { display: block; width: 100%; min-height: 7em; margin-top: var(--space-5); }
 
 .room-login {
@@ -1500,16 +1502,36 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .lyrics-stage-line.is-current { opacity: 1; font-size: var(--font-lyrics-current); font-weight: var(--weight-heavy); }
 .lyrics-stage-note { margin: 0; font-size: var(--font-lg); opacity: .8; }
 
-.format-dialog { width: min(390px, calc(100vw - 28px)); padding: var(--space-10); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-dialog-md); }
-.format-dialog [data-slot="dialog-title"] { margin: 0; font-size: var(--font-4xl); font-weight: var(--weight-bold); }
+.format-dialog { width: min(400px, calc(100vw - 28px)); padding: var(--space-9); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-dialog-md); }
+.format-dialog [data-slot="dialog-title"] { margin: 0; font-size: var(--font-4xl); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.format-dialog > [data-slot="dialog-description"] { margin: var(--space-2) 0 var(--space-7); color: var(--muted); overflow-wrap: anywhere; }
 .format-dialog-header { display: flex; align-items: center; gap: var(--space-4); }
-.format-dialog .format-dialog-header { justify-content: space-between; }
+.format-dialog-header > button { flex: none; }
+:is(.format-dialog, .playlist-share-dialog) > .format-dialog-header { justify-content: space-between; }
 .format-dialog fieldset { margin: var(--space-6) 0; padding: 0; border: 0; }
 .format-dialog legend { margin-bottom: var(--space-3); color: var(--muted); }
 .format-dialog label { display: flex; align-items: center; gap: var(--space-5); min-height: 44px; cursor: pointer; }
 .format-dialog input { accent-color: var(--accent); }
 .format-dialog .find-copy-sources { flex-wrap: nowrap; justify-content: space-between; font-size: var(--font-sm); }
-.format-dialog-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); padding-block-start: var(--space-5); border-top: 1px solid var(--line); }
+.dialog-actions {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-4);
+  margin-block-start: var(--space-7); padding-block-start: var(--space-6); border-top: 1px solid var(--line);
+}
+.dialog-actions > .room-action { min-width: 0; text-align: center; }
+.copy-dialog { width: min(560px, calc(100vw - 28px)); }
+.copy-dialog > p[role] { margin: 0; }
+.copy-dialog > p[role="status"] { color: var(--muted); }
+.copy-dialog > p[role="alert"] { overflow-wrap: anywhere; }
+.copy-dialog .dialog-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+.copy-dialog .dialog-actions > .room-action { padding-inline: var(--space-4); }
+.copy-dialog [data-stop-search]:enabled { color: var(--danger); }
+@media (max-width: 580px) {
+  .copy-dialog .dialog-actions { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .format-dialog, .playlist-share-dialog { padding-inline: var(--space-8); }
+  .dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 .nav-core, .nav-overflow { display: contents; }
 .playlist-banner-art, .tablet-player-toggle, .tablet-progress { display: none; }

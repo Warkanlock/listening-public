@@ -73,8 +73,10 @@ function PreviewContent({ endpoint }: { endpoint: string }) {
         ))}
       </ol>
     ) : <p>This playlist is empty.</p>}
-    <a className="primary-action" href={`${endpoint}&download=1`} download>Download XSPF</a>
-    <button type="button" className="quiet-button" aria-expanded={showText} onClick={() => setShowText(!showText)}>Text for a post</button>
+    <footer className="dialog-actions">
+      <button type="button" className="quiet-button room-action" aria-expanded={showText} onClick={() => setShowText(!showText)}>Text for a post</button>
+      <a className="primary-action room-action" href={`${endpoint}&download=1`} download>Download XSPF</a>
+    </footer>
     {showText && <textarea aria-label="Playlist post text" value={post} readOnly onFocus={(event) => event.currentTarget.select()} />}
   </>;
 }
@@ -86,8 +88,10 @@ export function PlaylistShare({ playlist }: { playlist: string }) {
     <DialogTrigger className="quiet-button room-action"><RoomIcon name="share" />Share playlist</DialogTrigger>
     <DialogBackdrop />
     <RoomDialogContent className="playlist-share-dialog">
-      <DialogClose className="dialog-close" aria-label="Close playlist preview"><RoomIcon name="close" /></DialogClose>
-      <DialogTitle>Share playlist</DialogTitle>
+      <header className="format-dialog-header">
+        <DialogTitle>Share playlist</DialogTitle>
+        <DialogClose className="quiet-button room-action" aria-label="Close playlist preview"><RoomIcon name="close" /></DialogClose>
+      </header>
       <DialogDescription>Preview the song list before sharing the file. Anyone with the file can import it into their room.</DialogDescription>
       {open && <PreviewContent key={endpoint} endpoint={endpoint} />}
     </RoomDialogContent>
