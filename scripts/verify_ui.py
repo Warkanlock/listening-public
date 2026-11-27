@@ -682,38 +682,53 @@ def verify_landing(browser, base, output, errors, warnings):
             page.on("request", lambda request: requests.append(request.url))
             response = page.goto(base + url)
             assert response.status == 200
-            page.get_by_role("heading", level=1, name="Stream the records you own.").wait_for()
+            page.get_by_role("heading", level=1, name="Your music, wherever you listen.").wait_for()
             assert page.get_by_role("navigation").get_by_role("link", name="Open the room").get_attribute("href") == "/"
             sleeve = page.locator(".about-sleeve")
             assert sleeve.locator("img").evaluate("img => img.complete && img.naturalWidth > 0")
-            assert page.get_by_role("link", name="Explore the player").get_attribute("href") == "#showcase"
+            assert page.get_by_role("link", name="Explore listening features").get_attribute("href") == "#showcase"
             assert page.get_by_role("navigation").get_by_role("link", name="Features").is_visible()
             logo = page.get_by_role("link", name="Listening Room", exact=True).first.locator("img")
             assert logo.evaluate("img => img.complete && img.naturalWidth > 0")
             hero_library = page.get_by_role("img", name="Library and queue in Listening Room")
             hero_library.evaluate("image => image.decode()")
             assert hero_library.evaluate("image => image.naturalWidth > 0")
-            assert not re.search(r"\b(?:YouTube|SomaFM)\b", page.locator("body").inner_text(), re.I)
-            release = page.get_by_role("region", name="New in Listening Room")
-            release_notes = release.get_by_role("link", name="2.0.7 release notes", exact=True)
-            assert release_notes.get_attribute("href").endswith("/releases/tag/v2.0.7")
-            release_images = release.get_by_role("img").all()
-            assert len(release_images) == 2
-            for picture in release_images:
-                picture.scroll_into_view_if_needed()
-                picture.evaluate("image => image.decode()")
-                assert picture.evaluate("""image => image.naturalWidth === Number(image.getAttribute('width'))
-                    && image.naturalHeight === Number(image.getAttribute('height'))""")
-            screens = page.get_by_role("region", name="Inside Listening.")
+            copy = page.locator("body").inner_text()
+            assert not re.search(r"\b(?:YouTube|SomaFM|Soulseek|Nicotine\+?|news|release notes)\b", copy, re.I)
+            assert "Browse the demo collection" not in copy and "Select a screenshot" not in copy
+            install = page.get_by_role("region", name="Set up a room.")
+            hero = page.get_by_role("region", name="Your music, wherever you listen.")
+            for action, platform, download in (("Install on Mac", "Mac", "Download for Mac"),
+                                               ("Set up with Docker", "Linux", "Illustrated setup guide")):
+                link = hero.get_by_role("link", name=action)
+                bounds = link.bounding_box()
+                assert bounds["height"] >= 44 and bounds["y"] + bounds["height"] < page.viewport_size["height"]
+                link.click()
+                install.get_by_role("tabpanel", name=platform, exact=True).get_by_role("link", name=download).wait_for()
+                page.get_by_role("heading", level=1).scroll_into_view_if_needed()
+                page.evaluate("scrollTo({top: 0, behavior: 'instant'})")
+            install.get_by_role("tab", name="Mac", exact=True).click()
+            assert page.evaluate("location.hash") == "#install-linux"
+            hero.get_by_role("link", name="Set up with Docker").click()
+            install.get_by_role("tabpanel", name="Linux", exact=True).wait_for()
+            hero.get_by_role("link", name="Connect a device").click()
+            assert page.evaluate("location.hash") == "#connect"
+            page.evaluate("scrollTo({top: 0, behavior: 'instant'})")
+            page.screenshot(path=str(output / ("landing-hero-mobile.png" if page == mobile else "landing-hero-desktop.png")),
+                            animations="disabled")
+            screens = page.get_by_role("region", name="Find your next listen.")
+            assert screens.get_by_role("heading", level=3).all_text_contents() == [
+                "Mood Map", "Library Radio", "Activity mixes", "Deep Dive", "Weekly Discovery", "Camping mode"]
             first_screen = screens.get_by_role("img", name="Library Radio in Listening")
             assert first_screen.bounding_box()["width"] <= (390 if page == mobile else 560)
             screens.get_by_text("See more screens", exact=True).click()
             room_images = screens.get_by_role("img").all()
-            assert len(room_images) == 15
+            assert len(room_images) == 17
             for picture in room_images:
                 picture.scroll_into_view_if_needed()
                 picture.evaluate("image => image.decode()")
-                assert picture.evaluate("image => image.naturalWidth > 0")
+                assert picture.evaluate("""image => image.naturalWidth === Number(image.getAttribute('width'))
+                    && image.naturalHeight === Number(image.getAttribute('height'))""")
                 assert picture.get_attribute("src") == picture.locator("..").get_attribute("href")
             screens.get_by_text("See more screens", exact=True).click()
             showcase = page.get_by_role("region", name="Listening on e-ink.")
@@ -764,9 +779,8 @@ def verify_landing(browser, base, output, errors, warnings):
             query.fill("qwertyuiop")
             features.get_by_text("No features match. Try another search.", exact=True).wait_for()
             query.fill("")
-            features.get_by_text("13 features", exact=True).wait_for()
+            features.get_by_text("16 features", exact=True).wait_for()
 
-            install = page.get_by_role("region", name="Set up a room.")
             mac = install.get_by_role("tab", name="Mac", exact=True)
             mac.press("ArrowRight")
             assert install.get_by_role("tab", name="Linux", exact=True).get_attribute("aria-selected") == "true"
@@ -1770,26 +1784,77 @@ def verify_tablet(browser, server, output):
     # Use touch input as well as a tablet viewport. A Mac window of the same
     # width deliberately keeps the desktop sidebar and full transport.
     with browser.new_context(has_touch=True, is_mobile=True,
-                             viewport={"width": 1194, "height": 834}) as context:
+                             viewport={"width": 1280, "height": 744}) as context:
+        # Keep the artwork and overview fixtures on the network path, including in WebKit.
+        context.add_init_script("Object.defineProperty(navigator, 'serviceWorker', { value: undefined })")
         tablet = context.new_page()
+        cover_url = "https://artwork.fixture.test/playlist.webp"
+        title = "Evening listening · Library Radio"
+
+        def playlist_cover(route):
+            response = route.fetch()
+            overview = response.json()
+            evening = next(item for item in overview["playlists"] if item["name"].casefold() == "evening")
+            evening.update(name=title, cover=cover_url)
+            route.fulfill(response=response, json=overview)
+
+        context.route(re.compile(r"/api/overview(?:\?|$)"), playlist_cover)
+        context.route(cover_url, lambda route: route.fulfill(
+            path=str(REPO_ROOT / "frontend/react/src/about/first-light.webp")))
         tablet.goto(server.base)
-        tablet.locator(".playlist-card").filter(has_text="Evening").tap()
-        tablet.get_by_role("heading", name="evening", exact=True).wait_for()
+        tablet.locator(".playlist-card").filter(has_text=title).tap()
+        heading = tablet.get_by_role("heading", name=title, exact=True)
+        heading.wait_for()
+        hero = tablet.locator(".collection-hero[data-playlist]")
+        cover = hero.locator(".playlist-banner-art")
+        backdrop = hero.locator(".playlist-banner-backdrop")
         tablet.locator(".track-row").first.wait_for()
-        for name, width, height in (("landscape", 1194, 834), ("portrait", 834, 1194)):
+        queue = tablet.get_by_role("complementary", name="Playback queue", exact=True)
+        # Browser emulation has no home-indicator inset.
+        safe_bottom = 28
+        tablet.locator(".app-shell").evaluate(
+            "(shell, inset) => shell.style.setProperty('--tablet-dock-inset', inset + 'px')", safe_bottom)
+        player = tablet.get_by_role("contentinfo", name="Audio player")
+        expand_player = player.get_by_role("button", name="Expand player controls")
+        for name, width, height in (("wide", 1280, 744), ("landscape", 1194, 834), ("portrait", 834, 1194)):
             tablet.set_viewport_size({"width": width, "height": height})
-            nav = tablet.locator(".sidebar").bounding_box()
-            player = tablet.locator(".player").bounding_box()
-            if not (nav["y"] > height * 0.8 and abs(nav["y"] - player["y"]) < 2
-                    and nav["x"] + nav["width"] <= player["x"] + 1
-                    and player["x"] + player["width"] <= width + 1):
-                raise AssertionError(f"{name} dock is clipped or overlaps: {nav}, {player}")
-            tablet.locator(".playlist-banner-art").wait_for(state="visible")
+            assert queue.count() == 0, "The queue covers the tablet when it opens by default"
+            search = tablet.locator(".topbar .search-wrap").bounding_box()
+            tools = tablet.locator(".topbar-actions").bounding_box()
+            assert search["x"] + search["width"] <= tools["x"] + 1, name
+            assert abs(search["y"] + (search["height"] - tools["height"]) / 2 - tools["y"]) <= 1, name
+            assert tools["height"] <= 44, f"{name} toolbar actions wrap"
+            nav = tablet.locator(".sidebar")
+            nav_box, player_box = nav.bounding_box(), player.bounding_box()
+            if not (nav_box["y"] > height * 0.8 and abs(nav_box["y"] - player_box["y"]) <= 1
+                    and abs(nav_box["x"] + nav_box["width"] - player_box["x"]) <= 1
+                    and abs(player_box["x"] + player_box["width"] - width) <= 1):
+                raise AssertionError(f"{name} dock is clipped or overlaps: {nav_box}, {player_box}")
+            for panel in (nav_box, player_box):
+                assert abs(panel["y"] + panel["height"] - height) <= 1, f"{name} dock leaves a bottom gap"
+            for control in (nav.get_by_role("button", name="Menu"), expand_player):
+                button = control.bounding_box()
+                assert button["y"] + button["height"] < height - safe_bottom, f"{name} control enters the inset"
+            bounds, art, copy, background = (item.bounding_box() for item in (hero, cover, heading, backdrop))
+            assert art["x"] > bounds["x"] + 20 and abs(art["width"] - art["height"]) <= 1, name
+            assert copy["x"] >= art["x"] + art["width"] + 12, name
+            assert all(abs(bounds[key] - background[key]) <= 1 for key in ("x", "y", "width", "height")), name
+            for image in (cover.locator("img"), backdrop.locator("img")):
+                image.evaluate("img => img.decode()")
+                assert image.get_attribute("src") == cover_url
+            assert backdrop.locator("img").evaluate("img => getComputedStyle(img).filter.includes('blur')")
+            actions = hero.get_by_role("button", name="Play playlist", exact=True).bounding_box()
+            assert actions["y"] >= max(art["y"] + art["height"], copy["y"] + copy["height"]), name
             if tablet.evaluate("document.querySelector('main').scrollWidth > document.querySelector('main').clientWidth"):
                 raise AssertionError(f"{name} playlist overflows horizontally")
             tablet.screenshot(path=str(output / f"18-tablet-{name}.png"))
-            tablet.get_by_role("button", name="Expand player controls").tap()
-            tablet.get_by_role("button", name="Open queue").tap()
+            expand_player.tap()
+            open_queue = player.get_by_role("button", name="Open queue")
+            open_queue.wait_for()
+            expanded_box, queue_button = player.bounding_box(), open_queue.bounding_box()
+            assert abs(expanded_box["y"] + expanded_box["height"] - height) <= 1, name
+            assert queue_button["y"] + queue_button["height"] < height - safe_bottom, name
+            open_queue.tap()
             tablet.get_by_role("button", name="Close queue").tap()
             tablet.get_by_role("button", name="Collapse player controls").tap()
         tablet.get_by_role("tab", name="Need a copy").tap()
@@ -1805,6 +1870,13 @@ def verify_tablet(browser, server, output):
         tablet.get_by_role("button", name="Menu").tap()
         tablet.get_by_role("button", name="Settings", exact=True).tap()
         tablet.get_by_role("heading", name="Settings", exact=True).wait_for()
+        tablet.get_by_role("button", name="Library", exact=True).tap()
+        tablet.locator(".playlist-card").filter(has_text=re.compile("morning", re.I)).tap()
+        portrait = tablet.locator(".playlist-banner-backdrop > svg")
+        portrait.wait_for(state="visible")
+        assert portrait.evaluate("art => getComputedStyle(art).filter.includes('blur')")
+        tablet.locator(".track-row").first.wait_for()
+        tablet.screenshot(path=str(output / "18-tablet-portrait-fallback.png"))
 
 
 def verify_lan_pair_again(browser):
@@ -1973,7 +2045,7 @@ def verify_household_browser(browser, root, output):
         pages.append(unauthenticated)
         unauthenticated.goto(server.base + "/")
         unauthenticated.get_by_role("link", name="About Listening Room").click()
-        unauthenticated.get_by_role("heading", level=1, name="Stream the records you own.").wait_for()
+        unauthenticated.locator("h1#about-title").wait_for()
         assert unauthenticated.request.get(server.base + "/api/tracks").status == 401
 
         def visit(username):
@@ -2565,6 +2637,7 @@ def verify_discovery_trail(page, screenshot):
         assert page.get_by_role("progressbar", name="Playlist downloads").get_attribute("value") == "50"
         assert page.get_by_text("1 of 2 downloaded · 50%", exact=True).is_visible()
         assert page.get_by_role("button", name="Review copies for Recording to review").is_visible()
+        screenshot("12-weekly-discovery.png")
         assert not page.get_by_role("button", name="Other recordings: Recording to review").count()
         attention = page.get_by_role("button", name="1 needs attention", exact=True)
         attention.press("Enter")
@@ -2589,7 +2662,6 @@ def verify_discovery_trail(page, screenshot):
         assert not board.is_visible()
         page.get_by_role("button", name="Back to Deep Dive").click()
         first.wait_for()
-        screenshot()
         liked = board.get_by_role("region", name="Recently liked").get_by_role("button", name=re.compile("Atlas Air"))
         liked.click()
         page.get_by_role("heading", name="Atlas Air").wait_for()
@@ -2607,6 +2679,9 @@ def verify_discovery_trail(page, screenshot):
         page.set_viewport_size({"width": 1440, "height": 900})
         first.click()
         fork = page.get_by_role("region", name="Paths to follow")
+        fork.get_by_role("button", name=re.compile("Frequencies")).first.wait_for()
+        fork.get_by_role("status").wait_for(state="hidden")
+        screenshot("12-deep-dive.png")
         fork.get_by_role("button", name="Show more").click()
         fork.get_by_role("button", name=re.compile("A Winged Victory")).wait_for()
         fork.get_by_role("button", name=re.compile("Suggested artist The Fixture Trio")).click()
@@ -3568,7 +3643,7 @@ def run_browser(server, output):
             # -- Deep Dive ---------------------------------------------------
             item = surface("deep-dive")
             try:
-                verify_discovery_trail(page, lambda: shot(item, "12-deep-dive.png"))
+                verify_discovery_trail(page, lambda filename: shot(item, filename))
                 item.ok = True
                 item.detail = "Weekly trail, another performance, retry, listening actions, focus and phone layout"
             except Exception as error:
@@ -3754,7 +3829,12 @@ def run_browser(server, output):
                     assert len({round(box["x"]) for box in bounds}) == columns, "Copy actions must align in columns"
                     assert len({round(box["y"]) for box in bounds}) == len(actions) // columns
                     assert max(box["width"] for box in bounds) - min(box["width"] for box in bounds) <= 1
-                    assert all(box["height"] >= 44 and box["x"] + box["width"] <= width for box in bounds)
+                    touch = width < 580
+                    assert all(box["height"] >= (44 if touch else 35) and box["x"] + box["width"] <= width
+                               for box in bounds)
+                    assert stop_picker.bounding_box()["width"] <= min(448, (width - 28) * .8) + 1
+                    if not touch:
+                        assert all(box["height"] <= 35 for box in bounds)
                     if width == 390:
                         page.screenshot(path=str(output / "13-copy-review-phone.png"), animations="disabled")
                 page.screenshot(path=str(output / "13-copy-review.png"), animations="disabled")
@@ -4113,7 +4193,7 @@ def run_browser(server, output):
             try:
                 verify_tablet(browser, server, output)
                 item.ok = True
-                item.detail = "touch playlist, dock, queue, missing-song YouTube fallback and menu in both orientations"
+                item.detail = "aligned cover, blurred artwork and fallback, full safe-area dock, queue and touch navigation"
             except Exception as error:
                 item.detail = repr(error)
 

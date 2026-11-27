@@ -1,6 +1,6 @@
 # About Listening
 
-The server serves the product tour at `/about/`. The standalone build serves the same tour at `/` and `/about` on Vercel. It includes the demo recording and gallery from the test room. Its install links lead to instructions for connecting to a listener's own room.
+The server serves the product tour at `/about/`. The standalone build includes the same tour, demo recording, and fixture screenshots. Its install links lead to public downloads and instructions for connecting to a listener's own room.
 
 ## Test the tour
 
@@ -16,6 +16,20 @@ python3 -m http.server --bind 127.0.0.1 3000 --directory landing-dist
 ```
 
 Check the root on a phone and desktop viewport. Open the screenshot gallery, try the keyboard and reduced motion paths, and reload with JavaScript disabled. The standalone output is limited to the marketing page and its assets. Room setup and support controls stay with the self-hosted app. The private About page also includes the existing e-ink screenshots.
+
+## Publish to a static host
+
+The release ZIP contains `index.html`, `about/index.html`, and their assets. Extract it into the root of a public static site. The two pages work with a host's standard directory indexes.
+
+For a custom canonical URL or a site served from a subdirectory, build from the release tag with the full destination URL. The build uses its path for assets and its full URL for search and social metadata.
+
+```sh
+cd frontend/react
+yarn install --frozen-lockfile
+LISTENING_LANDING_URL=https://example.org/listening/ yarn vite build --config vite.about.config.mjs
+```
+
+Upload the contents of `landing-dist` to the directory matching that URL. Open the destination and its `about/` route from a signed-out session.
 
 ## Refresh the screenshots
 

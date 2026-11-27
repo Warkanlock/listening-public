@@ -101,12 +101,12 @@ export function GradientPortrait({ seed: rawSeed }: { seed: string }) {
   );
 }
 
-export function Artwork({ subject }: { subject: ArtworkSubject }) {
+export function Artwork({ subject, loading }: { subject: ArtworkSubject; loading?: "lazy" | "eager" }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [subject.cover]);
   const url = coverUrl(subject.cover);
   if (url && !failed) {
-    return <img src={url} alt="" onError={() => setFailed(true)} />;
+    return <img src={url} alt="" loading={loading} onError={() => setFailed(true)} />;
   }
   const seed = portraitSeed(subject);
   return seed ? (
