@@ -20,7 +20,10 @@ internal class PlaybackInsights(context: Context, private val ui: RoomUi) : Scro
     private val buffered = ui.label("0", 18f)
 
     init {
-        if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
+        if (ui.eInk) {
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isSmoothScrollingEnabled = false
+        }
         addView(with(ui) {
             column().apply {
                 section(heading("Room traffic", 20f), gap = 3)
@@ -30,7 +33,7 @@ internal class PlaybackInsights(context: Context, private val ui: RoomUi) : Scro
                 addView(metric("Upload", up))
                 addView(line())
                 section(external, gap = 0)
-                section(heading("Playback", 20f).apply { setPadding(0, dp(20), 0, 0) }, gap = 3)
+                section(heading("Playback", 20f).apply { setPadding(0, dp(if (eInk) 12 else 20), 0, 0) }, gap = 3)
                 addView(metric("Songs in room queue", count))
                 addView(line())
                 addView(metric("Songs buffered here", buffered))

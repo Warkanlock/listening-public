@@ -7,7 +7,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -166,7 +165,6 @@ class RoomActivity : Activity() {
         ui = RoomUi(this)
         room = if (pairOnly) null
             else Room.load(this, homeWifi = homeWifi)
-        window.navigationBarColor = Color.BLACK
         ui.theme.applyWindow(this, ui.paper)
         show()
     }
@@ -243,7 +241,7 @@ class RoomActivity : Activity() {
     }
 
     private fun shortcut(destination: Screen, subtitle: String = "") =
-        Entry(destination.title, subtitle, mark = destination.icon, destination = true) { openSection(destination) }
+        Entry(destination.title, subtitle, destination = true, leadingMark = destination.icon) { openSection(destination) }
 
     private fun deviceFiles() = startActivity(Intent(this, CardActivity::class.java))
 
@@ -260,11 +258,13 @@ class RoomActivity : Activity() {
         listPosition?.let { (first, top) -> list.setSelectionFromTop(first, top) }
     }
 
-    private fun showScrollable(body: View) = ScrollView(this).apply {
-        if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
-        addView(body)
+    private fun showScrollable(body: View) = ui.scroll(body).apply {
         pageScroll = this
         content.addView(this, LinearLayout.LayoutParams(-1, 0, 1f))
+    }
+
+    private fun showEmpty(title: String, detail: String, action: Entry? = null) {
+        showScrollable(ui.notice(title, detail, action))
     }
 
     private fun LinearLayout.part(view: View) =
@@ -291,14 +291,11 @@ class RoomActivity : Activity() {
 
     private fun settingsPage(target: Room) {
         if (setting == RoomSetting.EXTENSIONS) {
-            content.addView(roomExtensionsPanel(target, ui), LinearLayout.LayoutParams(-1, 0, 1f))
+            content.addView(roomExtensionsPanel(target, ui, embedded = true), LinearLayout.LayoutParams(-1, 0, 1f))
             return
         }
-        val body = ui.column(8)
-        content.addView(ScrollView(this).apply {
-            if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
-            addView(body)
-        }, LinearLayout.LayoutParams(-1, 0, 1f))
+        val body = ui.column(6)
+        showScrollable(body)
         when (setting) {
             RoomSetting.APPEARANCE -> {
                 if (RoomTheme.isKompakt) body.addView(ui.label(RoomTheme.E_INK.label))
@@ -521,22 +518,27 @@ class RoomActivity : Activity() {
             screen == Screen.SETTING -> setting.title
             else -> screen.title
         }
-        outer.addView(ui.row(8).apply {
-            if (parent != null) addView(ui.iconButton(
+        val back = parent?.let {
+            ui.iconButton(
                 if (screen == Screen.PLAYER) "Close now playing" else "Back to ${parent.title}",
                 if (screen == Screen.PLAYER) Mark.CLOSE else Mark.BACK, outlined = false
-            ) { onBackPressed() })
-            part(ui.heading(heading).apply { maxLines = 2 })
-            if (target != null && screen in listOf(Screen.LISTEN, Screen.SEARCH, Screen.LIBRARY)) {
-                addView(ui.iconButton("Settings", Mark.SETTINGS, outlined = false) { openSection(Screen.SETTINGS) })
-            } else if (target != null && screen == Screen.RADIO) {
-                addView(ui.iconButton("SomaFM settings in browser", Mark.SETTINGS, outlined = false) {
+            ) { onBackPressed() }
+        }
+        val trailing = when {
+            target != null && screen in listOf(Screen.LISTEN, Screen.SEARCH, Screen.LIBRARY) ->
+                ui.iconButton("Settings", Mark.SETTINGS, outlined = false) { openSection(Screen.SETTINGS) }
+            target != null && screen == Screen.RADIO ->
+                ui.iconButton("SomaFM settings in browser", Mark.SETTINGS, outlined = false) {
                     openRadioSettings(target)
-                })
-            } else if (target == null && !RoomTheme.isKompakt) {
-                addView(ui.iconButton("Appearance", Mark.SETTINGS, outlined = false) { chooseAppearance() })
-            }
-        })
+                }
+            target == null && !RoomTheme.isKompakt ->
+                ui.iconButton("Appearance", Mark.SETTINGS, outlined = false) { chooseAppearance() }
+            else -> null
+        }
+        outer.addView(ui.header(ui.heading(heading).apply {
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }, back, trailing))
         status = ui.label("", 15f, ui.secondary).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
@@ -573,7 +575,7 @@ class RoomActivity : Activity() {
             Screen.GENRES -> genres(target, listPosition)
             Screen.MOODS -> moods(target, listPosition)
             Screen.SETTINGS -> placeIndex(RoomSetting.entries.map { page ->
-                Entry(page.title, destination = true) {
+                Entry(page.title, page.detail, destination = true) {
                     setting = page
                     openSection(if (page == RoomSetting.INSIGHTS) Screen.INSIGHTS else Screen.SETTING)
                 }
@@ -887,13 +889,13 @@ class RoomActivity : Activity() {
             val recent = result.optJSONArray("downloads") ?: JSONArray()
 
             page.removeAllViews()
-            page.addView(ui.heading("Needs attention", 18f))
+            page.addView(ui.row(6).apply {
+                part(ui.heading("Needs attention", 18f))
+                addView(ui.iconButton("Refresh downloads", Mark.REFRESH, outlined = false, action = refresh))
+            })
             if (attention.isEmpty()) page.addView(ui.label("No requests need attention.", 14f, ui.secondary))
             else page.addView(ui.button("Review requests (${attention.size})", true) {
                 showDownloadUpdates(target, attention, DownloadSource.REQUESTS, onChanged = refresh)
-            })
-            page.addView(ui.button("Refresh downloads", action = refresh), LinearLayout.LayoutParams(-2, -2).apply {
-                gravity = android.view.Gravity.END
             })
             page.addView(ui.heading("In progress", 18f))
             if (pending.isEmpty()) page.addView(ui.label("No active downloads in recent requests.", 14f, ui.secondary))
@@ -1021,8 +1023,8 @@ class RoomActivity : Activity() {
 
     private fun connect(server: String? = null, draft: String = "") {
         content.removeAllViews()
-        val form = ui.column(8)
-        content.addView(ScrollView(this).apply { addView(form) })
+        val form = ui.column(6)
+        showScrollable(form)
         val label = when {
             server != null -> "Pairing link"
             homeWifi -> "Wi-Fi address or pairing link"
@@ -1081,8 +1083,11 @@ class RoomActivity : Activity() {
         form.addView(connectButton)
         changeAddress?.let(form::addView)
         if (!pairOnly) {
-            form.addView(ui.button("Device files", action = ::deviceFiles))
-            form.addView(ui.button("Check for APK updates") { showApkUpdate() })
+            form.addView(ui.line(), LinearLayout.LayoutParams(-1, ui.dp(1)).apply { topMargin = ui.dp(4) })
+            form.addView(ui.row(6).apply {
+                part(ui.button("Device files", action = ::deviceFiles))
+                part(ui.button("Check for APK updates") { showApkUpdate() })
+            })
         }
         link.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_GO
         link.setOnEditorActionListener { _, action, _ ->
@@ -1094,28 +1099,29 @@ class RoomActivity : Activity() {
 
     private fun listenHome(local: Boolean, position: Pair<Int, Int>?) {
         val rows = if (local) listOf(
-            Entry("Songs on this phone", destination = true) { openCollection(CatalogPage()) },
-            Entry("Device files", destination = true, open = ::deviceFiles)
+            Entry("Songs on this phone", destination = true, leadingMark = Mark.LIBRARY) { openCollection(CatalogPage()) },
+            Entry("Device files", destination = true, leadingMark = Mark.FOLDER, open = ::deviceFiles)
         ) else listOf(
             shortcut(Screen.WEEKLY, "Your playlist for this week"),
             shortcut(Screen.DISCOVER, "Find related recordings"),
             shortcut(Screen.RADIO, "Stations and continuous mixes"),
             shortcut(Screen.ACTIVITIES, "Music for what you’re doing"),
-            shortcut(Screen.MOODS, "Start a mix by mood")
+            shortcut(Screen.MOODS, "Start a mix by mood"),
+            Entry("Camping mode", "Save music for a trip", destination = true, leadingMark = Mark.DOWNLOAD, open = ::campingMode)
         )
         placeIndex(rows, position)
     }
 
     private fun libraryHome(local: Boolean, position: Pair<Int, Int>?) {
         val rows = buildList {
-            add(Entry("Songs", destination = true) { openCollection(CatalogPage()) })
+            add(Entry("Songs", destination = true, leadingMark = Mark.LIBRARY) { openCollection(CatalogPage()) })
             if (!local) {
                 add(shortcut(Screen.PLAYLISTS))
                 add(Entry("Favorites", destination = true) { openCollection(CatalogPage("Favorites", filter = "favorites")) })
                 add(shortcut(Screen.DOWNLOADS, "Requests and recent copies"))
             }
             add(Entry("Camping mode", "Save music for a trip", destination = true, open = ::campingMode))
-            add(Entry("Device files", destination = true, open = ::deviceFiles))
+            add(Entry("Device files", destination = true, leadingMark = Mark.FOLDER, open = ::deviceFiles))
             if (!local) {
                 add(Entry("Browse more"))
                 add(shortcut(Screen.GENRES))
@@ -1129,7 +1135,11 @@ class RoomActivity : Activity() {
 
     private fun playlists(target: Room, position: Pair<Int, Int>?) {
         load({ target.requireCatalog(); target.get("/api/overview").getJSONArray("playlists") }) { rows ->
-            if (rows.length() == 0) message("There are no playlists in this room.")
+            if (rows.length() == 0) {
+                showEmpty("No playlists yet", "Playlists added to this room will appear here.",
+                    Entry("Browse songs") { openCollection(CatalogPage()) })
+                return@load
+            }
             placeIndex((0 until rows.length()).map { i ->
                 val playlist = RoomPlaylist(rows.getJSONObject(i))
                 Entry(playlist.name, if (playlist.linked) playlist.syncLabel else "",
@@ -1142,7 +1152,11 @@ class RoomActivity : Activity() {
 
     private fun genres(target: Room, position: Pair<Int, Int>?) {
         load({ target.requireCatalog(); target.get("/api/tracks?limit=1").optJSONArray("genres") ?: JSONArray() }) { tags ->
-            if (tags.length() == 0) message("There are no genres in this room.")
+            if (tags.length() == 0) {
+                showEmpty("No genres yet", "Genres appear after songs in the library have genre tags.",
+                    Entry("Browse songs") { openCollection(CatalogPage()) })
+                return@load
+            }
             placeIndex((0 until tags.length()).map { i ->
                 val name = tags.getString(i)
                 Entry(name, destination = true) { openCollection(CatalogPage(name, genre = name)) }
@@ -1247,7 +1261,7 @@ class RoomActivity : Activity() {
                     track.optString("status") == "not_found" -> "No copy found"
                     else -> "Not downloaded"
                 }
-                val subtitle = listOf(artist, availability).filter(String::isNotEmpty).joinToString(" · ")
+                val subtitle = listOf(availability, artist).filter(String::isNotEmpty).joinToString(" · ")
                 val queueAction: ((String) -> Unit)? = if (ready && !local) { op ->
                     load({ target.action(op, JSONObject().put("track_id", track.getInt("id"))) }) { snapshot ->
                         if (radioSnapshot(target.id) == null) renderPlayer(snapshot)
@@ -1298,6 +1312,9 @@ class RoomActivity : Activity() {
                     return@load
                 }
                 if (count != null) feedback.showResults(count)
+            } else if (rows.isEmpty() && total == 0) {
+                showEmpty(if (query.isBlank()) "No songs here yet" else "No matches", count.orEmpty())
+                return@load
             } else if (count != null) content.addView(ui.label(count, 14f, ui.secondary))
             placeIndex(rows, listPosition)
             if (total > 20 || offset > 0) {
@@ -1370,11 +1387,15 @@ class RoomActivity : Activity() {
         load({ target.requireCatalog(); target.get("/api/tracks?limit=1&facets=moods&facets=mood-availability") }) { facets ->
             val moods = facets.optJSONArray("moods") ?: JSONArray()
             val groups = (0 until moods.length()).mapNotNull { RoomMood.read(moods.getJSONObject(it)) }
-            if (groups.isEmpty()) {
-                message("There are no moods in this room.")
+            val readyGenres = facets.optJSONObject("ready_genres")
+            if (groups.isEmpty() || (readyGenres != null && groups.none { mood ->
+                    mood.genres.any { genre -> readyGenres.optInt(genre) > 0 }
+                })) {
+                showEmpty("No playable moods yet", "Add playable songs with genres to start a mood mix.",
+                    Entry("Browse songs") { openCollection(CatalogPage()) })
                 return@load
             }
-            val canPlayMix = facets.has("ready_genres")
+            val canPlayMix = readyGenres != null
             fun playMood(mix: MoodMix, genre: String = "") {
                 if (canPlayMix) {
                     send("play_mood", mix.fields(genre))
@@ -1398,7 +1419,9 @@ class RoomActivity : Activity() {
                             }
                         })
                     })
-                    addView(ui.label("Tap to play. Drag between moods to blend them.", 14f, ui.secondary))
+                    val tip = if (ui.eInk) "Tap a mood, or release between moods to blend them."
+                        else "Tap to play. Drag between moods to blend them."
+                    addView(ui.label(tip, 14f, ui.secondary))
                     addView(map, LinearLayout.LayoutParams(-1, ui.dp(232)))
                 }
                 SongDetailsStyle(ui).dialog(this, "Mood Map", body).show()
@@ -1583,8 +1606,13 @@ class RoomActivity : Activity() {
                     }
                 }
                 results.removeAllViews()
-                if (entries.isEmpty()) results.addView(ui.label("No matching stations or playable genres.", 14f, ui.secondary))
-                else results.addView(ui.index(entries))
+                if (entries.isEmpty()) {
+                    val notice = if (query.isBlank()) {
+                        ui.notice("No stations available", "Library Radio uses playable songs with genre tags.",
+                            Entry("Browse songs") { openCollection(CatalogPage()) })
+                    } else ui.notice("No matching stations", "Try a station name, genre, or a shorter search.")
+                    results.addView(ui.scroll(notice))
+                } else results.addView(ui.index(entries))
             }
             filter(radioQuery)
             val list = results.getChildAt(0) as? ListView
@@ -1612,7 +1640,12 @@ class RoomActivity : Activity() {
                 }
                 else -> {
                     val tracks = shelf.getJSONArray("tracks")
-                    message(if (tracks.length() == 0) "Favorite a song to get recording suggestions." else "")
+                    message("")
+                    if (tracks.length() == 0) {
+                        showEmpty("No suggestions yet", "Favorite a song to get recording suggestions.",
+                            Entry("Browse songs") { openCollection(CatalogPage()) })
+                        return@load
+                    }
                     placeIndex((0 until tracks.length()).map { i ->
                         val item = tracks.getJSONObject(i)
                         val note = item.optJSONObject("request")?.copyStatusLabel()?.takeIf(String::isNotBlank)
@@ -1641,7 +1674,11 @@ class RoomActivity : Activity() {
                     message("Building this week’s playlist…")
                     scheduleDiscoveryRefresh(5_000)
                 }
-                "waiting" -> message("Listen to a few songs to get your first playlist.")
+                "waiting" -> {
+                    message("")
+                    showEmpty("No weekly playlist yet", "Listen to a few songs to get your first playlist.",
+                        Entry("Browse songs") { openCollection(CatalogPage()) })
+                }
                 "unavailable" -> {
                     message("Music discovery is temporarily unavailable.")
                     retry.visibility = View.VISIBLE

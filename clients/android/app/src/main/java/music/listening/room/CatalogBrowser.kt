@@ -57,7 +57,10 @@ internal class CatalogBrowser(private val activity: Activity, private val ui: Ro
     private val imported = mutableMapOf<String, CatalogBrowserState.Import>()
 
     init {
-        if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
+        if (ui.eInk) {
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isSmoothScrollingEnabled = false
+        }
         addView(body)
         body.addView(choices)
         body.addView(output)
@@ -115,8 +118,9 @@ internal class CatalogBrowser(private val activity: Activity, private val ui: Ro
             (recordings && source in setOf("recordings", "all-public"))
         if (!chosen) source = if (recordings) "recordings" else ""
         if (available.isEmpty()) {
-            choices.section(label(if (scope == "room") "No private music catalog connected. Your room owner can connect Jellyfin."
-                else "No public music catalogs are available.", color = secondary))
+            choices.section(if (scope == "room") notice("No private catalog",
+                "Choose Public catalogs to keep searching, or ask the room owner to connect a private source.")
+                else notice("No public catalogs available", "Search your room library or try again later."))
             return@with false
         }
         val all = if (available.size == 1) available.first().getString("name") else "All ${available.size} sources"

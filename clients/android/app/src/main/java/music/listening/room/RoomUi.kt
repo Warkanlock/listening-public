@@ -20,6 +20,7 @@ internal data class Entry(val title: String, val subtitle: String = "", val deta
                           val info: (() -> Unit)? = null, val mark: Mark? = null,
                           val openArtist: (() -> Unit)? = null, val album: String = "",
                           val openAlbum: (() -> Unit)? = null, val destination: Boolean = false,
+                          val leadingMark: Mark? = null,
                           val open: (() -> Unit)? = null)
 
 /** Native controls for room and offline players. */
@@ -27,7 +28,11 @@ internal class RoomUi(private val context: Context) {
     val theme = RoomTheme.load(context)
     val eInk = theme == RoomTheme.E_INK
     private val palette by lazy { RoomPalettes.load(context, theme) }
-    val compactPlayerLandscape get() = eInk && context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val compactPlayerLandscape get() = context.resources.configuration.let {
+        it.orientation == Configuration.ORIENTATION_LANDSCAPE && it.screenWidthDp >= 480 &&
+            (eInk || it.screenHeightDp < 550)
+    }
+    private val compact get() = eInk || context.resources.configuration.screenWidthDp < 380
     private fun tone(kompakt: Int, token: String) = if (eInk) Color.rgb(kompakt, kompakt, kompakt)
         else RoomPalettes.color(palette, token)
     val ink = tone(0, "text")
@@ -57,16 +62,41 @@ internal class RoomUi(private val context: Context) {
         gravity = Gravity.CENTER_VERTICAL
         spaceChildren(gap)
     }
-    fun screen() = column(8).apply {
+    fun screen() = column(if (compact) 6 else 8).apply {
         setBackgroundColor(paper)
-        val side = dp(16)
-        val vertical = dp(8)
+        val side = dp(if (compact) 12 else 16)
+        val vertical = dp(if (compact) 6 else 8)
         setPadding(side, vertical, side, vertical)
         if (Build.VERSION.SDK_INT >= 35) setOnApplyWindowInsetsListener { view, insets ->
             val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or
                 android.view.WindowInsets.Type.displayCutout() or android.view.WindowInsets.Type.ime())
             view.setPadding(side + bars.left, vertical + bars.top, side + bars.right, vertical + bars.bottom)
             insets
+        }
+    }
+
+    fun header(title: TextView, back: View? = null, trailing: View? = null) = row(6).apply {
+        minimumHeight = dp(48)
+        back?.let { addView(it, LinearLayout.LayoutParams(dp(48), dp(48))) }
+        addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+        trailing?.let { addView(it, LinearLayout.LayoutParams(dp(48), dp(48))) }
+    }
+
+    fun scroll(body: View) = ScrollView(context).apply {
+        if (eInk) {
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isSmoothScrollingEnabled = false
+        }
+        addView(body)
+    }
+
+    fun notice(title: String, detail: String, action: Entry? = null) = panel().apply {
+        addView(heading(title, 18f))
+        addView(label(detail, 15f, secondary), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        action?.let { next ->
+            addView(button(next.title, solid = true) { next.open?.invoke() }, LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(8)
+            })
         }
     }
     fun label(value: String, size: Float = 16f, color: Int = ink) = TextView(context).apply {
@@ -93,11 +123,11 @@ internal class RoomUi(private val context: Context) {
 
     fun panel(fill: Int = card) = column().apply {
         background = surface(fill)
-        val inset = dp(14)
+        val inset = dp(if (compact) 10 else 14)
         setPadding(inset, inset, inset, inset)
     }
 
-    fun LinearLayout.section(view: View, gap: Int = 12) {
+    fun LinearLayout.section(view: View, gap: Int = if (compact) 8 else 12) {
         addView(view, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(gap) })
     }
 
@@ -166,6 +196,7 @@ internal class RoomUi(private val context: Context) {
 
     fun actionStrip(actions: List<ImageButton>, alignEnd: Boolean = false) = HorizontalScrollView(context).apply {
         isFillViewport = true
+        if (eInk) overScrollMode = View.OVER_SCROLL_NEVER
         addView(row(6).apply {
             gravity = (if (alignEnd) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
             actions.forEach { addView(it, LinearLayout.LayoutParams(dp(48), dp(48))) }
@@ -175,7 +206,8 @@ internal class RoomUi(private val context: Context) {
     fun transport(previous: ImageButton, play: ImageButton, next: ImageButton) = row(16).apply {
         gravity = Gravity.CENTER
         addView(previous, LinearLayout.LayoutParams(dp(48), dp(48)))
-        addView(play, LinearLayout.LayoutParams(dp(64), dp(64)))
+        val playSize = dp(if (compact) 56 else 64)
+        addView(play, LinearLayout.LayoutParams(playSize, playSize))
         addView(next, LinearLayout.LayoutParams(dp(48), dp(48)))
     }
 
@@ -186,7 +218,7 @@ internal class RoomUi(private val context: Context) {
                 addView(controls, LinearLayout.LayoutParams(0, -2, 1f))
             }
         } else {
-            column(8).apply {
+            column(if (compact) 6 else 8).apply {
                 addView(sleeve, LinearLayout.LayoutParams(-1, -2))
                 addView(controls, LinearLayout.LayoutParams(-1, -2))
             }
@@ -215,15 +247,17 @@ internal class RoomUi(private val context: Context) {
                 addView(button(tab.title, action = tab.open).apply {
                     gravity = Gravity.CENTER
                     background = StateListDrawable().apply {
-                        addState(intArrayOf(android.R.attr.state_focused), surface(fog, ink))
-                        addState(intArrayOf(android.R.attr.state_pressed), surface(fog, null))
-                        addState(intArrayOf(), surface(paper, null))
+                        val fill = if (eInk && tab.selected) ink else paper
+                        addState(intArrayOf(android.R.attr.state_focused), surface(
+                            if (eInk && tab.selected) ink else fog, if (eInk && tab.selected) paper else ink))
+                        addState(intArrayOf(android.R.attr.state_pressed), surface(if (eInk && tab.selected) secondary else fog, null))
+                        addState(intArrayOf(), surface(fill, null))
                     }
-                    setTextColor(ink)
+                    setTextColor(if (eInk && tab.selected) paper else ink)
                     setPadding(0, 0, 0, 0)
                     textSize = 14f
                     typeface = if (tab.selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                    if (tab.selected) paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
+                    if (tab.selected && !eInk) paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
                     isSelected = tab.selected
                 }, LinearLayout.LayoutParams(0, dp(48), 1f))
             }
@@ -268,7 +302,7 @@ internal class RoomUi(private val context: Context) {
     fun choices(activity: android.app.Activity, title: String, options: List<Entry>) {
         val style = SongDetailsStyle(this)
         val body = style.column()
-        val dialog = style.dialog(activity, title, ScrollView(context).apply { addView(body) })
+        val dialog = style.dialog(activity, title, scroll(body))
         for (option in options) body.section(button(option.title) {
             dialog.dismiss()
             option.open?.invoke()
@@ -282,7 +316,9 @@ internal class RoomUi(private val context: Context) {
     fun showQueue(activity: android.app.Activity, tracks: List<Entry>) {
         val style = SongDetailsStyle(this)
         lateinit var dialog: android.app.AlertDialog
-        val body = if (tracks.isEmpty()) style.column().apply { addView(label("No songs up next.")) }
+        val body = if (tracks.isEmpty()) style.column().apply {
+            addView(label("No songs up next. Play a song or add one from its options.", 15f, secondary))
+        }
         else index(tracks.map { track ->
             track.copy(open = { dialog.dismiss(); track.open?.invoke() })
         }).apply { setPadding(dp(12), 0, dp(12), 0) }
@@ -313,7 +349,7 @@ internal class RoomUi(private val context: Context) {
                 if (item.open == null) {
                     return ((reused as? TextView) ?: label("", 17f).apply {
                         typeface = headline
-                        setPadding(dp(8), dp(8), dp(8), dp(8))
+                        setPadding(dp(8), dp(5), dp(8), dp(5))
                         setBackgroundColor(fog)
                         if (android.os.Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
                     }).apply { text = item.title }
@@ -326,18 +362,34 @@ internal class RoomUi(private val context: Context) {
     }
 
     private inner class IndexRow : LinearLayout(context) {
-        private val title = label("", 17f).apply { typeface = medium }
-        private val subtitle = label("", 14f, secondary)
+        private val title = label("", 17f).apply {
+            typeface = medium
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        private val subtitle = label("", 14f, secondary).apply {
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         private val album = label("", 13f, secondary).apply {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
+        private val leading = ImageView(context).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         private val arrow = ImageView(context).apply { setImageDrawable(mark(Mark.BROWSE, 17)); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
-        private val detail = label("", 14f, secondary)
+        private val detail = label("", 14f, secondary).apply {
+            maxWidth = dp(92)
+            gravity = Gravity.END
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         private var bound: Entry? = null
         private val info = iconButton("Song information", Mark.INFO) { bound?.info?.invoke() }
         private val body = row().apply {
-            minimumHeight = dp(50); setPadding(dp(5), dp(7), dp(5), dp(7))
+            minimumHeight = dp(if (compact) 48 else 50)
+            val vertical = dp(if (compact) 4 else 7)
+            setPadding(dp(5), vertical, dp(5), vertical)
+            addView(leading, LayoutParams(dp(22), dp(24)).apply { marginEnd = dp(9) })
             addView(column().apply {
                 addView(title)
                 addView(subtitle)
@@ -366,6 +418,8 @@ internal class RoomUi(private val context: Context) {
             info.visibility = if (item.info == null) View.GONE else View.VISIBLE
             info.contentDescription = "Song information for ${item.title}"
             title.text = item.title
+            leading.setImageDrawable(item.leadingMark?.let { mark(it, 20, accentInk) })
+            leading.visibility = if (item.leadingMark == null) View.GONE else View.VISIBLE
             subtitle.text = item.subtitle
             profileLink(subtitle, item.openArtist)
             album.text = item.album

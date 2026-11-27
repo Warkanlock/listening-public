@@ -67,7 +67,7 @@ private fun RoomUi.roomSearchField(field: EditText, search: () -> Unit) = row().
         search()
     }
     fun showClear() {
-        val visibility = if (field.text.isEmpty()) View.INVISIBLE else View.VISIBLE
+        val visibility = if (field.text.isEmpty()) View.GONE else View.VISIBLE
         if (clear.visibility != visibility) clear.visibility = visibility
     }
     showClear()
@@ -112,7 +112,7 @@ internal class SearchFeedback(private val ui: RoomUi, openCatalogs: (() -> Unit)
     }
 
     fun showMessage(title: String? = null, detail: String? = null, retry: (() -> Unit)? = null) {
-        view.setPadding(0, ui.dp(20), 0, ui.dp(12))
+        view.setPadding(0, ui.dp(10), 0, ui.dp(6))
         retryAction = retry
         titleView.visibility = if (title != null) View.VISIBLE else View.GONE
         detailView.visibility = if (detail != null) View.VISIBLE else View.GONE
@@ -125,13 +125,13 @@ internal class SearchFeedback(private val ui: RoomUi, openCatalogs: (() -> Unit)
         leadingRule.visibility = summary.visibility
         trailingRule.visibility = summary.visibility
         leadingRule.layoutParams = LinearLayout.LayoutParams(-1, ui.dp(1)).apply {
-            if (message.visibility == View.VISIBLE) topMargin = ui.dp(14)
+            if (message.visibility == View.VISIBLE) topMargin = ui.dp(8)
         }
         showCatalog(expanded = true)
     }
 
     fun showResults(count: String) {
-        view.setPadding(0, ui.dp(12), 0, ui.dp(4))
+        view.setPadding(0, ui.dp(6), 0, ui.dp(4))
         retryAction = null
         message.visibility = View.GONE
         summary.visibility = View.VISIBLE

@@ -47,14 +47,16 @@ internal class MoodMap(context: Context, private val ui: RoomUi, private val moo
         ui.button(mood.name) { update(mood.point); performClick() }.apply {
             textSize = 13f
             setPadding(ui.dp(6), 0, ui.dp(6), 0)
+            isSelected = mood == initial
             addView(this, LayoutParams(-2, ui.dp(48)))
         }
     }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val contours = if (ui.eInk) floatArrayOf(.10f, .18f) else floatArrayOf(.08f, .14f, .21f)
 
     init {
         minimumHeight = ui.dp(255)
-        background = ui.surface(ui.fog)
+        background = ui.surface(if (ui.eInk) ui.paper else ui.fog)
         clipToOutline = true
         setWillNotDraw(false)
         isFocusable = true
@@ -77,9 +79,13 @@ internal class MoodMap(context: Context, private val ui: RoomUi, private val moo
     }
 
     private fun update(next: MoodPoint) {
+        if (point == next) return
         point = next
         val mix = mix()
-        labels.forEachIndexed { i, button -> button.isSelected = moods[i] == mix.first || moods[i] == mix.second }
+        labels.forEachIndexed { i, button ->
+            val selected = moods[i] == mix.first || moods[i] == mix.second
+            if (button.isSelected != selected) button.isSelected = selected
+        }
         invalidate()
     }
 
@@ -104,7 +110,7 @@ internal class MoodMap(context: Context, private val ui: RoomUi, private val moo
             val y = mood.point.y * height
             canvas.save()
             canvas.rotate(-24f, x, y)
-            for (radius in listOf(.08f, .14f, .21f)) {
+            for (radius in contours) {
                 canvas.drawOval(x - width * radius, y - height * radius * .7f,
                     x + width * radius, y + height * radius * .7f, paint)
             }
@@ -129,7 +135,7 @@ internal class MoodMap(context: Context, private val ui: RoomUi, private val moo
     override fun onInterceptTouchEvent(event: MotionEvent): Boolean = true
 
     override fun dispatchHoverEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
+        if (!ui.eInk) when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> update(pointAt(event.x, event.y))
             MotionEvent.ACTION_HOVER_EXIT -> update(committed)
         }
@@ -137,15 +143,17 @@ internal class MoodMap(context: Context, private val ui: RoomUi, private val moo
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val inside = event.x in 0f..width.toFloat() && event.y in 0f..height.toFloat()
-        val next = pointAt(event.x, event.y)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
-                update(next)
+                if (!ui.eInk) update(pointAt(event.x, event.y))
             }
             MotionEvent.ACTION_UP -> {
-                if (inside) { update(next); performClick() } else update(committed)
+                val inside = event.x in 0f..width.toFloat() && event.y in 0f..height.toFloat()
+                if (inside) {
+                    update(pointAt(event.x, event.y))
+                    performClick()
+                } else update(committed)
             }
             MotionEvent.ACTION_CANCEL -> update(committed)
             else -> return super.onTouchEvent(event)

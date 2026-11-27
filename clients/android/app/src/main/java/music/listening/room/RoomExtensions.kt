@@ -6,7 +6,6 @@ import android.content.Intent
 import android.net.Uri
 import android.view.View
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.Toast
 import java.text.DateFormat
 import java.util.Date
@@ -25,13 +24,10 @@ internal fun Activity.showRoomExtensions(room: Room, backLabel: String? = null) 
     SongDetailsStyle(ui).dialog(this, "Extensions", roomExtensionsPanel(room, ui), backLabel = backLabel).show()
 }
 
-internal fun Activity.roomExtensionsPanel(room: Room, ui: RoomUi): View {
+internal fun Activity.roomExtensionsPanel(room: Room, ui: RoomUi, embedded: Boolean = false): View {
     val style = SongDetailsStyle(ui)
-    val content = style.column()
-    val panel = ScrollView(this).apply {
-        if (ui.eInk) overScrollMode = View.OVER_SCROLL_NEVER
-        addView(content)
-    }
+    val content = if (embedded) ui.column() else style.column()
+    val panel = ui.scroll(content)
     val status = ui.column().apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
     val health = ui.column().apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
     val checkButton = ui.button("Run health check") {}

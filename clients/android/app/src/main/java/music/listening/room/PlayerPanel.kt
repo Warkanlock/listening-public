@@ -50,6 +50,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     private val scroll = ScrollView(activity).apply {
         overScrollMode = View.OVER_SCROLL_NEVER
         isVerticalScrollBarEnabled = !ui.eInk
+        isSmoothScrollingEnabled = !ui.eInk
     }
     private var current: JSONObject? = null
     private var lyricSheet: PlayerLyrics? = null
@@ -76,7 +77,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         if (!ui.compactPlayerLandscape && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
-            sleeve.limitArtworkHeight(MeasureSpec.getSize(heightMeasureSpec) - ui.dp(if (ui.eInk) 246 else 304))
+            sleeve.limitArtworkHeight(MeasureSpec.getSize(heightMeasureSpec) - ui.dp(if (ui.eInk) 212 else 304))
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
@@ -113,6 +114,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     private val emptyHint = ui.label("Choose a song to start playback.")
     private val playQueue = ui.button("Play queue", true) { action("next", JSONObject()) }
     private val idleDevices = ui.button("Playback devices", action = ::showDevices).apply { visibility = View.GONE }
+    private val idleQueue = ui.queueButton(::showQueue).apply { visibility = View.GONE }
     private val empty = ui.playerContent(
         ui.column(8).apply {
             addView(emptyHint)
@@ -120,7 +122,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         },
         ui.column(8).apply {
             addView(playQueue)
-            addView(ui.queueButton(::showQueue))
+            addView(idleQueue)
             addView(idleDevices)
         },
     )
@@ -213,10 +215,10 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     }
 
     init {
-        val body = ui.column().apply { setPadding(0, ui.dp(18), 0, ui.dp(12)) }
+        val body = ui.column().apply { setPadding(0, ui.dp(if (ui.eInk) 6 else 12), 0, ui.dp(8)) }
         scroll.addView(body)
         addView(scroll, LayoutParams(-1, -1))
-        val controls = ui.column(10).apply {
+        val controls = ui.column(if (ui.eInk) 6 else 10).apply {
             if (!ui.eInk) addView(timeline)
             addView(ui.transport(previous, transport, next), LinearLayout.LayoutParams(-1, -2))
             addView(ui.line())
@@ -288,6 +290,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         val upcoming = snapshot.optJSONArray("upcoming")
         val hasQueue = (upcoming?.length() ?: 0) > 0
         playQueue.visibility = if (hasQueue) View.VISIBLE else View.GONE
+        idleQueue.visibility = playQueue.visibility
         emptyHint.updateLabel(if (hasQueue) "Queue ready to play." else "Choose a song to start playback.")
         if (track == null) {
             positionDialog?.dismiss()
