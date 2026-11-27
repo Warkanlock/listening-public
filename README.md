@@ -6,7 +6,8 @@
   <p>
     <a href="https://listening-room-tour.vercel.app/">Website</a> ·
     <a href="#your-first-run">Get started</a> ·
-    <a href="https://github.com/Warkanlock/listening-public/releases/latest">Download apps</a> ·
+    <a href="https://github.com/Warkanlock/listening-public/releases/tag/macos-v1.0.0">Download for Mac</a> ·
+    <a href="https://github.com/Warkanlock/listening-public/releases/latest">Download for Android</a> ·
     <a href="#documentation">Docs</a>
   </p>
   <a href="frontend/react/public/assets/about-showcase/room/library.webp"><img src="frontend/react/public/assets/about-showcase/room/library.webp" alt="Listening Room library and playback queue with a demo collection" width="840"></a>
@@ -67,7 +68,7 @@ Enter a password when prompted. On the Docker host, open [http://127.0.0.1:8765]
 2. To join a room, enter its address or paste your invitation.
 3. To host a new room, choose **Listening Room → Install terminal command**. Open Terminal, run `~/.local/bin/listening setup`, and choose a music folder.
 
-[Download for Mac](https://github.com/Warkanlock/listening-public/releases/latest) · [Mac setup guide](clients/macos/README.md)
+[Download for Mac](https://github.com/Warkanlock/listening-public/releases/tag/macos-v1.0.0) · [Mac setup guide](clients/macos/README.md)
 
 </details>
 
