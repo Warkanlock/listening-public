@@ -90,6 +90,7 @@ private fun RoomActivity.openApkInstaller(file: File, onResult: (Boolean) -> Uni
 }
 
 internal fun RoomActivity.showApkUpdate() {
+    if (apkUpdateDialog?.isShowing == true) return
     @Suppress("DEPRECATION")
     val installed = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
     val ui = RoomUi(this)
@@ -102,6 +103,7 @@ internal fun RoomActivity.showApkUpdate() {
         visibility = View.GONE
     }
     val dialog = style.dialog(this, "APK updates", ScrollView(this).apply { addView(content) })
+    var metadataCall: Call? = null
     var transfer: ApkTransfer? = null
     fun visible() = dialog.isShowing && !isFinishing && !isDestroyed
 
@@ -117,20 +119,9 @@ internal fun RoomActivity.showApkUpdate() {
     with(ui) {
         content.section(style.fact("Installed version", installed.ifBlank { "Unknown" }))
         content.section(status)
-        status.addView(style.progress("Checking the latest release…"))
         content.section(button("Open latest release on GitHub") { openInBrowser("$RELEASES/latest") })
         content.section(browserFallback)
     }
-
-    val request = Request.Builder().url("https://api.github.com/repos/$RELEASE_REPO/releases/latest")
-        .header("Accept", "application/vnd.github+json")
-        .build()
-    val call = releaseClient.newCall(request)
-    dialog.setOnDismissListener {
-        call.cancel()
-        transfer?.cancel()
-    }
-    dialog.show()
 
     fun showAvailable(apk: ReleaseApk, error: String? = null) {
         if (!visible()) return
@@ -174,36 +165,62 @@ internal fun RoomActivity.showApkUpdate() {
         })
     }
 
-    fun render(result: ApkUpdate) = runOnUiThread {
-        if (!visible()) return@runOnUiThread
+    val request = Request.Builder().url("https://api.github.com/repos/$RELEASE_REPO/releases/latest")
+        .header("Accept", "application/vnd.github+json")
+        .build()
+    val unavailable = ApkUpdate.Unavailable("Couldn't check for an update. Try again or open the latest release on GitHub.")
+
+    fun checkForUpdate() {
+        if (!visible() || metadataCall != null) return
         status.removeAllViews()
-        with(ui) {
-            when (result) {
-                is ApkUpdate.Current -> status.addView(label("No newer APK is available. The latest release is ${result.version}."))
-                is ApkUpdate.Available -> showAvailable(result.apk)
-                is ApkUpdate.Unavailable -> status.addView(label(result.message))
+        status.addView(style.progress("Checking the latest release…"))
+        val check = releaseClient.newCall(request)
+        metadataCall = check
+
+        fun render(result: ApkUpdate) = runOnUiThread {
+            if (!visible() || metadataCall !== check) return@runOnUiThread
+            metadataCall = null
+            status.removeAllViews()
+            with(ui) {
+                when (result) {
+                    is ApkUpdate.Current -> status.addView(label("No newer APK is available. The latest release is ${result.version}."))
+                    is ApkUpdate.Available -> showAvailable(result.apk)
+                    is ApkUpdate.Unavailable -> {
+                        status.addView(label(result.message))
+                        status.addView(button("Retry", action = ::checkForUpdate))
+                    }
+                }
             }
         }
+
+        check.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = render(unavailable)
+
+            override fun onResponse(call: Call, response: Response) {
+                val result = try {
+                    response.use {
+                        if (!it.isSuccessful) return@use unavailable
+                        val body = it.peekBody(MAX_METADATA_BYTES + 1)
+                        if (body.contentLength() > MAX_METADATA_BYTES) unavailable
+                        else latestApk(JSONObject(body.string()), installed)
+                    }
+                } catch (_: IOException) {
+                    unavailable
+                } catch (_: JSONException) {
+                    unavailable
+                }
+                render(result)
+            }
+        })
     }
 
-    val unavailable = ApkUpdate.Unavailable("Couldn't check for an update. Try again or open the latest release on GitHub.")
-    call.enqueue(object : Callback {
-        override fun onFailure(call: Call, e: IOException) = render(unavailable)
-
-        override fun onResponse(call: Call, response: Response) {
-            val result = try {
-                response.use {
-                    if (!it.isSuccessful) return@use unavailable
-                    val body = it.peekBody(MAX_METADATA_BYTES + 1)
-                    if (body.contentLength() > MAX_METADATA_BYTES) unavailable
-                    else latestApk(JSONObject(body.string()), installed)
-                }
-            } catch (_: IOException) {
-                unavailable
-            } catch (_: JSONException) {
-                unavailable
-            }
-            render(result)
-        }
-    })
+    dialog.setOnDismissListener {
+        if (apkUpdateDialog === dialog) apkUpdateDialog = null
+        metadataCall?.cancel()
+        metadataCall = null
+        transfer?.cancel()
+    }
+    apkUpdateDialog = dialog
+    dialog.show()
+    checkForUpdate()
 }
