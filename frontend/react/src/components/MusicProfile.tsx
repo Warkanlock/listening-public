@@ -7,6 +7,7 @@ import { RoomIcon } from "./RoomIcon";
 import { RoomAction } from "./RoomControls";
 import { LoadingStatus, SkeletonLines, Spinner } from "./StateCard";
 import { TryMp3Button } from "./TryMp3Button";
+import { RetryRequestButton } from "./RequestStatus";
 
 type Target = { kind: "artist" | "album" | "release-group"; id: string | number; title?: string };
 type Related = { id: string; title: string; detail?: string; year?: string };
@@ -16,7 +17,7 @@ type Highlights = { tracks: Track[]; albums: Release[]; releases: Release[] };
 type Track = {
   track_id?: number; ready?: boolean; title: string; artist: string; album: string;
   duration: number; musicbrainz_id: string; version?: string; disc?: number; number?: string; request?: RequestRow; library_only?: boolean;
-  copy_status?: "not_found";
+  copy_status?: "not_found" | "unavailable";
   mp3_retry?: Mp3Retry;
   listens?: number; plays?: number; cover?: string;
 };
@@ -33,7 +34,8 @@ type PlayRef = number | string;
 
 function requestFor(track: Track, requests: RequestRow[]) {
   return requests.find(item => track.track_id
-    ? item.track_index === track.track_id
+    ? item.track_index === track.track_id ||
+      (item.status === "unavailable" && item.original_track_index === track.track_id)
     : !!track.musicbrainz_id && item.musicbrainz_id === track.musicbrainz_id) ?? track.request;
 }
 
@@ -57,6 +59,8 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
   const format = stage && canChooseFormat(stage);
   const canRequest = !!track.track_id || !!track.musicbrainz_id && track.duration > 0;
   const retry = row ? row.mp3_retry : track.mp3_retry;
+  const copyStatus = row?.status ?? track.copy_status;
+  const stopped = !ready && copyStatus === "unavailable";
   const label = ready ? "Play" : busy && row ? requestStageLabel(row) : stage && needsCopyChoice(stage) ? "Review copies"
     : format ? "Choose format" : "Find a copy";
 
@@ -89,8 +93,9 @@ function ProfileTrack({ track, albumQueue, rank }: { track: Track; albumQueue: P
       track.duration > 0 && time(track.duration),
       track.listens && `${numberFormat.format(track.listens)} listens`,
       track.plays && `${numberFormat.format(track.plays)} ${track.plays === 1 ? "play" : "plays"}`,
-      !ready && (row?.status ?? track.copy_status) === "not_found" && statusLabel("not_found")].filter(Boolean).join(" · ")}</small></span>
-    {!ready && !store.member && retry ? <TryMp3Button retry={retry} title={track.title} /> :
+      !ready && (copyStatus === "not_found" || copyStatus === "unavailable") && statusLabel(copyStatus)].filter(Boolean).join(" · ")}</small></span>
+    {stopped ? row && <RetryRequestButton request={row} title={track.title} /> :
+    !ready && !store.member && retry ? <TryMp3Button retry={retry} title={track.title} /> :
     (ready || !store.member && (canRequest || row)) && <RoomAction primary={ready} disabled={busy} aria-disabled={pending || undefined}
       aria-busy={pending} aria-label={`${label} ${track.title}`} onClick={() => void act()}>
       <span className="music-profile-action-label" data-pending={pending}>

@@ -11,16 +11,18 @@ import { usePlaylistComposer } from "./PlaylistComposer";
 import { FavoriteButton } from "./FavoriteButton";
 import { StateCard, TrackLoading } from "./StateCard";
 import { TryMp3Button } from "./TryMp3Button";
+import { RetryRequestButton } from "./RequestStatus";
 
 function TrackRow({ track }: { track: Track }) {
   const store = useStore();
   const composer = usePlaylistComposer();
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const ready = track.status === "verified";
-  const request = store.requestRows.find(row => row.track_index === track.id);
+  const request = store.requestRows.find(row => row.track_index === track.id ||
+    (row.status === "unavailable" && row.original_track_index === track.id));
   const retry = request ? request.mp3_retry : track.mp3_retry;
   const requestStatus = request?.status ?? "";
-  const status = !ready && (BUSY_STATUSES.includes(requestStatus) || requestStatus === "not_found" || requestStatus === "waiting_format")
+  const status = !ready && (BUSY_STATUSES.includes(requestStatus) || ["not_found", "waiting_format", "unavailable"].includes(requestStatus))
     ? requestStatus : track.status;
   const busy = BUSY_STATUSES.includes(status);
   const requesting = store.requestingIds.has(track.id);
@@ -119,6 +121,8 @@ function TrackRow({ track }: { track: Track }) {
           >
             Play
           </button>
+        ) : status === "unavailable" ? (
+          request && <RetryRequestButton request={request} title={track.title} />
         ) : !store.member && retry ? (
           <TryMp3Button retry={retry} title={track.title} />
         ) : !store.member ? (

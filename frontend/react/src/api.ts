@@ -236,6 +236,7 @@ export interface RequestRow {
   request_state?: RequestState;
   musicbrainz_id?: string;
   original_recording_id?: string;
+  original_track_index?: number | null;
   version?: string;
   phase?: string;
   retry_at?: number;
@@ -601,6 +602,7 @@ const STATUS_LABELS: Record<string, string> = {
   downloaded: "Ready",
   unmatched: "Search missed",
   not_found: "No copy found",
+  unavailable: "Unavailable",
   pending: "Not downloaded",
   rejected: "Needs review",
   queued: "Queued",
@@ -613,6 +615,9 @@ const STATUS_LABELS: Record<string, string> = {
 export const statusLabel = (status: string) => STATUS_LABELS[status] || status;
 
 export const BUSY_STATUSES = ["queued", "searching", "waiting_space"];
+
+export const canQueueTrackCopy = (track: Track) =>
+  !["verified", "waiting_format", "unavailable", ...BUSY_STATUSES].includes(track.status);
 
 export const shortPath = (path: string) => {
   const parts = String(path || "").split(/[\\/]/).filter(Boolean);

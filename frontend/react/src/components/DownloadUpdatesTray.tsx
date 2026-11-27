@@ -8,7 +8,7 @@ import { RoomAction } from "./RoomControls";
 import { RoomIcon } from "./RoomIcon";
 import { RequestStatus } from "./RequestStatus";
 
-const groups = ["Needs review", "Ready to play", "No copy found", "In progress"] as const;
+const groups = ["Needs review", "Ready to play", "No copy found", "Unavailable", "In progress"] as const;
 
 type TrayRequest = DownloadTray["rows"][number];
 type TrayAction = "Play" | "Review copies" | "Choose format" | "Change format" | "Retry" | "Download again";
@@ -17,6 +17,7 @@ function outcomeGroup(row: TrayRequest): typeof groups[number] {
   const state = requestStage(row);
   if (state === "ready") return "Ready to play";
   if (state === "no_matches") return "No copy found";
+  if (state === "unavailable") return "Unavailable";
   return state === "copy_missing" || canChooseFormat(state) ? "Needs review" : "In progress";
 }
 

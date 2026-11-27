@@ -31,10 +31,10 @@ class WeeklyTests(unittest.TestCase):
     def test_download_progress_counts_playable_copies_and_distinct_requests(self):
         ready = {"id": 1, "status": "downloaded", "audio": "/api/audio/custom/1"}
         requests = [ready, ready, {"id": 2, "status": "queued"}, {"id": 3, "status": "rejected"},
-                    {"id": 4, "status": "downloaded"}, None]
+                    {"id": 4, "status": "downloaded"}, {"id": 5, "status": "unavailable"}, None]
         self.assertEqual(weekly.download_progress([{"request": request} for request in requests]),
-                         {"total": 4, "downloaded": 1, "pending": 1, "needs_attention": 2,
-                          "attention_ids": [3, 4], "percent": 25})
+                         {"total": 5, "downloaded": 1, "pending": 1, "needs_attention": 2,
+                          "attention_ids": [3, 4], "percent": 20})
 
     def test_graph_reaches_three_levels_and_omits_known_and_duplicate_titles(self):
         meta, connections = Mock(), Mock()
