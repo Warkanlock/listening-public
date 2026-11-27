@@ -169,6 +169,75 @@ class FormatSelectionTests(StoreTestCase):
     def create(self, *, individual=True):
         return self.store.create_or_find(1, "Artist", "Song", "Album", 200, "Song", individual=individual)
 
+    def test_stopping_copy_review_prevents_requeue_and_invalidates_inflight_results(self):
+        row, _ = self.create()
+        request_id = row["id"]
+        queued, _ = self.store.confirm_format(request_id, "any_lossy", row["format_revision"])
+        revision = queued["format_revision"]
+        self.assertTrue(self.store.claim(request_id))
+        candidate = {"source": "fixture", "id": "first"}
+        matches = self.store.save_copy_matches(request_id, "any_lossy", revision, {}, {}, [candidate], for_review=True)
+        self.store.finish(request_id, "rejected", COPY_REVIEW_MESSAGE, "")
+
+        stopped = self.store.stop_search(request_id, revision)
+        self.assertEqual((stopped["request_state"], stopped["format_revision"], stopped["requested_format"]),
+                         ("unavailable", revision + 1, "any_lossy"))
+        self.assertEqual(self.store.stop_search(request_id, revision), stopped)
+        self.assertIsNone(self.store.review_matches(request_id, "any_lossy", revision, {}, {}))
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.store.save_copy_matches(request_id, "any_lossy", revision, {}, {}, [candidate], fresh=True)
+        with self.assertRaises(ValueError):
+            self.store.confirm_format(request_id, "any_lossy", revision, matches[0]["key"])
+
+        self.assertEqual(self.create(individual=False), (stopped, False))
+        self.store.reset_interrupted()
+        self.assertFalse(self.store.has_queued())
+        self.assertFalse(self.store.claim(request_id))
+        self.assertIsNone(self.store.active_for_track(1))
+        self.assertEqual(self.store.reserved_tracks(1, 1), {1})
+
+        self.assertTrue(self.store.retry(request_id, revision=stopped["format_revision"]))
+        restarted, = self.store.queued(5)
+        self.assertEqual((restarted["id"], restarted["request_state"], restarted["requested_format"]),
+                         (request_id, "queued_search", "any_lossy"))
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.store.stop_search(request_id, revision)
+        self.assertEqual(self.store.get(request_id), restarted)
+
+    def test_stopped_replacement_marks_the_original_catalog_track_unavailable(self):
+        row, _ = self.create()
+        request_id = row["id"]
+        replacement, _ = self.store.replace_recording(
+            request_id, row["format_revision"], "Artist", "Song", "Live", 200, "Song live",
+            musicbrainz_id="00000000-0000-4000-8000-000000000014", version="Live", performance="",
+        )
+        queued, _ = self.store.confirm_format(request_id, "mp3", replacement["format_revision"])
+        self.assertTrue(self.store.claim(request_id))
+        self.store.finish(request_id, "rejected", COPY_REVIEW_MESSAGE, "")
+        stopped = self.store.stop_search(request_id, queued["format_revision"])
+
+        self.assertEqual(self.store.by_track(), {1: stopped})
+        self.assertEqual(self.create(individual=False), (stopped, False))
+        self.assertEqual(self.store.queued(1), [])
+        self.enqueue_custom(title="Newer request")
+        self.assertIn(stopped, self.store.recent(1))
+
+    def test_stopped_copy_review_is_skipped_by_weekly_queueing(self):
+        track = {"id": "00000000-0000-4000-8000-000000000013", "artist": "Artist", "title": "Song",
+                 "album": "Album", "seconds": 200, "version": ""}
+        row, _ = self.store.create_or_find(
+            None, track["artist"], track["title"], track["album"], track["seconds"], track["title"],
+            individual=True, musicbrainz_id=track["id"],
+        )
+        queued, _ = self.store.confirm_format(row["id"], "mp3", row["format_revision"])
+        self.assertTrue(self.store.claim(row["id"]))
+        self.store.finish(row["id"], "rejected", COPY_REVIEW_MESSAGE, "")
+        stopped = self.store.stop_search(row["id"], queued["format_revision"])
+
+        self.assertEqual(self.store.queue_weekly([track]), 0)
+        self.assertEqual(self.store.recent(), [stopped])
+        self.assertEqual(self.store.queued(1), [])
+
     def test_copy_handles_are_scoped_to_the_request_revision_and_format(self):
         row, _ = self.create()
         request_id = row["id"]

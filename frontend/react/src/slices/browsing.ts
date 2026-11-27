@@ -1,6 +1,7 @@
 import { rememberMusicSearch } from "../recentMusicSearches";
 import {
   api,
+  canQueueTrackCopy,
   postJson,
   scrollBehavior,
   type DownloadFavorite,
@@ -350,10 +351,7 @@ export class BrowsingSlice {
 
   async retryVisibleCopies() {
     const ids = this.tracks
-      .filter(
-        (track) =>
-          !["verified", "waiting_format", "queued", "searching", "waiting_space"].includes(track.status),
-      )
+      .filter(canQueueTrackCopy)
       .slice(0, 50)
       .map((track) => track.id);
     if (!ids.length || this.retryingVisible) return;

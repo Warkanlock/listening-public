@@ -30,7 +30,8 @@ from pathlib import Path
 from system import state_database
 from system.formats import REQUEST_SUFFIXES
 from system.normalize import song_key
-from .request_state import COPY_FAILURES, COPY_REVIEW_MESSAGE, EDITABLE_FORMAT, FAILED_SEARCHES, REPLACEABLE_RECORDING, request_state
+from .request_state import (COPY_FAILURES, COPY_REVIEW_MESSAGE, COPY_REVIEW_STATES, EDITABLE_FORMAT,
+                            FAILED_SEARCHES, REPLACEABLE_RECORDING, request_state)
 
 
 def mp3_retry(row):
@@ -251,14 +252,12 @@ class RequestsStore:
             row = self._active(conn, index, artist, title, musicbrainz_id)
             if row:
                 return decode_request_row(row), False
-            if individual:
-                previous = self._latest(conn, index, artist, title, musicbrainz_id)
-                if previous:
+            previous = self._latest(conn, index, artist, title, musicbrainz_id)
+            if previous:
+                if individual or previous["status"] == "unavailable":
                     return decode_request_row(previous), False
-            else:
                 # A manual batch retry honors a previously confirmed individual format.
-                previous = self._latest(conn, index, artist, title, musicbrainz_id)
-                if previous and previous["format_confirmed"] and previous["status"] in ("not_found", "error", "rejected"):
+                if previous["format_confirmed"] and previous["status"] in FAILED_SEARCHES:
                     self._queue_retry(conn, previous["id"], previous["search_title"])
                     row = conn.execute("SELECT * FROM requests WHERE id=?", (previous["id"],)).fetchone()
                     return decode_request_row(row), True
@@ -367,7 +366,7 @@ class RequestsStore:
         row = conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
         if row is None:
             raise ValueError("Unknown song request")
-        if row["status"] in ("not_found", "error", "rejected"):
+        if row["status"] in (*FAILED_SEARCHES, "unavailable"):
             other = self._active(conn, row["track_index"], row["artist"], row["title"], row["musicbrainz_id"])
             if other and other["id"] != request_id:
                 raise ValueError("Another request already exists for this song. Open it in Requests.")
@@ -494,6 +493,26 @@ class RequestsStore:
             return decode_request_row(row), True
         return self._run(work)
 
+    def stop_search(self, request_id, revision):
+        """Dismiss a copy review and invalidate any copies still being browsed."""
+        def work(conn):
+            row = self._lock_request(conn, request_id)
+            if row["status"] == "unavailable" and row["format_revision"] == revision + 1:
+                return decode_request_row(row)
+            if row["format_revision"] != revision or request_state(dict(row)) not in COPY_REVIEW_STATES:
+                raise ValueError("This request changed. Reopen it before stopping the search.")
+            conn.execute(
+                "UPDATE requests SET status='unavailable', message='Search stopped.', "
+                "selected_copy_key=NULL, phase='', download_percent=NULL, "
+                "retry_count=0, retry_at=0, retry_priority=0, "
+                "resolved_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP, "
+                "aac_revision=CASE WHEN aac_revision=format_revision THEN format_revision+1 END, "
+                "broad_revision=CASE WHEN broad_revision=format_revision THEN format_revision+1 END, "
+                "format_revision=format_revision+1 WHERE id=?", (request_id,))
+            conn.execute("DELETE FROM request_copies WHERE request_id=?", (request_id,))
+            return decode_request_row(conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone())
+        return self._run(work)
+
     def get(self, request_id):
         """One request row by id, as a dict, or None."""
         def work(conn):
@@ -592,16 +611,17 @@ class RequestsStore:
                 conn.execute("UPDATE requests SET retry_at=0, retry_count=0, retry_priority=?, "
                              "message='', updated_at=CURRENT_TIMESTAMP WHERE id=?", (time.time(), request_id))
                 return True
-            if request_state(dict(row)) in ("choose_copy", "copy_unavailable"):
+            if request_state(dict(row)) in COPY_REVIEW_STATES:
                 return False
-            if self._queue_retry(conn, request_id, search_title if search_title is not None else row["search_title"]):
+            search = search_title if search_title is not None else row["search_title"]
+            if self._queue_retry(conn, request_id, search, allow_unavailable=True):
                 conn.execute("UPDATE requests SET retry_priority=? WHERE id=?", (time.time(), request_id))
                 return True
             return False
         return self._run(work)
 
     @staticmethod
-    def _queue_retry(conn, request_id, search_title, *, missing=False):
+    def _queue_retry(conn, request_id, search_title, *, missing=False, allow_unavailable=False):
         return bool(conn.execute(
             "UPDATE requests SET search_title=?, status='queued', message='', selected_copy_key=NULL, "
             "aac_revision=CASE WHEN aac_revision=format_revision THEN format_revision+1 END, "
@@ -609,8 +629,9 @@ class RequestsStore:
             "phase='', retry_count=0, retry_at=0, retry_priority=0, resolved_at=NULL, "
             "audio_path=CASE WHEN ? THEN '' ELSE audio_path END, "
             "updated_at=CURRENT_TIMESTAMP, format_revision=format_revision+1 "
-            "WHERE id=? AND (status IN ('not_found','error','rejected') OR (? AND status='downloaded'))",
-            (search_title, missing, request_id, missing)).rowcount)
+            "WHERE id=? AND (status IN ('not_found','error','rejected') OR (? AND status='downloaded') "
+            "OR (? AND status='unavailable'))",
+            (search_title, missing, request_id, missing, allow_unavailable)).rowcount)
 
     def retry_missing(self, request_id, revision, audio_path):
         """Requeue the still-current request whose playable file the caller found missing."""
@@ -628,9 +649,9 @@ class RequestsStore:
         def work(conn):
             return {row[0] for row in conn.execute(
                 "SELECT track_index FROM requests WHERE track_index BETWEEN ? AND ? "
-                "AND (status='waiting_format' OR format_confirmed=1) UNION "
+                "AND (status IN ('waiting_format','unavailable') OR format_confirmed=1) UNION "
                 "SELECT original_track_index FROM requests WHERE original_track_index BETWEEN ? AND ? "
-                "AND (status='waiting_format' OR format_confirmed=1)", (first, last, first, last))}
+                "AND (status IN ('waiting_format','unavailable') OR format_confirmed=1)", (first, last, first, last))}
         return self._run(work)
 
     def reset_searching(self):
@@ -664,10 +685,10 @@ class RequestsStore:
         return self._run(work)
 
     def recent(self, limit=80):
-        """The most recent requests, newest first, as dicts."""
+        """Recent requests and older ones that still need a choice or an explicit retry."""
         def work(conn):
             return [decode_request_row(row) for row in conn.execute(
-                "SELECT * FROM requests WHERE status='waiting_format' OR id IN "
+                "SELECT * FROM requests WHERE status IN ('waiting_format','unavailable') OR id IN "
                 "(SELECT id FROM requests ORDER BY id DESC LIMIT ?) ORDER BY id DESC", (limit,))]
         return self._run(work)
 
@@ -685,12 +706,14 @@ class RequestsStore:
     def by_track(self):
         """The requests-by-track map the catalog read path needs.
 
-        Every request that names a library track, keyed by track index;
-        when a track has several, the newest row wins.
+        When a track has several requests, the newest row wins. A
+        stopped replacement also holds its original track out of search.
         """
         def work(conn):
-            return {row["track_index"]: decode_request_row(row) for row in conn.execute(
-                "SELECT * FROM requests WHERE track_index IS NOT NULL ORDER BY id")}
+            return {row["track_index"] or row["original_track_index"]: decode_request_row(row)
+                    for row in conn.execute("SELECT * FROM requests WHERE track_index IS NOT NULL "
+                                            "OR (status='unavailable' AND original_track_index IS NOT NULL) "
+                                            "ORDER BY id")}
         return self._run(work)
 
     @staticmethod
@@ -725,11 +748,11 @@ class RequestsStore:
 
     @staticmethod
     def _weekly_requests(conn):
-        active, params = RequestsStore._active_filter((*ACTIVE_STATUSES, "downloaded"))
+        active, params = RequestsStore._active_filter((*ACTIVE_STATUSES, "downloaded", "unavailable"))
         return conn.execute(f"SELECT * FROM requests WHERE track_index IS NULL AND {active} ORDER BY id DESC", params)
 
     def weekly_requests(self):
-        """Current and downloaded requests that can satisfy a weekly song."""
+        """Current, stopped, and downloaded requests that map to a weekly song."""
         return self._run(lambda conn: [decode_request_row(row) for row in self._weekly_requests(conn)])
 
     def active_for_track(self, track_index):

@@ -221,7 +221,7 @@ def seed_state(app):
     sys.path.insert(0, str(REPO_ROOT / "backend"))
     from catalog.genres import GenreStore
     from downloads.download_activity import record_event
-    from downloads.requests_store import RequestsStore
+    from downloads.requests_store import COPY_REVIEW_MESSAGE, RequestsStore
     from metadata.artist_connections import quote_search
     from metadata.external_metadata import GENRE_MATCH_PREFIX
     store = GenreStore(database)
@@ -279,6 +279,9 @@ def seed_state(app):
         None, "Fixture Artist", "Unavailable Copy", "", 60,
         "Unavailable Copy")
     metadata_store.finish(missing_copy, "not_found", "No copy found", "")
+    review_copy = metadata_store.enqueue(None, "Fixture Artist", "Search to stop", "", 60, "Search to stop")
+    assert metadata_store.claim(review_copy)
+    metadata_store.finish(review_copy, "rejected", COPY_REVIEW_MESSAGE, "")
     synced = "\n".join(
         f"[{stamp // 60:02d}:{stamp % 60:02d}.00]{text}"
         for stamp, text in ATLAS_LYRICS)
@@ -3723,6 +3726,20 @@ def run_browser(server, output):
                         page.set_viewport_size({"width": 1440, "height": 900})
                 finally:
                     page.unroute("**/api/requests", requests_with_progress)
+                stopped_search = page.locator(".request-item", has_text="Search to stop")
+                stopped_search.get_by_role("button", name="Review copies", exact=True).click()
+                stop_picker = page.get_by_role("dialog", name="Choose a copy")
+                with page.expect_response(lambda response: response.url.endswith("/api/requests/stop-search")
+                                          and response.ok) as stopped:
+                    stop_picker.get_by_role("button", name="Stop searching", exact=True).press("Enter")
+                row = stopped.value.json()
+                assert row["title"] == "Search to stop" and row["request_state"] == "unavailable"
+                stop_picker.wait_for(state="hidden")
+                stopped_search.get_by_text("Unavailable", exact=True).wait_for()
+                assert not stopped_search.get_by_role("button", name="Review copies", exact=True).count()
+                stopped_search.get_by_role("button", name="Retry now: Search to stop", exact=True).wait_for()
+                refresh_requests.click()
+                stopped_search.get_by_text("Unavailable", exact=True).wait_for()
                 queued = page.locator(".request-item", has_text="Feeling Good")
                 scheduled = queued.locator(".request-status").filter(has_text=re.compile("^Retry scheduled$"))
                 scheduled.wait_for(timeout=20000)
@@ -3764,7 +3781,7 @@ def run_browser(server, output):
                     page.unroute("**/api/discover/matches?*")
                 page.set_viewport_size({"width": 1440, "height": 900})
                 item.ok = True
-                item.detail = "Transfer and verification, selected-copy recovery, and recording changes on the same request"
+                item.detail = "Transfer and verification, selected-copy recovery, stopping a search, and recording changes"
                 shot(item, "13-requests.png")
             except Exception as error:
                 from traceback import format_exc

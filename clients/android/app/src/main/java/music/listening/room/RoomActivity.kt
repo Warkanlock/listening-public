@@ -85,10 +85,11 @@ class RoomActivity : Activity() {
     private data class DownloadNotice(val roomId: String, val summary: String, val songs: List<JSONObject>,
                                       val feedKeys: List<String>)
     private enum class DownloadGroup(val label: String) {
-        REVIEW("Needs review"), READY("Ready to play"), MISSING("No copy found")
+        REVIEW("Needs review"), READY("Ready to play"), MISSING("No copy found"), UNAVAILABLE("Unavailable")
     }
     private enum class DownloadSource(val title: String) {
-        UPDATES("Download updates"), REQUESTS("Requests needing attention"), WEEKLY("Weekly Discovery needs attention")
+        UPDATES("Download updates"), REQUESTS("Requests needing attention"), WEEKLY("Weekly Discovery needs attention"),
+        UNAVAILABLE("Unavailable requests")
     }
     private enum class DownloadAction(val label: String, val icon: Mark) {
         PLAY("Play", Mark.PLAY), REVIEW("Review copies", Mark.BROWSE), CHOOSE("Choose format", Mark.SETTINGS),
@@ -708,9 +709,11 @@ class RoomActivity : Activity() {
     private fun downloadGroup(row: JSONObject) = when (row.optString("request_state")) {
         "ready" -> DownloadGroup.READY
         "no_matches" -> DownloadGroup.MISSING
+        "unavailable" -> DownloadGroup.UNAVAILABLE
         "" -> when (row.optString("status")) {
             "downloaded" -> DownloadGroup.READY
             "not_found" -> DownloadGroup.MISSING
+            "unavailable" -> DownloadGroup.UNAVAILABLE
             else -> DownloadGroup.REVIEW
         }
         else -> DownloadGroup.REVIEW
@@ -725,6 +728,7 @@ class RoomActivity : Activity() {
 
     private fun downloadActions(row: JSONObject, source: DownloadSource): List<DownloadAction> = when {
         downloadGroup(row) == DownloadGroup.READY -> listOf(DownloadAction.PLAY)
+        downloadGroup(row) == DownloadGroup.UNAVAILABLE -> listOf(DownloadAction.RETRY)
         !requestNeedsAttention(row) -> emptyList()
         row.needsCopyReview() -> listOf(DownloadAction.REVIEW)
         row.optString("request_state") == "copy_missing" || row.optString("status") == "missing" -> listOf(DownloadAction.RESTORE)
@@ -760,7 +764,11 @@ class RoomActivity : Activity() {
         val style = SongDetailsStyle(ui)
         val list = style.column()
         val dialog = style.dialog(this, source.title, ScrollView(this).apply { addView(list) },
-            closeLabel = if (source == DownloadSource.UPDATES) "Close download updates" else "Close attention list")
+            closeLabel = when (source) {
+                DownloadSource.UPDATES -> "Close download updates"
+                DownloadSource.UNAVAILABLE -> "Close unavailable requests"
+                else -> "Close attention list"
+            })
         val feedback = ui.label("", 14f, ui.secondary).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
             visibility = View.GONE
@@ -779,7 +787,8 @@ class RoomActivity : Activity() {
         var loading = false
         var changed = false
         dialog.setOnDismissListener { if (changed && !isDestroyed && room?.id == target.id) onChanged() }
-        if (requests.isEmpty()) updateFeedback("No requests need attention.")
+        if (requests.isEmpty()) updateFeedback(if (source == DownloadSource.UNAVAILABLE) "No unavailable requests."
+            else "No requests need attention.")
         fun render() {
             sections.removeAllViews()
             val grouped = requests.entries.groupBy { downloadGroup(it.value) }
@@ -796,8 +805,12 @@ class RoomActivity : Activity() {
                     }
                     fun reconcile(row: JSONObject?, status: String) {
                         changed = true
-                        if (row != null && downloadActions(row, source).isNotEmpty() &&
-                            (source == DownloadSource.UPDATES || requestNeedsAttention(row))) requests[id] = row
+                        val staysVisible = row != null && when (source) {
+                            DownloadSource.UPDATES -> true
+                            DownloadSource.UNAVAILABLE -> downloadGroup(row) == DownloadGroup.UNAVAILABLE
+                            else -> requestNeedsAttention(row)
+                        }
+                        if (row != null && staysVisible && downloadActions(row, source).isNotEmpty()) requests[id] = row
                         else requests.remove(id)
                         render()
                         updateFeedback("$title · $status")
@@ -870,6 +883,7 @@ class RoomActivity : Activity() {
             val requests = (0 until rows.length()).map(rows::getJSONObject)
             val pending = requests.filter { it.copyPending() }
             val attention = requests.filter(::requestNeedsAttention)
+            val unavailable = requests.filter { downloadGroup(it) == DownloadGroup.UNAVAILABLE }
             val recent = result.optJSONArray("downloads") ?: JSONArray()
 
             page.removeAllViews()
@@ -889,6 +903,12 @@ class RoomActivity : Activity() {
                     addView(ui.label(request.getString("title"), 17f).apply { typeface = ui.headline })
                     addView(ui.label(listOf(request.optString("artist"), request.copyStatusLabel())
                         .filter(String::isNotBlank).joinToString(" · "), 14f, ui.secondary))
+                })
+            }
+            if (unavailable.isNotEmpty()) {
+                page.addView(ui.heading("Unavailable", 18f))
+                page.addView(ui.button("View unavailable requests (${unavailable.size})") {
+                    showDownloadUpdates(target, unavailable, DownloadSource.UNAVAILABLE, onChanged = refresh)
                 })
             }
             page.addView(ui.heading("Recent downloads", 18f))
