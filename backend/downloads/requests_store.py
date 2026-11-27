@@ -404,7 +404,7 @@ class RequestsStore:
             if row["format_revision"] != revision or row["status"] not in allowed:
                 raise ValueError("This request changed. Reopen it to browse copies.")
             now = time.time()
-            conn.execute("DELETE FROM request_copies WHERE expires > 0 AND expires < ?", (now,))
+            self._prune_copy_previews(conn, now)
             if not (for_review or fresh):
                 existing = conn.execute("SELECT payload FROM request_copies WHERE request_id=? AND revision=? "
                                         "AND format=? AND expires>?", (request_id, revision, choice, now)).fetchone()
@@ -419,6 +419,13 @@ class RequestsStore:
                          (request_id, revision, choice, now + lifetime, json.dumps(payload)))
             return self._display_copy_matches(conn, request_id, payload)
         return self._run(work)
+
+    @staticmethod
+    def _prune_copy_previews(conn, now):
+        return conn.execute("DELETE FROM request_copies WHERE expires > 0 AND expires <= ?", (now,)).rowcount
+
+    def prune_copy_previews(self):
+        return self._run(lambda conn: self._prune_copy_previews(conn, time.time()))
 
     def review_matches(self, request_id, choice, revision, recording, selection):
         def work(conn):

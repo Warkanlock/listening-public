@@ -394,6 +394,27 @@ class FormatSelectionTests(StoreTestCase):
         picked = self.store.selected_copy(request_id, queued["format_revision"])
         self.assertEqual(picked["candidate"]["id"], "first")
 
+    def test_pruning_copy_previews_keeps_live_results_and_selected_copies(self):
+        def browse(title):
+            row, _ = self.store.create_or_find(None, "Artist", title, "", 200, title, individual=True)
+            matches = self.store.save_copy_matches(row["id"], "mp3", 0, {}, {},
+                                                   [{"source": "fixture", "id": title}])
+            return row["id"], matches
+
+        with patch("downloads.requests_store.time.time", return_value=1000):
+            expired, _ = browse("Expired")
+            selected, matches = browse("Selected")
+            queued, _ = self.store.confirm_format(selected, "mp3", 0, matches[0]["key"])
+        with patch("downloads.requests_store.time.time", return_value=1100):
+            live, matches = browse("Live")
+        with patch("downloads.requests_store.time.time", return_value=1900):
+            self.assertEqual(self.store.prune_copy_previews(), 1)
+            self.assertEqual(self.store.prune_copy_previews(), 0)
+            self.assertIsNone(self.store.review_matches(expired, "mp3", 0, {}, {}))
+            self.assertEqual(self.store.review_matches(live, "mp3", 0, {}, {}), matches)
+            picked = self.store.selected_copy(selected, queued["format_revision"])
+            self.assertEqual(picked["candidate"]["id"], "Selected")
+
     def test_failed_copy_remains_marked_after_reopen_and_refresh(self):
         row, _ = self.create()
         request_id = row["id"]

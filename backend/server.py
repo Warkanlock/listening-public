@@ -754,7 +754,9 @@ def _watchdog_pass():
             # A settled catalog can still have transfer files from a crash.
             first_pass = not REFRESH.synced()
             if first_pass:
-                requests_store().reset_searching()
+                pending = requests_store()
+                pending.reset_searching()
+                pending.prune_copy_previews()
             startup_transfers = first_pass and (
                 any((STATE / "bulk-incoming").glob("*")) or
                 any((STATE / "requests").glob("incoming-*-*")) or
@@ -2158,7 +2160,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", "gzip")
             self.send_header("Vary", "Accept-Encoding")
 
-    def json_response(self, value, status=HTTPStatus.OK, *, cookie=None, cookies=(), retry_after=None):
+    def json_response(self, value, status=HTTPStatus.OK, *, cookie=None, cookies=(), retry_after=None,
+                      content_range=None):
         payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
         compressed = len(payload) >= GZIP_JSON_MIN_BYTES and self._accepts_gzip()
         if compressed:
@@ -2175,6 +2178,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", cookie)
         if retry_after is not None:
             self.send_header("Retry-After", str(retry_after))
+        if content_range is not None:
+            self.send_header("Content-Range", content_range)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -4313,15 +4318,20 @@ class Handler(BaseHTTPRequestHandler):
             range_header = ""
         if range_header:
             match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header)
-            if not match or (not match[1] and not match[2]):
-                return self.error_json("Invalid range", HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
-            if match[1]:
-                start = int(match[1])
-                end = int(match[2]) if match[2] else end
-            else:
-                start = max(0, size - int(match[2]))
+            try:
+                if not match or (not match[1] and not match[2]):
+                    raise ValueError
+                if match[1]:
+                    start = int(match[1])
+                    end = int(match[2]) if match[2] else end
+                else:
+                    start = max(0, size - int(match[2]))
+            except ValueError:
+                return self.json_response({"error": "Invalid range"}, HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                                          content_range=f"bytes */{size}")
             if start >= size or end < start:
-                return self.error_json("Range outside file", HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                return self.json_response({"error": "Range outside file"}, HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                                          content_range=f"bytes */{size}")
             end = min(end, size - 1)
         length = end - start + 1
         self.send_response(HTTPStatus.PARTIAL_CONTENT if range_header else HTTPStatus.OK)
@@ -4337,17 +4347,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
         handle.seek(start)
+        buffer = memoryview(bytearray(min(length, 256 * 1024)))
         while length:
-            chunk = handle.read(min(length, 256 * 1024))
-            if not chunk:
+            count = handle.readinto(buffer[:length])
+            if not count:
                 break
             try:
-                self.wfile.write(chunk)
+                self.wfile.write(buffer[:count])
             except (BrokenPipeError, ConnectionResetError):
                 break
             if traffic_key is not None:
-                PLAYBACK_TRAFFIC.record(traffic_key, sent=len(chunk))
-            length -= len(chunk)
+                PLAYBACK_TRAFFIC.record(traffic_key, sent=count)
+            length -= count
 
     def serve_static(self, path):
         relative = dist_relative(path)
