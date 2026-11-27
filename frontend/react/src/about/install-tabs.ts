@@ -51,3 +51,28 @@ export function enableInstallTabs() {
     });
   }
 }
+
+export function enableDockerCopy() {
+  const toolbar = document.querySelector<HTMLElement>(".about-docker-toolbar");
+  const button = document.getElementById("copy-docker-commands");
+  const commands = document.getElementById("docker-commands");
+  const status = document.getElementById("docker-copy-status");
+  const snippet = commands?.textContent;
+  if (!toolbar || !button || !commands || !status || !snippet) return;
+
+  toolbar.hidden = false;
+  button.addEventListener("click", async () => {
+    if (navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(snippet);
+        status.textContent = "Commands copied.";
+        return;
+      } catch {
+        // Select the commands when the browser blocks clipboard access.
+      }
+    }
+    const selection = window.getSelection();
+    selection?.selectAllChildren(commands);
+    status.textContent = selection ? "Commands selected. Use your copy shortcut." : "Select and copy the commands.";
+  });
+}

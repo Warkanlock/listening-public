@@ -666,6 +666,9 @@ def record_browser_errors(page, errors, warnings):
 
 
 def verify_landing(browser, base, output, errors, warnings):
+    readme = (REPO_ROOT / "README.md").read_text()
+    docker_snippet = re.search(r"<summary><strong>Docker</strong></summary>.*?```sh\n(.+?)\n```", readme, re.S)
+    assert docker_snippet, "README is missing the Docker quick start"
     with urllib.request.urlopen(base + "/service-worker.js", timeout=5) as response:
         worker = response.read()
         assert b"/assets/first-light-" not in worker, "The player precaches the tour recording or artwork"
@@ -674,6 +677,8 @@ def verify_landing(browser, base, output, errors, warnings):
     desktop = browser.new_page(viewport={"width": 1440, "height": 900}, service_workers="block")
     mobile = browser.new_page(viewport={"width": 390, "height": 844}, has_touch=True,
                               is_mobile=True, reduced_motion="reduce", service_workers="block")
+    desktop.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base)
+    mobile.add_init_script("Object.defineProperty(navigator, 'clipboard', {value: undefined})")
     for page, url in ((desktop, "/about"), (mobile, "/about/")):
         try:
             record_browser_errors(page, errors, warnings)
@@ -697,19 +702,20 @@ def verify_landing(browser, base, output, errors, warnings):
             assert "Browse the demo collection" not in copy and "Select a screenshot" not in copy
             install = page.get_by_role("region", name="Set up a room.")
             hero = page.get_by_role("region", name="Your music, wherever you listen.")
-            for action, platform, download in (("Install on Mac", "Mac", "Download for Mac"),
-                                               ("Set up with Docker", "Linux", "Illustrated setup guide")):
+            for action, platform, control in (("Install on Mac", "Mac", "Download for Mac"),
+                                               ("Set up with Docker", "Docker", "Copy commands")):
                 link = hero.get_by_role("link", name=action)
                 bounds = link.bounding_box()
                 assert bounds["height"] >= 44 and bounds["y"] + bounds["height"] < page.viewport_size["height"]
                 link.click()
-                install.get_by_role("tabpanel", name=platform, exact=True).get_by_role("link", name=download).wait_for()
+                panel = install.get_by_role("tabpanel", name=platform, exact=True)
+                panel.get_by_text(control, exact=True).wait_for()
                 page.get_by_role("heading", level=1).scroll_into_view_if_needed()
                 page.evaluate("scrollTo({top: 0, behavior: 'instant'})")
             install.get_by_role("tab", name="Mac", exact=True).click()
             assert page.evaluate("location.hash") == "#install-linux"
             hero.get_by_role("link", name="Set up with Docker").click()
-            install.get_by_role("tabpanel", name="Linux", exact=True).wait_for()
+            install.get_by_role("tabpanel", name="Docker", exact=True).wait_for()
             hero.get_by_role("link", name="Connect a device").click()
             assert page.evaluate("location.hash") == "#connect"
             page.evaluate("scrollTo({top: 0, behavior: 'instant'})")
@@ -801,12 +807,24 @@ def verify_landing(browser, base, output, errors, warnings):
 
             mac = install.get_by_role("tab", name="Mac", exact=True)
             mac.press("ArrowRight")
-            assert install.get_by_role("tab", name="Linux", exact=True).get_attribute("aria-selected") == "true"
-            linux = install.get_by_role("tabpanel", name="Linux", exact=True)
-            guide = linux.get_by_role("link", name="Illustrated setup guide")
+            assert install.get_by_role("tab", name="Docker", exact=True).get_attribute("aria-selected") == "true"
+            docker = install.get_by_role("tabpanel", name="Docker", exact=True)
+            commands = docker.locator("pre code")
+            assert commands.text_content() == docker_snippet[1]
+            assert commands.evaluate("code => code.parentElement.scrollWidth <= code.parentElement.clientWidth")
+            assert docker.get_by_role("link", name="http://127.0.0.1:8765").get_attribute("href") == "http://127.0.0.1:8765"
+            copy_commands = docker.get_by_role("button", name="Copy commands")
+            if page == desktop:
+                copy_commands.press("Enter")
+                docker.get_by_text("Commands copied.", exact=True).wait_for()
+                assert page.evaluate("navigator.clipboard.readText()") == docker_snippet[1]
+            else:
+                copy_commands.tap()
+                docker.get_by_text("Commands selected. Use your copy shortcut.", exact=True).wait_for()
+                assert page.evaluate("getSelection().toString()") == docker_snippet[1]
+            guide = docker.get_by_role("link", name="Illustrated setup guide")
             assert guide.is_visible()
             assert guide.get_attribute("href").endswith("/docs/onboarding-walkthrough.md")
-            assert "docker compose" not in linux.inner_text().lower()
             install.get_by_text("See the setup screens", exact=True).click()
             setup_images = install.get_by_role("img").all()
             assert len(setup_images) == 2
@@ -823,6 +841,7 @@ def verify_landing(browser, base, output, errors, warnings):
             assert install.get_by_role("link", name="Get apps from this room").get_attribute("href") == "/?setup=clients"
             assert page.locator("a[href]").evaluate_all(
                 """links => links.every(link => link.origin === location.origin ||
+                    link.href === 'http://127.0.0.1:8765/' ||
                     ['https://github.com', 'https://musicbrainz.org'].includes(link.origin))"""
             ), "The landing contains an unexpected external link"
             unexpected = [url for url in requests
