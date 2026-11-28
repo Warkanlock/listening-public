@@ -22,6 +22,8 @@ The container runs as UID 1000. On Linux give that UID write access to `config` 
 
 Add `LISTENING_IMPORT_DIR` to `.env` with the absolute path to a folder of tagged music. The Compose import override mounts this folder read-only at `/imports`. The setup walkthrough offers to probe it and writes a list called **Owned music** into the room's configuration directory. The server verifies and ingests the audio on startup, so allow storage for a verified library copy.
 
+If the room is already running, stop the `listening-room` service with `docker compose stop listening-room` using the Compose files from its current installation. Then run setup with the import override, enter `/imports` at the music folder prompt, and start the service again.
+
 ```sh
 docker compose -f docker-compose.yml -f packaging/compose.import.yaml run --rm --no-deps listening-room /app/listening setup
 docker compose -f docker-compose.yml -f packaging/compose.import.yaml up -d --no-build

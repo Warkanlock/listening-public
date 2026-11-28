@@ -34,6 +34,18 @@ If Android and Mac installers are missing from **Connect a device**, download th
 
 [![Pairing screen on a new browser](../frontend/react/public/assets/about-showcase/onboarding/pairing.webp)](../frontend/react/public/assets/about-showcase/onboarding/pairing.webp)
 
-## Add an optional download engine
+## Browse extensions from Room setup
 
-Set up the [engine manager and signed catalog](download-engines.md#set-up-the-manager-on-a-linux-docker-host) on your Linux Docker host. Open **Settings → Extensions** in a test room. Install and configure a worker, use **Check setup**, then **Enable**. Under **Song downloads**, choose the enabled extensions and select **Save sources**. Try a recording you have permission to download before changing the engine selection in a room with existing jobs.
+As the room owner, open **Settings → Extensions**. From **Room setup**, you can also choose **Browse extensions** when that action is available. If your host has an engine manager, Listening shows the installed extensions and compatible plugins from the room’s signed catalog. Install and configure an extension, select **Check setup**, then enable it. Under **Song downloads**, select compatible search and download extensions and save the sources. [Set up the engine manager](download-engines.md#set-up-the-manager-on-a-linux-docker-host)
+
+Select **Continue to library** to finish setup in this tab. You can return to **Room setup** or **Extensions** whenever you want.
+
+## Add audio from a folder
+
+Stop the room on the host before changing its music folder. For a local install, run `listening setup` to preview the folder and confirm the import. Use `listening setup --music PATH` to select the folder directly after checking its size.
+
+For Docker, stop the `listening-room` service with your existing Compose files. Run the Compose setup command in the guide and enter `/imports` at the music folder prompt, even if the folder is already configured. Confirm the import when prompted and then start the room again. Find **Owned music** in Library. [Choose a music folder on the host](private-install.md#add-your-music-and-claim-the-room)
+
+## Browse and import Bandcamp purchases
+
+Find music on [Bandcamp](https://bandcamp.com/discover). The public catalog view in Listening can open Bandcamp in a separate tab with **Browse Bandcamp** or **Search on Bandcamp**. To add a purchase, download the audio from Bandcamp, extract it into the music folder on your host, and use the folder import above. [Find your Bandcamp download](https://get.bandcamp.help/en/articles/15263100-where-do-i-download-my-purchase)

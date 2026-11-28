@@ -721,6 +721,18 @@ def verify_landing(browser, base, output, errors, warnings):
             page.evaluate("scrollTo({top: 0, behavior: 'instant'})")
             page.screenshot(path=str(output / ("landing-hero-mobile.png" if page == mobile else "landing-hero-desktop.png")),
                             animations="disabled")
+            navigation = page.get_by_role("navigation", name="Main navigation")
+            assert navigation.get_by_role("link", name="Music sources").get_attribute("href") == "#music-sources"
+            music = page.get_by_role("region", name="Bring your music.")
+            assert music.get_by_role("heading", level=3).all_text_contents() == [
+                "Local files", "Spotify", "Bandcamp", "Optional extensions"]
+            for label, guide in [
+                ("Add a music folder", "onboarding-walkthrough.md#add-audio-from-a-folder"),
+                ("Set up Spotify sync", "operations.md#spotify-adapter-optional"),
+                ("Add Bandcamp purchases", "onboarding-walkthrough.md#browse-and-import-bandcamp-purchases"),
+                ("Browse extension setup", "onboarding-walkthrough.md#browse-extensions-from-room-setup"),
+            ]:
+                assert music.get_by_role("link", name=label).get_attribute("href").endswith(guide)
             screens = page.get_by_role("region", name="Find your next listen.")
             assert screens.get_by_role("heading", level=3).all_text_contents() == [
                 "Mood Map", "Camping mode", "Weekly Discovery", "Deep Dive", "Library Radio", "Activity mixes"]
@@ -798,6 +810,8 @@ def verify_landing(browser, base, output, errors, warnings):
             assert features.get_by_text("Buffer upcoming tracks", exact=False).is_visible()
             query.fill("crossfade")
             assert features.get_by_text("Playback and queue", exact=True).is_visible()
+            query.fill("bandcamp")
+            assert features.get_by_text("Catalog search", exact=True).is_visible()
             query.fill("qwertyuiop")
             assert visible_entries.count() == 0
             assert status.text_content() == "No features match. Try another search."
@@ -933,6 +947,31 @@ def verify_phone(browser, server, output, errors, warnings):
             }"""), timeout=5, interval=0.1)
         assert phone.evaluate("document.documentElement.scrollWidth") <= phone.viewport_size["width"], \
             "Connect a device overflows the phone viewport"
+
+        def first_run_settings(route):
+            response = route.fetch()
+            route.fulfill(response=response, json={**response.json(), "onboarding": True})
+
+        phone.route("**/api/settings", first_run_settings)
+        try:
+            phone.goto(server.base + "/")
+            setup_panel.get_by_role("button", name="Browse extensions", exact=True).tap()
+            setup_panel.get_by_text("Set up the engine manager on the computer running Listening", exact=False).wait_for()
+            assert setup_panel.get_by_role("link", name="Plugin setup guide").is_visible()
+            phone.screenshot(path=str(output / "01g-phone-extension-setup.png"))
+            setup_panel.get_by_role("button", name="Continue to library", exact=True).tap()
+            phone.get_by_role("heading", name="Library", exact=True, level=1).wait_for()
+            phone.reload()
+            phone.locator(".track-row").first.wait_for()
+            phone.get_by_role("heading", name="Library", exact=True, level=1).wait_for()
+            assert not setup_panel.count()
+            phone.goto(server.base + "/?setup=room")
+            setup_panel.get_by_role("button", name="Continue to library", exact=True).tap()
+            phone.get_by_role("heading", name="Library", exact=True, level=1).wait_for()
+            assert "setup" not in parse_qs(urlsplit(phone.url).query)
+        finally:
+            phone.unroute("**/api/settings", first_run_settings)
+
         menu.tap()
         phone.screenshot(path=str(output / "01d-phone-menu.png"))
         phone.keyboard.press("Escape")
@@ -2416,7 +2455,17 @@ def verify_household_browser(browser, root, output):
                                            "more": query["page"] == 0, "error": ""}]})
 
         second.route("**/api/discovery/search", discovery_results)
-        browse.get_by_label("Search public catalogs", exact=True).fill("night")
+        bandcamp = browse.get_by_role("link", name="Browse Bandcamp", exact=True)
+        assert bandcamp.get_attribute("href") == "https://bandcamp.com/discover"
+        public_query = browse.get_by_label("Search public catalogs", exact=True)
+        public_query.fill("Nina & Simone?")
+        bandcamp_search = browse.get_by_role("link", name="Search on Bandcamp", exact=True)
+        destination = urlsplit(bandcamp_search.get_attribute("href"))
+        assert (destination.scheme, destination.netloc, destination.path) == ("https", "bandcamp.com", "/search")
+        assert parse_qs(destination.query) == {"q": ["Nina & Simone?"]}
+        assert bandcamp_search.get_attribute("target") == "_blank"
+        assert "noreferrer" in bandcamp_search.get_attribute("rel")
+        public_query.fill("night")
         if searches:
             raise AssertionError("Typing a query searched a public catalog before submit")
         browse.get_by_role("button", name="Search", exact=True).click()
@@ -2437,6 +2486,7 @@ def verify_household_browser(browser, root, output):
         browse.get_by_role("combobox", name="Search source", exact=True).click()
         second.get_by_role("option", name="Jellyfin", exact=True).click()
         browse.get_by_label("Search private catalog", exact=True).fill("quiet")
+        assert not browse.get_by_role("link", name=re.compile("Bandcamp")).count()
         browse.get_by_role("button", name="Search", exact=True).click()
         browse.get_by_role("link", name="Quiet album", exact=True).wait_for()
         assert searches[-1]["scope"] == "room" and searches[-1]["source"] == "jellyfin"
@@ -2446,6 +2496,9 @@ def verify_household_browser(browser, root, output):
         assert from_catalog.get_by_label("Song title", exact=True).input_value() == "Quiet song"
         assert from_catalog.get_by_label("Album (optional)").input_value() == "Quiet album"
         from_catalog.get_by_role("button", name="Close add song").click()
+        browse.get_by_role("button", name="Public catalogs", exact=True).click()
+        assert browse.get_by_label("Search public catalogs", exact=True).input_value() == ""
+        assert bandcamp.get_attribute("href") == "https://bandcamp.com/discover"
 
         imported = owner.request.post(server.base + "/api/import-list", headers={"Origin": server.base}, data={
             "name": "fresh-picks.csv", "content": "title,artist,album\nNight tide,Fixture quartet,Harbor\n"})
@@ -3552,6 +3605,19 @@ def run_browser(server, output):
                     visible_panel = page.get_by_role("tabpanel", name=label, exact=True)
                     visible_panel.get_by_role("heading", name=headings.get(label, label), exact=True).wait_for()
                     assert page.get_by_role("tabpanel").count() == 1, "More than one settings panel is visible"
+                    if label == "Room setup":
+                        folder = visible_panel.get_by_role("button", name="Add a music folder", exact=True)
+                        folder.click()
+                        guide = visible_panel.get_by_role("link", name="Music folder setup guide", exact=True)
+                        assert guide.is_visible() and guide.get_attribute("href").endswith("#add-your-music-and-claim-the-room")
+                        assert visible_panel.get_by_text("listening setup --music PATH", exact=True).is_visible()
+                        assert visible_panel.get_by_text("stop the room before changing its music folder", exact=False).is_visible()
+                        extensions = visible_panel.get_by_role("button", name="Browse extensions", exact=True)
+                        extensions.click()
+                        install = visible_panel.get_by_role("button", name="Install example-catalog", exact=True)
+                        install.wait_for()
+                        assert install.is_enabled()
+                        assert not guide.is_visible()
                     if label == "Playback":
                         buffer = visible_panel.get_by_role("combobox", name="Buffer ahead")
                         before = buffer.inner_text()

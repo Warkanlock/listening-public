@@ -11,6 +11,7 @@ import {
   api,
   ApiError,
   currentAccount,
+  isHost,
   type Activity,
   type ActivityExplore,
   type Announcement,
@@ -53,6 +54,7 @@ import {
   type RadioStatus,
 } from "./slices/radio";
 
+const SETUP_SKIPPED_KEY = "listening-room-setup-skipped";
 const DEFAULT_QUEUE_MEDIA = "(min-width: 1250px) and (not (any-pointer: coarse))";
 
 type RoomConnection = "connecting" | "catalog_loading" | "ready" | "unreachable" | "pairing_required";
@@ -486,6 +488,15 @@ export class Store implements SliceHost {
   }
 
   setSettingsTab(tab: string) { this.settingsSlice.setSettingsTab(tab); }
+  continueToLibrary() {
+    sessionStorage.setItem(SETUP_SKIPPED_KEY, "true");
+    if (new URLSearchParams(location.search).get("setup") === "room") {
+      const url = new URL(location.href);
+      url.searchParams.delete("setup");
+      history.replaceState(history.state, "", url);
+    }
+    this.setView("all");
+  }
   openRadioSettings() {
     this.setSettingsTab("radio");
     this.setView("settings");
@@ -632,7 +643,11 @@ export class Store implements SliceHost {
       );
     }
     await this.loadTracks(true);
-    if (!this.member && this.settings?.onboarding && this.view !== "extensions") this.view = "settings";
+    if (this.settings?.onboarding && isHost(this.settings) && this.view === "all" && !this.query &&
+        sessionStorage.getItem(SETUP_SKIPPED_KEY) !== "true") {
+      this.settingsTab = "setup";
+      this.view = "settings";
+    }
     this.queueOpen =
       this.queuePreference === null
         ? matchMedia(DEFAULT_QUEUE_MEDIA).matches

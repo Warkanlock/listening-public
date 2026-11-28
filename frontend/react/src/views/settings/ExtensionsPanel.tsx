@@ -210,7 +210,7 @@ export function ExtensionsPanel() {
         <h2>Listening plugins</h2>
         <ExtensionIconAction icon="refresh" label="Refresh extensions" disabled={busy} onClick={refresh} />
       </header>
-      {!extensions.configured && <p>Set up the host engine manager to install plugins.</p>}
+      {!extensions.configured && <p>Set up the engine manager on the computer running Listening to install signed plugins. Use the plugin setup guide to get started.</p>}
       {extensions.configured && !extensions.error && !extensions.installed.length && !catalog.length &&
         <p>No compatible plugins are listed in this room’s catalog.</p>}
       {(extensions.installed.length > 0 || catalog.length > 0) && <ExtensionInventory label="Listening plugins" manage>

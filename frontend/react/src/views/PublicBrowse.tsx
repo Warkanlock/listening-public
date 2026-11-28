@@ -244,6 +244,10 @@ export function PublicBrowse() {
   const available = config?.sources.filter(item => item.media.includes("music") && (item.scope ?? "public") === scope) ?? [];
   const hasRecordings = available.some(item => item.id === "musicbrainz");
   const selected = source || (hasRecordings ? "recordings" : "all");
+  const term = query.trim();
+  const bandcampUrl = term
+    ? `https://bandcamp.com/search?${new URLSearchParams({ q: term })}`
+    : "https://bandcamp.com/discover";
   return <section className="view discovery-view">
     <header className="listening-view-head">
       <div>
@@ -264,6 +268,7 @@ export function PublicBrowse() {
                 if (option.id === scope) return;
                 setScope(option.id);
                 setSource("");
+                setQuery("");
                 reset();
               }}>{option.label}</RoomAction>)}
           </div>
@@ -293,6 +298,12 @@ export function PublicBrowse() {
           {scope === "public" ? "Search terms go to the selected catalogs." : "Search music on the connected server."}
           {scope === "public" && config.can_import && " Imported songs appear in Library → Catalog imports."}
         </p>}
+        {scope === "public" && <div className="settings-actions">
+          <a className="quiet-button room-action" href={bandcampUrl} target="_blank" rel="noopener noreferrer">
+            {term ? "Search on Bandcamp" : "Browse Bandcamp"} <RoomIcon name="northeast" />
+          </a>
+          <span className="discovery-note">Download your Bandcamp purchases, extract the audio, then run music folder setup to import it.</span>
+        </div>}
       </div>
       {state.kind === "empty" && available.length > 0 && <section className="catalog-directory">
         <h2>{scope === "room" ? "Connected libraries" : "Available catalogs"}</h2>
