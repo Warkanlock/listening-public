@@ -94,7 +94,7 @@ final class RoomApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         let fieldLabel = NSTextField(labelWithString: label)
         fieldLabel.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         connectButton.bezelStyle = .rounded
-        connectButton.controlSize = .large
+        connectButton.controlSize = .regular
         connectButton.keyEquivalent = "\r"
         let stack = NSStackView(views: [heading, hint, fieldLabel, field, connectButton, message])
         if server != nil {

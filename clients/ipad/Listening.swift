@@ -84,7 +84,7 @@ private struct RoomScreen: View {
                         if !problem.isEmpty { Text(problem).foregroundStyle(.red) }
                         Button(pairingServer != nil ? "Pair device" : retryRoom == nil ? "Connect" : "Retry",
                                action: connect).buttonStyle(.borderedProminent)
-                            .controlSize(.large).tint(accent)
+                            .controlSize(.regular).tint(accent)
                         if let pairingServer {
                             Button("Change server URL") {
                                 address = pairingServer.origin.absoluteString
