@@ -158,6 +158,20 @@
 .about-steps { max-width: 62ch; padding-inline-start: 1.4rem; color: #405851; line-height: 1.55; }
 .about-steps li + li { margin-top: 0.6rem; }
 
+#music-sources .about-directory { align-items: start; }
+.about-source-list { margin: 0; padding: 0; list-style: none; }
+.about-source-list li {
+  display: grid;
+  gap: .35rem;
+  padding-block: 1rem;
+  border-block-start: 1px solid var(--light-rule);
+}
+.about-source-list li:last-child { border-block-end: 1px solid var(--light-rule); }
+.about-source-list h3 { font-size: clamp(1.15rem, 2vw, 1.55rem); }
+.about-source-list p { max-width: 52ch; color: var(--muted); line-height: 1.5; }
+.about-source-list a { justify-self: start; display: inline-flex; align-items: center; min-height: 44px; font-weight: 670; }
+.about-mast nav { flex-wrap: wrap; }
+
 .about-feature-search { margin-bottom: 1.5rem; }
 .about-feature-search > label { display: block; margin-bottom: .45rem; font-weight: 700; }
 .about-feature-search > input {

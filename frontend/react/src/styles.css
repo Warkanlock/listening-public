@@ -853,6 +853,17 @@ input[type=range] { height: 3px; accent-color: var(--accent); cursor: pointer; }
 .settings-card p { margin: 0 0 var(--space-9); color: var(--muted); font-size: var(--font-md); line-height: var(--leading-relaxed); }
 .settings-panel .settings-card > p { max-width: 600px; margin-bottom: var(--space-8); }
 .settings-card code { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--tint); }
+.settings-section-title[data-setup-title] { flex-wrap: wrap; }
+.settings-card[data-layout="tasks"] > section[data-setup-detail]:not([hidden]) {
+  margin-block-end: var(--space-6);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+.settings-card[data-layout="tasks"] > section[data-setup-detail]:not([hidden]) + div { border-top: 1px solid var(--line); }
+.settings-card[data-layout="tasks"] > section[data-setup-detail] > p + p { margin-block-start: var(--space-4); }
+.settings-panel section[data-setup-detail] > .extensions-stack { margin-block-end: 0; }
 .settings-card-heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); }
 .settings-card-heading .settings-note { margin: 0; }
 .job-queue {
