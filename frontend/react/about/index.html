@@ -47,31 +47,44 @@
     </section>
 
     <section class="about-index" id="music-sources" aria-labelledby="music-sources-title">
-      <div class="about-wrap about-directory">
+      <div class="about-wrap about-sources">
         <header class="about-section-lead">
           <h2 id="music-sources-title">Bring <em>your music.</em></h2>
-          <p>Start with a folder of music you already own. Connect other sources as you need them.</p>
         </header>
-        <ul class="about-source-list">
+        <ul class="about-source-list" role="list">
           <li>
-            <h3>Local files</h3>
-            <p>Point Listening at a folder of tagged audio your server can read. It keeps your originals in place and imports verified copies into your library.</p>
-            <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/onboarding-walkthrough.md#add-audio-from-a-folder">Add a music folder</a>
+            <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/onboarding-walkthrough.md#add-audio-from-a-folder" aria-labelledby="source-files" aria-describedby="source-files-detail">
+              <h3 id="source-files">
+                <svg class="about-source-symbol" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                Local files
+              </h3>
+              <p id="source-files-detail">Import audio from a folder.</p>
+              <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg>
+            </a>
           </li>
           <li>
-            <h3>Spotify</h3>
-            <p>Connect your account to sync Liked Songs and playlists you own or collaborate on. Listening plays the audio you add to your room.</p>
-            <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/operations.md#spotify-adapter-optional">Set up Spotify sync</a>
+            <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/operations.md#spotify-adapter-optional" aria-labelledby="source-spotify" aria-describedby="source-spotify-detail">
+              <h3 id="source-spotify"><img src="%BASE_URL%assets/about-showcase/sources/spotify.png" alt="Spotify" width="336" height="92" /></h3>
+              <p id="source-spotify-detail">Sync Liked Songs and eligible playlists.</p>
+              <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg>
+            </a>
           </li>
           <li>
-            <h3>Bandcamp</h3>
-            <p>Find music on Bandcamp and bring your purchases into Listening. Download the files from Bandcamp and import the extracted audio from your music folder.</p>
-            <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/onboarding-walkthrough.md#browse-and-import-bandcamp-purchases">Add Bandcamp purchases</a>
+            <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/onboarding-walkthrough.md#browse-and-import-bandcamp-purchases" aria-labelledby="source-bandcamp" aria-describedby="source-bandcamp-detail">
+              <h3 id="source-bandcamp"><img src="%BASE_URL%assets/about-showcase/sources/bandcamp.png" alt="Bandcamp" width="336" height="97" /></h3>
+              <p id="source-bandcamp-detail">Import purchased downloads.</p>
+              <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg>
+            </a>
           </li>
           <li>
-            <h3>Optional extensions</h3>
-            <p>Browse compatible plugins in Settings. Add search and download sources or enable radio providers when you want them.</p>
-            <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/onboarding-walkthrough.md#browse-extensions-from-room-setup">Browse extension setup</a>
+            <a href="https://github.com/Warkanlock/listening-public/blob/main/docs/onboarding-walkthrough.md#browse-extensions-from-room-setup" aria-labelledby="source-extensions" aria-describedby="source-extensions-detail">
+              <h3 id="source-extensions">
+                <svg class="about-source-symbol" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3v4m8-4v4M6 7h12v3a6 6 0 0 1-12 0zM12 16v5"/></svg>
+                Extensions
+              </h3>
+              <p id="source-extensions-detail">Add search, downloads, and radio.</p>
+              <svg class="about-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#link-arrow"/></svg>
+            </a>
           </li>
         </ul>
       </div>

@@ -724,15 +724,21 @@ def verify_landing(browser, base, output, errors, warnings):
             navigation = page.get_by_role("navigation", name="Main navigation")
             assert navigation.get_by_role("link", name="Music sources").get_attribute("href") == "#music-sources"
             music = page.get_by_role("region", name="Bring your music.")
-            assert music.get_by_role("heading", level=3).all_text_contents() == [
-                "Local files", "Spotify", "Bandcamp", "Optional extensions"]
+            assert music.get_by_role("link").count() == 4
             for label, guide in [
-                ("Add a music folder", "onboarding-walkthrough.md#add-audio-from-a-folder"),
-                ("Set up Spotify sync", "operations.md#spotify-adapter-optional"),
-                ("Add Bandcamp purchases", "onboarding-walkthrough.md#browse-and-import-bandcamp-purchases"),
-                ("Browse extension setup", "onboarding-walkthrough.md#browse-extensions-from-room-setup"),
+                ("Local files", "onboarding-walkthrough.md#add-audio-from-a-folder"),
+                ("Spotify", "operations.md#spotify-adapter-optional"),
+                ("Bandcamp", "onboarding-walkthrough.md#browse-and-import-bandcamp-purchases"),
+                ("Extensions", "onboarding-walkthrough.md#browse-extensions-from-room-setup"),
             ]:
-                assert music.get_by_role("link", name=label).get_attribute("href").endswith(guide)
+                card = music.get_by_role("link", name=label, exact=True)
+                assert card.get_attribute("href").endswith(guide)
+                assert card.get_by_role("heading", level=3, name=label, exact=True).is_visible()
+                assert card.bounding_box()["height"] >= 44
+                if label in ("Spotify", "Bandcamp"):
+                    logo = card.get_by_role("img", name=label, exact=True)
+                    logo.evaluate("image => image.decode()")
+                    assert logo.bounding_box()["width"] >= 70
             screens = page.get_by_role("region", name="Find your next listen.")
             assert screens.get_by_role("heading", level=3).all_text_contents() == [
                 "Mood Map", "Camping mode", "Weekly Discovery", "Deep Dive", "Library Radio", "Activity mixes"]

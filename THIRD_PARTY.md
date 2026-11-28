@@ -12,3 +12,5 @@ The React frontend in `frontend/react/` (plan 042) builds on these packages, ins
 The browser bundles Figtree Variable by Erik Kennedy under the SIL Open Font License 1.1. The license is included with the browser assets. [Figtree license](frontend/react/public/licenses/Figtree-OFL.txt)
 
 The landing page uses original generated sleeve artwork for First light and a preview of the project’s CC0 demo composition. The tour bundles both locally. Recording credit examples link to their source.
+
+The music source cards use the providers’ published [Spotify](https://newsroom.spotify.com/media-kit/logo-and-brand-assets/) and [Bandcamp](https://bandcamp.com/buttons) logos.
