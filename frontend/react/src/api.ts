@@ -245,6 +245,7 @@ export interface RequestRow {
   format_revision: number;
   mp3_retry?: Mp3Retry;
   copy_review?: boolean;
+  replace_copy?: true;
   id: number;
   track_index: number | null;
   artist: string;

@@ -11,6 +11,7 @@ import {
 } from "./store";
 import { DESTINATION_DESCRIPTORS } from "./destinations";
 import { notify, toaster } from "./toasts";
+import { RequestAttentionButton } from "./components/RequestAttentionButton";
 import { RequestFormatPicker } from "./components/RequestFormatPicker";
 import type { RoomRole } from "./components/RoomLogin";
 import { ActivityDialog } from "./components/ActivityDialog";
@@ -180,6 +181,7 @@ function Topbar({
       <div className="topbar-actions">
         {(role === "owner" || role === "member") && <Jams />}
         {!store.member && <ActivityBar />}
+        {!store.member && <RequestAttentionButton toolbar />}
         {!store.member && <button
           className="announcements-button"
           type="button"

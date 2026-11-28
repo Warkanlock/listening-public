@@ -39,7 +39,8 @@ export function DownloadUpdatesTray({ tray, children }: { tray: DownloadTray; ch
   useEffect(() => () => operation.current?.abort(), []);
   const title = tray.source === "weekly" ? "Weekly Discovery needs attention"
     : tray.source === "requests" ? "Requests needing attention" : "Download updates";
-  const current = tray.source === "updates"
+  const current = tray.source === "requests" ? store.requestsSlice.attentionRows
+    : tray.source === "updates"
     ? tray.rows.map(seed => store.requestRows.find(request => request.id === seed.id) ?? seed) : tray.rows;
   const rows = current
     .filter(row => tray.source === "updates" || requestNeedsAttention(requestStage(row)));

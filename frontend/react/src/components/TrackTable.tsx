@@ -36,6 +36,7 @@ function TrackRow({ track }: { track: Track }) {
     else if (value === "open") void store.openRoomPlayer(track.id, menuTrigger.current, store.playlist);
     else if (value === "desktop") void store.openSource(track.id);
     else if (value === "add_playlist") composer.open({ song: { title: track.title, artist: track.artist, album: track.album, track_id: track.id, track: track.spotify_url } });
+    else if (value === "replace_copy") void store.requestsSlice.replaceTrackCopy(track.id);
     else if (value === "info") store.openSongInfo(track.id);
     else if (value === "album_tracks") store.openSongInfo(track.id, "album-tracks", menuTrigger.current);
   };
@@ -100,6 +101,7 @@ function TrackRow({ track }: { track: Track }) {
                 <MenuItem value="play_next">Play next</MenuItem>
                 <MenuItem value="enqueue">Add to queue</MenuItem>
                 <MenuItem value="open">Open in room player</MenuItem>
+                {!store.member && isHost(store.settings) && <MenuItem value="replace_copy">Replace copy</MenuItem>}
                 {store.settings?.desktop_player_available && <MenuItem value="desktop">Open in server’s desktop music app</MenuItem>}
               </>
             ) : null}

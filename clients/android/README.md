@@ -73,4 +73,4 @@ The command verifies the APK signature, writes the APK and a SHA-256 checksum to
 
 ## Move from a preview build
 
-Download the signed 1.0.0 APK from the public release and install it over your 2.x preview once. Keep the preview installed during this step so Android preserves its data. Use **Check for APK updates** for later 1.x releases.
+Download the signed APK from the latest public release and install it over your 2.x preview once. Keep the preview installed during this step so Android preserves its data. Use **Check for APK updates** for later 1.x releases.

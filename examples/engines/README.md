@@ -16,7 +16,7 @@ for transient working files and `/credentials` for the provider's configuration.
 | Action | Input | Response |
 | --- | --- | --- |
 | `test` | No extra fields | `{"ok":true}` when ready |
-| `search` | `recording` with `id`, `title`, `search_title`, `artist`, `album`, `duration` in seconds, allowed `formats` such as `[".mp3",".flac"]`, and `preferred_format` such as `"mp3"` | `{"ok":true,"candidates":[{"source":"example-catalog","id":"first-light.mp3"}]}` |
+| `search` | `recording` with `id`, `title`, `search_title`, `search_query`, `artist`, `album`, `duration` in seconds, allowed `formats` such as `[".mp3",".flac"]`, and `preferred_format` such as `"mp3"` | `{"ok":true,"candidates":[{"source":"example-catalog","id":"first-light.mp3"}]}` |
 | `fetch` | `candidate` with the same `source` and `id`, and a writable `staging` directory allocated for this request | `{"ok":true,"file":"first-light.mp3"}` identifying a complete regular file immediately inside staging |
 
 While fetching, a worker can atomically replace `.download-progress` inside its staging directory with the whole percentage (ASCII digits, 0–100). Report percentages calculated from actual bytes and a known total. Progress is optional and the final reply still identifies only the completed audio file.
@@ -36,7 +36,7 @@ For authors using the Python SDK, implement `list(recording)`. The SDK maps it
 to the existing `search` action. An individual request can include a `version`
 such as `"Live"`. Candidates may include a public `label`, a
 short `format`, and positive whole numbers for `duration` in seconds and
-`bitrate` in kbps. Set `recommended` to false for uncertain alternatives.
+`bitrate` in kbps. Use `search_query` for the lowercase title and artist search phrase. Keep the supplied artist in any retry that simplifies the title. Set `recommended` to false for uncertain alternatives. A plugin that identifies the title and artist can set `identity_match` to true when a format or version still needs review.
 Browse copies shows them and queues a user's selection with the original
 source and ID kept on the server. Individual automatic requests skip
 candidates explicitly marked uncertain.

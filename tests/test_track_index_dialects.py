@@ -282,6 +282,29 @@ class RequestsBatchDialectTests(DialectFixture):
         self.assertEqual(body, {"error": "Choose up to 50 library songs"})
 
 
+class PlaylistCopiesTests(DialectFixture):
+    def test_entire_playlist_skips_playable_inactive_and_already_queued_songs(self):
+        records = [
+            {"index": number, "key": f"song-{number}", "uri": "", "artist": "Fixture Artist",
+             "title": f"Song {number}", "album": "", "length": 180, "active": number != 3}
+            for number in range(1, 64)
+        ]
+        store = CatalogStore(server.DB)
+        store.write_build({"records": records, "playlists": {"all-songs": [*range(1, 63), 4]},
+                           "issues": [], "covers": {}, "list_names": {"all-songs": "All songs"}})
+        store.write_coverage([{"index": 2, "status": "verified", "artist": "Fixture Artist",
+                              "title": "Song 2", "uri": "", "path": "song-2.mp3", "reason": ""}])
+        server.catalog.reload()
+        path = "/api/requests/batch"
+        payload = {"playlist": "all-songs"}
+        for expected in (60, 0):
+            status, data = self.request("POST", path, payload)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(data)["added"], expected)
+        requests = RequestsStore(server.DB).by_track()
+        self.assertEqual(set(requests), {1, *range(4, 63)})
+
+
 class AudioDialectTests(DialectFixture):
     """GET /api/audio/<i>: plain range, 404 "Audio unavailable";
     a valid verified index serves the file."""

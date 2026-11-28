@@ -3790,7 +3790,7 @@ def run_browser(server, output):
                     try:
                         status_route = "**/api/requests?id=10000"
                         page.route(status_route, lambda route: route.fulfill(json={"requests": [progress_row]}))
-                        page.get_by_role("button", name=re.compile(r"^\d+ needs? attention$")).click()
+                        page.get_by_role("button", name=re.compile(r"^Needs review, \d+ requests?$")).click()
                         attention_tray = page.get_by_role("dialog", name="Requests needing attention")
                         attention_tray.get_by_role("button", name="Review copies Transfer fixture").wait_for()
                         assert not attention_tray.get_by_role("region", name="Ready to play").count()

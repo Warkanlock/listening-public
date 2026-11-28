@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { RoomIconButton } from "./RoomIcon";
 
 type RequestState = Pick<RequestRow, "status" | "phase" | "retry_at" | "copy_review" | "download_percent" | "request_state">
-  & Partial<Pick<RequestRow, "message" | "format_revision">>;
+  & Partial<Pick<RequestRow, "message" | "format_revision" | "replace_copy">>;
 export function RequestStatus({ request }: { request: RequestState }) {
   return <span className={`status-pill request-status ${request.status}`} data-request-state={requestStage(request)}>
     {requestStageLabel(request)}
@@ -19,7 +19,8 @@ export function RetryRequestButton({ request, title, onRetry }: {
 }) {
   const store = useStore();
   const [pending, setPending] = useState(false);
-  if (store.member || !canRetryRequest(requestStage(request))) {
+  const stage = requestStage(request);
+  if (store.member || (stage === "unavailable" && request.replace_copy) || !canRetryRequest(stage)) {
     return null;
   }
   async function retry() {

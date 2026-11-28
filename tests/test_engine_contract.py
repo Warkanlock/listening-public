@@ -292,7 +292,7 @@ class EngineRunnerTests(WorkspaceTestCase):
                 self.assertEqual(list(self.staging.iterdir()), [])
                 self.assertEqual(external.read_bytes(), b"not for the runner")
 
-    def make_audio(self, filename, title, *, duration=1):
+    def make_audio(self, filename, title, *, duration=1, artist=""):
         path = self.root / filename
         codec = {
             ".flac": ["-c:a", "flac"],
@@ -301,7 +301,7 @@ class EngineRunnerTests(WorkspaceTestCase):
         }[path.suffix]
         subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi",
                         "-i", f"anoisesrc=d={duration}:c=white", "-ac", "2", *codec,
-                        "-metadata", f"title={title}", str(path)], check=True)
+                        "-metadata", f"title={title}", "-metadata", f"artist={artist}", str(path)], check=True)
         self.media[filename] = path
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
@@ -431,6 +431,59 @@ class EngineRunnerTests(WorkspaceTestCase):
         operations = [(call["action"], call.get("candidate", {}).get("id"))
                       for call in self.requests if call["action"] in ("search", "fetch")]
         self.assertEqual(operations, [("fetch", "wrong.mp3"), ("fetch", "good.mp3")])
+
+    def test_copy_search_sends_title_and_artist_and_omits_unrelated_peers(self):
+        record = self.record(1, "Aurora", length=2)
+        recording = engine_contract.engine_recording(record, record["title"], [".mp3"], "mp3")
+        respond = self.respond
+        def listed(request):
+            if request["action"] != "search":
+                return respond(request)
+            self.requests.append(request)
+            return {"ok": True, "candidates": [
+                {"id": "unrelated", "source": "fixture", "label": "Other Artist - Aurora.mp3", "recommended": False},
+                {"id": "match", "source": "fixture", "label": "Aurora.mp3", "recommended": False,
+                 "identity_match": True},
+            ]}
+        with mock.patch.object(self, "respond", side_effect=listed):
+            copies = engine_contract.search_recording(self.selection, recording)
+        search = next(call for call in self.requests if call["action"] == "search")
+        self.assertEqual(search["recording"]["search_query"], "aurora artist 1")
+        self.assertEqual([copy["id"] for copy in copies], ["match"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_replacement_keeps_old_audio_until_a_verified_copy_takes_its_place(self):
+        record = self.record(1, "First Light", length=2)
+        self.write_manifest([record], {"mix": [1]})
+        self.make_audio("old.mp3", "First Light", duration=2, artist=record["artist"])
+        self.make_audio("wrong.mp3", "First Light", duration=2, artist="Another Artist")
+        self.make_audio("new.mp3", "First Light", duration=2, artist=record["artist"])
+        original = self.library / "1 - original.mp3"
+        shutil.copyfile(self.media["old.mp3"], original)
+        self.run_report()
+        coverage = runner.catalog_store()
+        initial = coverage.read_coverage()[0]["path"]
+        store = runner.requests_store()
+        request = store.prepare_copy_replacement(record)
+        self.assertEqual(store.prepare_copy_replacement(record)["id"], request["id"])
+        with self.assertRaisesRegex(ValueError, "Choose a verified replacement"):
+            store.confirm_format(request["id"], "mp3", 0)
+        for revision, name in enumerate(("wrong.mp3", "new.mp3")):
+            current = store.get(request["id"])
+            recording = engine_contract.request_recording(current, record, "mp3")
+            matches = store.save_copy_matches(current["id"], "mp3", revision, recording, self.selection,
+                                              [{"source": "fixture", "id": name}], fresh=True)
+            store.confirm_format(current["id"], "mp3", revision, matches[0]["key"])
+            self.assertEqual(coverage.read_coverage()[0]["path"], initial)
+            runner.run_requests()
+            current = store.get(current["id"])
+            if name == "wrong.mp3":
+                self.assertEqual(current["request_state"], "copy_unavailable")
+                self.assertEqual(coverage.read_coverage()[0]["path"], initial)
+        self.assertEqual(current["track_index"], 1)
+        self.assertEqual(current["status"], "downloaded")
+        self.assertNotEqual(coverage.read_coverage()[0]["path"], initial)
+        self.assertEqual((self.library / current["audio_path"]).read_bytes(), self.media["new.mp3"].read_bytes())
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_broad_request_searches_all_formats_once_and_lands_a_verified_aac(self):

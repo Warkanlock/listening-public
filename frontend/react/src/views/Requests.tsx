@@ -50,7 +50,7 @@ function RequestItem({ row }: { row: RequestRow }) {
   const format = REQUEST_FORMATS.find(format => format.key === row.requested_format)?.label;
   const stage = requestStage(row);
   const review = needsCopyChoice(stage);
-  const editSearch = ["no_matches", "search_failed", "verification_failed"].includes(stage);
+  const editSearch = !row.replace_copy && ["no_matches", "search_failed", "verification_failed"].includes(stage);
   return (
     <div className="request-item">
       <span className="request-symbol">
@@ -87,7 +87,7 @@ function RequestItem({ row }: { row: RequestRow }) {
             onClick={() => store.requestsSlice.chooseFormat(row)} />
         )}
         <RetryRequestButton request={row} title={row.title} onRetry={() => setEditingSearch(false)} />
-        {!store.member && !review && (row.audio || canChangeRecording(stage)) && <RecordingVersions song={row}
+        {!store.member && !row.replace_copy && !review && (row.audio || canChangeRecording(stage)) && <RecordingVersions song={row}
           onChoose={song => void (row.audio ? store.createSongRequest(song) : store.requestsSlice.chooseRecording(row, song))} />}
         {editSearch && <RoomIconButton icon="search" label={`Edit search: ${row.title}`}
           aria-expanded={editingSearch} onClick={() => setEditingSearch(value => !value)} />}

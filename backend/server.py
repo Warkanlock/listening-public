@@ -59,7 +59,7 @@ from playback.radio import (PROVIDERS, RADIO_PRESETS, SOMAFM_CHANNELS, clean_liv
                             live_catalog, live_stations_from, provider_enabled, source_enabled, stations_from)
 from downloads.download_activity import recent_events
 from downloads.engine_contract import (EngineError, EngineUpdateConflict, engine_selection, engines_ready, extension_health,
-                                       manager_call, request_recording, search_recording, source_summary)
+                                       manager_call, matching_copies, request_recording, search_recording, source_summary)
 from system import client_artifacts
 from devices.announcements import AnnouncementBoard
 from devices.device_store import DeviceStore, invitation_room_proof
@@ -1486,6 +1486,7 @@ OWNER_POST = {"/api/settings", "/api/sources", "/api/import-csv", "/api/import-l
               "/api/process", "/api/jobs", "/api/open-source", "/api/moods", "/api/genre", "/api/devices/revoke",
               "/api/devices/offline", "/api/devices/playlist-access", "/api/devices/invites", "/api/pairing/rotate",
               "/api/playlists/merge", "/api/playlist-links", "/api/export", "/api/spotify/playlists",
+              "/api/requests/replace-copy",
               "/api/spotify/connect", "/api/spotify/sync", "/api/spotify/disconnect"}
 POST_ROUTES = MEMBER_POST | OWNER_POST | {
     weekly_discovery.PATH, "/api/radio/somafm", "/api/extensions", "/api/discovery/sources", "/api/replica/original",
@@ -3544,6 +3545,9 @@ class Handler(BaseHTTPRequestHandler):
                 if type(request_id) is not int or not 0 < request_id < 2**63:
                     raise ValueError("Invalid request ID")
                 store = requests_store()
+                current = store.get(request_id)
+                if current and current.get("replace_copy") and not self._is_owner():
+                    return self.error_json("Only the room owner can replace a playable copy.", HTTPStatus.FORBIDDEN)
                 choice, revision = body.get("requested_format"), body.get("format_revision")
                 if self.path == "/api/requests/copies":
                     fresh = body.get("fresh", False)
@@ -3565,7 +3569,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not fresh:
                         saved = store.review_matches(request_id, choice, revision, recording, selection)
                         if saved is not None:
-                            return self.json_response({"matches": saved})
+                            return self.json_response({"matches": matching_copies(recording, saved)})
                     candidates = search_recording(selection, recording)
                     matches = store.save_copy_matches(request_id, choice, revision, recording, selection, candidates, fresh=fresh)
                     return self.json_response({"matches": matches})
@@ -3587,7 +3591,11 @@ class Handler(BaseHTTPRequestHandler):
                 if type(revision) is not int or not 0 <= revision < 2**63 - 1:
                     raise ValueError("Invalid request revision")
                 with ROOT_LOCK:
-                    row = requests_store().stop_search(request_id, revision)
+                    store = requests_store()
+                    current = store.get(request_id)
+                    if current and current.get("replace_copy") and not self._is_owner():
+                        return self.error_json("Only the room owner can cancel a replacement.", HTTPStatus.FORBIDDEN)
+                    row = store.stop_search(request_id, revision)
                 return self.json_response(row)
             except ValueError as error:
                 return self.error_json(str(error))
@@ -3608,6 +3616,9 @@ class Handler(BaseHTTPRequestHandler):
                     search_title = search_title.strip()[:200]
                 store = requests_store()
                 with ROOT_LOCK:
+                    current = store.get(request_id)
+                    if current and current.get("replace_copy") and not self._is_owner():
+                        return self.error_json("Only the room owner can retry a replacement.", HTTPStatus.FORBIDDEN)
                     restore_missing = body.get("restore_missing", False)
                     if type(restore_missing) is not bool:
                         raise ValueError("Invalid retry option")
@@ -3636,27 +3647,38 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error_json(str(error))
             except (OSError, sqlite3.Error):
                 return self.error_json("The request could not be retried. Try again shortly.", HTTPStatus.SERVICE_UNAVAILABLE)
-        if self.path == "/api/requests/batch":
-            indices = body.get("track_ids")
-            if (not isinstance(indices, list) or not indices or len(indices) > 50
-                    or any(not isinstance(index, int) or isinstance(index, bool) for index in indices)):
-                return self.error_json("Choose up to 50 library songs")
-            catalog.refresh()
-            if any(catalog.active_record_at(index) is None for index in indices):
-                return self.error_json("One of those songs is no longer in the library")
-            added = 0
-            store = requests_store()
-            for index in dict.fromkeys(indices):
-                if catalog.coverage.get(index, {}).get("status") == "verified":
-                    continue
-                record = catalog.record_at(index)
-                _, created = store.create_or_find(index, record["artist"], record["title"], record["album"],
-                                                  record["length"], record["title"], individual=False)
-                added += int(created)
-            if added:
+        if self.path == "/api/requests/replace-copy":
+            index = body.get("track_id")
+            try:
                 with ROOT_LOCK:
+                    catalog.refresh()
+                    record = catalog.active_record_at(index) if type(index) is int else None
+                    if not record or catalog.status_of(index) != "verified":
+                        raise ValueError("Choose a playable song to replace its copy.")
+                    row = requests_store().prepare_copy_replacement(record)
+                return self.json_response(row)
+            except ValueError as error:
+                return self.error_json(str(error))
+        if self.path == "/api/requests/batch":
+            indices, playlist = body.get("track_ids"), body.get("playlist")
+            with ROOT_LOCK:
+                catalog.refresh()
+                if playlist is not None:
+                    if indices is not None or not isinstance(playlist, str) or playlist not in catalog.playlists:
+                        return self.error_json("Choose a playlist from this library.")
+                    indices = catalog.playlists[playlist]
+                elif (not isinstance(indices, list) or not indices or len(indices) > 50
+                      or any(type(index) is not int for index in indices)):
+                    return self.error_json("Choose up to 50 library songs")
+                records = [catalog.active_record_at(index) for index in dict.fromkeys(indices)]
+                if playlist is None and any(record is None for record in records):
+                    return self.error_json("One of those songs is no longer in the library")
+                missing = [record for record in records
+                           if record is not None and catalog.status_of(record["index"]) != "verified"]
+                added = requests_store().queue_tracks(missing)
+                if added:
                     start_worker("requests", force=True)
-            return self.json_response({"added": added, "status": "Queued broader searches"})
+            return self.json_response({"added": added, "status": "Searches queued"})
         if self.path == "/api/playlist-links":
             if any_library_worker_running():
                 return self.error_json("Wait for the active library job before changing playlist links", HTTPStatus.CONFLICT)

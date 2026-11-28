@@ -26,7 +26,7 @@ The helper builds one signed Android APK and one Apple silicon DMG. It writes th
 
 Keep the application ID and signing certificate across releases. Increase `versionCode` before publishing the next APK. The updater reads GitHub Latest, validates a matching `listening-room-VERSION.apk` asset with its reported size and SHA-256, then checks the APK's identity before opening Android's installer.
 
-For the move from a 2.x preview to 1.0.0, use the [direct installation procedure](public-release.md#move-from-a-2x-preview-to-100). Verify that an installed 1.x build recognizes a newer 1.x version before relying on automatic discovery.
+For the move from a 2.x preview to the current release, use the [direct installation procedure](public-release.md#move-from-a-2x-preview-to-the-current-release). Verify that an installed 1.x build recognizes a newer 1.x version before relying on automatic discovery.
 
 
 ## Offer the release from a room

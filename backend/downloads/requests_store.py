@@ -48,6 +48,10 @@ def decode_request_row(row):
     if "status" in result:
         result["request_state"] = request_state(result)
     result.pop("selected_copy_key", None)
+    if result.get("replace_copy"):
+        result["replace_copy"] = True
+    else:
+        result.pop("replace_copy", None)
     if (result.get("status") != "searching" or result.get("phase") not in ("downloading", "testing")
             or result.get("download_percent") is None):
         result.pop("download_percent", None)
@@ -85,6 +89,7 @@ SCHEMA = (
         aac_revision INTEGER,
         broad_revision INTEGER,
         format_confirmed INTEGER NOT NULL DEFAULT 0,
+        replace_copy INTEGER NOT NULL DEFAULT 0,
         selected_copy_key TEXT,
         status TEXT NOT NULL DEFAULT 'queued',
         phase TEXT NOT NULL DEFAULT '',
@@ -123,6 +128,7 @@ SCHEMA = (
 
 RETRY_DELAYS = (30, 120, 300)
 QUEUE_COLUMNS = {
+    "replace_copy": "INTEGER NOT NULL DEFAULT 0",
     "phase": "TEXT NOT NULL DEFAULT ''",
     "download_percent": "INTEGER",
     "retry_count": "INTEGER NOT NULL DEFAULT 0",
@@ -249,25 +255,59 @@ class RequestsStore:
         """Serialize lookup and insert across HTTP handlers, including batch intake."""
         def work(conn):
             conn.execute("BEGIN IMMEDIATE")
-            row = self._active(conn, index, artist, title, musicbrainz_id)
+            return self._create_or_find(conn, index, artist, title, album, length, search_title,
+                                        individual=individual, musicbrainz_id=musicbrainz_id,
+                                        version=version, performance=performance)
+        return self._run(work)
+
+    def queue_tracks(self, tracks):
+        def work(conn):
+            conn.execute("BEGIN IMMEDIATE")
+            added = 0
+            for track in tracks:
+                _, created = self._create_or_find(
+                    conn, track["index"], track["artist"], track["title"], track["album"],
+                    track["length"], track["title"], individual=False)
+                added += created
+            return added
+        return self._run(work)
+
+    def _create_or_find(self, conn, index, artist, title, album, length, search_title, *,
+                        individual, musicbrainz_id="", version="", performance=""):
+        row = self._active(conn, index, artist, title, musicbrainz_id)
+        if row:
+            return decode_request_row(row), False
+        previous = self._latest(conn, index, artist, title, musicbrainz_id)
+        if previous:
+            if individual or previous["status"] == "unavailable":
+                return decode_request_row(previous), False
+            # A manual batch retry honors a previously confirmed individual format.
+            if not previous["replace_copy"] and previous["format_confirmed"] and previous["status"] in FAILED_SEARCHES:
+                self._queue_retry(conn, previous["id"], previous["search_title"])
+                row = conn.execute("SELECT * FROM requests WHERE id=?", (previous["id"],)).fetchone()
+                return decode_request_row(row), True
+        status = "waiting_format" if individual else "queued"
+        cursor = conn.execute(
+            "INSERT INTO requests (track_index,artist,title,album,length,search_title,status,requested_format,musicbrainz_id,version,performance) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)", (index, artist, title, album, length, search_title,
+                                         status, None if individual else "any_lossless", musicbrainz_id, version, performance))
+        row = conn.execute("SELECT * FROM requests WHERE id=?", (cursor.lastrowid,)).fetchone()
+        return decode_request_row(row), True
+
+    def prepare_copy_replacement(self, track):
+        def work(conn):
+            conn.execute("BEGIN IMMEDIATE")
+            index = track["index"]
+            row = self._active(conn, index)
             if row:
-                return decode_request_row(row), False
-            previous = self._latest(conn, index, artist, title, musicbrainz_id)
-            if previous:
-                if individual or previous["status"] == "unavailable":
-                    return decode_request_row(previous), False
-                # A manual batch retry honors a previously confirmed individual format.
-                if previous["format_confirmed"] and previous["status"] in FAILED_SEARCHES:
-                    self._queue_retry(conn, previous["id"], previous["search_title"])
-                    row = conn.execute("SELECT * FROM requests WHERE id=?", (previous["id"],)).fetchone()
-                    return decode_request_row(row), True
-            status = "waiting_format" if individual else "queued"
+                if row["replace_copy"]:
+                    return decode_request_row(row)
+                raise ValueError("This song already has an active copy request.")
             cursor = conn.execute(
-                "INSERT INTO requests (track_index,artist,title,album,length,search_title,status,requested_format,musicbrainz_id,version,performance) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)", (index, artist, title, album, length, search_title,
-                                             status, None if individual else "any_lossless", musicbrainz_id, version, performance))
-            row = conn.execute("SELECT * FROM requests WHERE id=?", (cursor.lastrowid,)).fetchone()
-            return decode_request_row(row), True
+                "INSERT INTO requests (track_index,artist,title,album,length,search_title,status,"
+                "requested_format,replace_copy) VALUES (?,?,?,?,?,?,'waiting_format',NULL,1)",
+                (index, track["artist"], track["title"], track["album"], track["length"], track["title"]))
+            return decode_request_row(conn.execute("SELECT * FROM requests WHERE id=?", (cursor.lastrowid,)).fetchone())
         return self._run(work)
 
     def replace_recording(self, request_id, revision, artist, title, album, length, search_title, *,
@@ -277,7 +317,7 @@ class RequestsStore:
             row = self._lock_request(conn, request_id)
             if row["format_revision"] == revision + 1 and row["musicbrainz_id"] == musicbrainz_id:
                 return decode_request_row(row), False
-            if row["format_revision"] != revision or row["status"] not in REPLACEABLE_RECORDING:
+            if row["replace_copy"] or row["format_revision"] != revision or row["status"] not in REPLACEABLE_RECORDING:
                 raise ValueError("This request changed. Reopen it before choosing another recording.")
             other = self._latest(conn, None, artist, title, musicbrainz_id)
             if other and other["id"] != request_id:
@@ -395,7 +435,7 @@ class RequestsStore:
             picks[handle] = {key: candidate[key] for key in ("source", "id")}
             label = candidate.get("label", "").replace("\\", "/").rsplit("/", 1)[-1]
             matches.append({"key": handle, "label": label or f"Copy {number}",
-                            **{key: candidate[key] for key in ("format", "duration", "bitrate", "recommended")
+                            **{key: candidate[key] for key in ("format", "duration", "bitrate", "recommended", "identity_match")
                                if key in candidate}})
 
         def work(conn):
@@ -472,6 +512,8 @@ class RequestsStore:
                 if copy_key != locked["selected_copy_key"]:
                     raise ValueError("This request already started. Reopen it to choose another copy.")
                 return row, False
+            if locked["replace_copy"] and copy_key is None:
+                raise ValueError("Choose a verified replacement candidate from Browse copies.")
             if copy_key is not None:
                 saved = conn.execute("SELECT payload, expires FROM request_copies WHERE request_id=? AND revision=? "
                                      "AND format=? AND expires>?", (request_id, revision, choice, time.time())).fetchone()
@@ -506,16 +548,18 @@ class RequestsStore:
             row = self._lock_request(conn, request_id)
             if row["status"] == "unavailable" and row["format_revision"] == revision + 1:
                 return decode_request_row(row)
-            if row["format_revision"] != revision or request_state(dict(row)) not in COPY_REVIEW_STATES:
+            if row["format_revision"] != revision or (request_state(dict(row)) not in COPY_REVIEW_STATES
+                    and not (row["replace_copy"] and row["status"] == "waiting_format")):
                 raise ValueError("This request changed. Reopen it before stopping the search.")
             conn.execute(
-                "UPDATE requests SET status='unavailable', message='Search stopped.', "
+                "UPDATE requests SET status='unavailable', message=?, "
                 "selected_copy_key=NULL, phase='', download_percent=NULL, "
                 "retry_count=0, retry_at=0, retry_priority=0, "
                 "resolved_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP, "
                 "aac_revision=CASE WHEN aac_revision=format_revision THEN format_revision+1 END, "
                 "broad_revision=CASE WHEN broad_revision=format_revision THEN format_revision+1 END, "
-                "format_revision=format_revision+1 WHERE id=?", (request_id,))
+                "format_revision=format_revision+1 WHERE id=?",
+                ("Replacement cancelled." if row["replace_copy"] else "Search stopped.", request_id))
             conn.execute("DELETE FROM request_copies WHERE request_id=?", (request_id,))
             return decode_request_row(conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone())
         return self._run(work)
@@ -618,7 +662,7 @@ class RequestsStore:
                 conn.execute("UPDATE requests SET retry_at=0, retry_count=0, retry_priority=?, "
                              "message='', updated_at=CURRENT_TIMESTAMP WHERE id=?", (time.time(), request_id))
                 return True
-            if request_state(dict(row)) in COPY_REVIEW_STATES:
+            if row["replace_copy"] or request_state(dict(row)) in COPY_REVIEW_STATES:
                 return False
             search = search_title if search_title is not None else row["search_title"]
             if self._queue_retry(conn, request_id, search, allow_unavailable=True):

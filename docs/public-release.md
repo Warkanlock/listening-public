@@ -22,8 +22,8 @@ Use this runbook to publish Listening independently of any running room. A publi
 
 A standalone site ZIP can change between software releases. Verify its replacement bytes, update its checksum, and record its source revision in the release notes. Keep the server and native installer provenance attached to the release.
 
-## Move from a 2.x preview to 1.0.0
+## Move from a 2.x preview to the current release
 
-A preview Android update check compares version names. It treats 1.0.0 as older than 2.x. Once the aligned 1.0.0 APK is public, download it directly and install it over the existing app. Keep the installed app and its data in place. The replacement APK needs the same signing identity and application ID and a higher Android build number than the preview. After the move, use the built-in updater for later 1.x releases.
+A preview Android update check compares version names. It treats a 1.x release as older than 2.x. Download the current signed APK directly and install it over the existing app. Keep the installed app and its data in place. The replacement APK needs the same signing identity and application ID and a higher Android build number than the preview. After the move, use the built-in updater for later 1.x releases.
 
 Owners upgrading a room should follow [Update and recover](private-install.md#update-and-recover). Refresh the signed catalog and update the installed extension metadata before re-enabling extensions on the release version.

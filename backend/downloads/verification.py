@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 
 from system.formats import REQUEST_AUDIO_FORMATS, REQUEST_FORMAT_NAMES
-from system.normalize import normalize_title
+from system.normalize import normalize_title, song_key
 
 MIN_BITRATE = 192_000
 DURATION_TOLERANCE = 5.5
@@ -243,7 +243,7 @@ def request_identity(row):
     if row.get("musicbrainz_id"):
         return {"recording_id": row["musicbrainz_id"], "version": row.get("version", ""),
                 "expected_artist": row["artist"], "performance": row.get("performance", "")}
-    return {}
+    return {"expected_artist": row.get("artist", "")}
 
 
 def judge_claim(title, length, facts, suffix, request=None):
@@ -328,6 +328,9 @@ def judge_download(expected_title, expected_length, media, suffix, requested_for
             reason = recording_mismatch(media, expected_title, expected_artist, expected_length, recording_id, version, performance)
             if reason:
                 return Verdict(False, reason)
+        elif expected_artist and media.get("artist"):
+            if song_key(expected_artist, "")[0] != song_key(media["artist"], "")[0]:
+                return Verdict(False, "The artist tag does not identify this performer")
         containers = media.get("container", "").split(",")
         if not any(ext == suffix for ext, _, _ in formats):
             return Verdict(False, f"download requires {REQUEST_FORMAT_NAMES[requested_format]}")

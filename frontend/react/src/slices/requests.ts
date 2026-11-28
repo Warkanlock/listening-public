@@ -1,6 +1,6 @@
 import { api, ApiError, postJson, type DownloadOutcome, type DownloadOutcomePayload, type RecentDownload, type RequestRow, type RequestSong } from "../api";
 import { notify, notifyDownloadUpdates } from "../toasts";
-import { canChooseFormat, requestStage, requestStageLabel } from "../requestState";
+import { canChooseFormat, requestNeedsAttention, requestStage, requestStageLabel } from "../requestState";
 import { errorMessage, type SliceHost } from "./host";
 
 type TrayRequest = Pick<RequestRow, "id" | "title" | "artist" | "status" | "request_state"> &
@@ -21,6 +21,7 @@ const requestsSignature = (rows: RequestRow[]) =>
       row.download_percent,
       row.retry_at,
       row.copy_review,
+      row.replace_copy,
       row.requested_format,
       row.format_revision,
       row.mp3_retry,
@@ -51,6 +52,10 @@ export class RequestsSlice {
   private seenOutcomes: string[] | null = null;
 
   constructor(private readonly host: SliceHost) {}
+
+  get attentionRows() {
+    return this.requestRows.filter(row => requestNeedsAttention(requestStage(row)));
+  }
 
   get requestsBadge(): number {
     return this.requestRows.filter((row) =>
@@ -141,6 +146,18 @@ export class RequestsSlice {
     }
     this.resetRequestsSignature();
     this.host.bump();
+  }
+
+  async replaceTrackCopy(id: number) {
+    try {
+      const row = await postJson<RequestRow>("/api/requests/replace-copy", { track_id: id });
+      this.applyRequest(row);
+      if (canChooseFormat(requestStage(row))) this.chooseFormat(row);
+      else notify(`${row.title} · ${requestStageLabel(row)}`);
+      void this.loadRequests();
+    } catch (error) {
+      notify(errorMessage(error, "Couldn’t open replacement copies"));
+    }
   }
 
   async createSongRequest(song: RequestSong): Promise<RequestRow | null> {

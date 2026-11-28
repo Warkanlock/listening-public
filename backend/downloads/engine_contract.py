@@ -16,6 +16,7 @@ from pathlib import Path
 
 from system.client_artifacts import release_version
 from system.formats import REQUEST_SUFFIXES
+from system.normalize import credit_key
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_VERSION = 1
@@ -334,8 +335,9 @@ def candidates_from(response):
                 value = candidate.get(field)
                 if type(value) is int and 0 < value <= cap:
                     entry[field] = value
-            if type(candidate.get("recommended")) is bool:
-                entry["recommended"] = candidate["recommended"]
+            for field in ("recommended", "identity_match"):
+                if type(candidate.get(field)) is bool:
+                    entry[field] = candidate[field]
             yield entry
 
 
@@ -362,18 +364,36 @@ def request_recording(row, record, choice):
     return recording
 
 
+def matching_copies(recording, candidates):
+    """Exclude known unrelated results while preserving unclassified plugin candidates."""
+    artist = credit_key(re.split(r",|;|\s+(?:featuring|feat\.?|ft\.?)\s+", recording["artist"], maxsplit=1,
+                                 flags=re.IGNORECASE)[0])
+    title = credit_key(simplify_title(recording["title"]))
+    if not artist or not title:
+        return candidates
+    matching = []
+    for copy in candidates:
+        label = " " + credit_key(copy.get("label", "").rsplit(".", 1)[0]) + " "
+        if (copy.get("recommended") is not False or copy.get("identity_match") is True
+                or (f" {title} " in label and f" {artist} " in label)):
+            matching.append(copy)
+    return matching
+
+
 def search_recording(selection, recording, *, timeout=None):
     sources = selected_engine_sources(selection, for_acquisition=True)
     budget = WORKER_TIMEOUT_SECONDS["search"] + MANAGER_RESPONSE_GRACE_SECONDS
     if timeout is not None:
         budget = min(budget, timeout)
     with timed_stage(selection["search"], "search", budget):
-        reply = manager_call("search", timeout=budget, engine=selection["search"], recording=recording)
+        query = " ".join(f"{recording['search_title'][:400]} {recording['artist'][:400]}".lower().split())
+        reply = manager_call("search", timeout=budget, engine=selection["search"],
+                             recording={**recording, "search_query": query})
     candidates = list(candidates_from(reply))
     print(f"Download engine {selection['search']}: returned {len(candidates)} candidate(s).", flush=True)
     if any(candidate["source"] not in sources for candidate in candidates):
         raise EngineError("The search engine returned a candidate outside its declared sources.")
-    return candidates
+    return matching_copies(recording, candidates)
 
 
 PROGRESS_FILE = ".download-progress"

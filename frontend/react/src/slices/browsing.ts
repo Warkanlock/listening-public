@@ -55,17 +55,20 @@ export class BrowsingSlice {
   playlistFromMyPlaylists = false;
   requestingIds = new Set<number>();
   retryingVisible = false;
+  searchingPlaylist: string | null = null;
 
   private loadSeq = 0;
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly host: SliceHost) {}
 
-  async loadTracks(reset = false) {
-    if (this.tracksLoading && !reset) return;
+  async loadTracks(reset = false, background = false) {
+    if (this.tracksLoading && (!reset || (background && this.tracksResetting))) return;
+    const keepVisible = reset && background && this.tracksLoaded;
+    const visible = keepVisible ? this.loadedTrackCount : 0;
     this.tracksLoading = true;
     const sequence = ++this.loadSeq;
-    if (reset) {
+    if (reset && !keepVisible) {
       this.tracks = [];
       this.downloadFavorites = [];
       this.tracksError = null;
@@ -81,7 +84,7 @@ export class BrowsingSlice {
         q: this.query,
         filter: this.filter,
         offset: String(reset ? 0 : this.loadedTrackCount),
-        limit: this.view === "moods" ? "1" : "60",
+        limit: this.view === "moods" ? "1" : String(Math.min(100, Math.max(60, visible))),
       });
       if (reset && this.view === "moods") {
         params.set("facets", "moods");
@@ -89,17 +92,30 @@ export class BrowsingSlice {
       if (this.filter === "favorites") params.append("facets", "download-favorites");
       for (const genre of this.genres) params.append("genre", genre);
       const result = await api<TracksPage>(`/api/tracks?${params}`);
+      const favorites = result.download_favorites ?? [];
+      let loaded = result.tracks.length + favorites.length;
+      while (sequence === this.loadSeq && loaded > 0 && loaded < Math.min(visible, result.total)) {
+        params.set("offset", String(loaded));
+        params.set("limit", String(Math.min(100, visible - loaded)));
+        const page = await api<TracksPage>(`/api/tracks?${params}`);
+        const count = page.tracks.length + (page.download_favorites?.length ?? 0);
+        if (count === 0) break;
+        result.tracks.push(...page.tracks);
+        favorites.push(...(page.download_favorites ?? []));
+        loaded += count;
+      }
       if (sequence !== this.loadSeq) return;
       if (result.moods) this.moods = result.moods;
       if (result.genres) this.genreOptions = result.genres;
       this.tracks = reset ? result.tracks : [...this.tracks, ...result.tracks];
-      this.downloadFavorites = reset ? result.download_favorites ?? []
-        : [...this.downloadFavorites, ...(result.download_favorites ?? [])];
+      this.downloadFavorites = reset ? favorites : [...this.downloadFavorites, ...favorites];
+      this.tracksError = null;
       this.tracksTotal = result.total;
       this.tracksLoaded = true;
     } catch (error) {
       if (sequence !== this.loadSeq) return;
       const message = errorMessage(error, "Songs could not load");
+      if (keepVisible) return;
       if (reset) this.tracksError = message;
       else this.tracksPageError = message;
       notify(message);
@@ -362,12 +378,29 @@ export class BrowsingSlice {
         track_ids: ids,
       });
       notify(`${result.added} broader searches queued`);
-      void this.loadTracks(true);
+      void this.loadTracks(true, true);
       void this.host.loadRequests();
     } catch (error) {
       notify(errorMessage(error, "Request failed"));
     } finally {
       this.retryingVisible = false;
+      this.host.bump();
+    }
+  }
+
+  async findPlaylistCopies(playlist: string) {
+    if (this.searchingPlaylist) return;
+    this.searchingPlaylist = playlist;
+    this.host.bump();
+    try {
+      const { added } = await postJson<{ added: number }>("/api/requests/batch", { playlist });
+      notify(added ? `Queued ${added} ${added === 1 ? "copy search" : "copy searches"}` : "No new copy searches to queue");
+      if (this.playlist === playlist) void this.loadTracks(true, true);
+      void this.host.loadRequests();
+    } catch (error) {
+      notify(errorMessage(error, "Couldn’t search the playlist"));
+    } finally {
+      this.searchingPlaylist = null;
       this.host.bump();
     }
   }

@@ -28,6 +28,8 @@ stateDiagram-v2
     Verifying --> Ready : verified and playable
 ```
 
+Use **Find all copies** on a playlist to queue missing songs across the entire playlist. The **Needs review** button in the top bar opens requests that need attention. To change a playable song’s audio, choose **Replace copy** from its song menu and select a candidate. The song keeps its place in the library and playlists. The current copy stays playable until the replacement passes verification.
+
 Requests, Deep Dive, and Weekly Discovery use a rounded status chip alongside the song and format. On narrow screens the controls wrap together. Labels and accessible action names carry the meaning alongside the chip color.
 
 | State | What it means | Next action |

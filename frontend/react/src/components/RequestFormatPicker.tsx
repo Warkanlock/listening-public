@@ -9,6 +9,7 @@ import { RoomIcon, RoomIconButton } from "./RoomIcon";
 import { RoomAction } from "./RoomControls";
 import { needsCopyChoice, requestStage } from "../requestState";
 import { RecordingChoices } from "./RecordingVersions";
+import { LoadingStatus } from "./StateCard";
 
 type BrowseState = { kind: "format" } |
   { kind: "searching"; format: RequestFormat; fresh: boolean } |
@@ -39,6 +40,7 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
   const [error, setError] = useState("");
   const [recordingError, setRecordingError] = useState("");
   const review = needsCopyChoice(requestStage(row));
+  const replacing = row.replace_copy === true;
   const [browse, setBrowse] = useState<BrowseState>(() => review
     ? { kind: "searching", format: choice, fresh: false } : { kind: "format" });
   const browsing = browse.kind !== "format";
@@ -50,6 +52,10 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
     if (!search) return;
     const controller = new AbortController();
     const { format, fresh } = search;
+    const timer = window.setTimeout(() => {
+      setBrowse({ kind: "error", format, message: "The copy search timed out. Try again." });
+      controller.abort();
+    }, 75_000);
     void postJson<{ matches: CopyMatch[] }>("/api/requests/copies", {
       request_id: row.id, requested_format: format, format_revision: row.format_revision, fresh,
     }, controller.signal).then(({ matches }) => {
@@ -58,7 +64,10 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
       if (!controller.signal.aborted) setBrowse({ kind: "error", format,
         message: error instanceof Error ? error.message : "Could not search for copies." });
     });
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [search, row.id, row.format_revision]);
   useEffect(() => {
     if (browsing) browseBack.current?.focus();
@@ -88,7 +97,7 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
       close();
       success(updated);
       void store.loadRequests();
-      if (store.view === "all" || store.view === "moods") void store.loadTracks(true);
+      if (store.view === "all" || store.view === "moods") void store.browsingSlice.loadTracks(true, true);
     } catch (error) {
       setError(error instanceof Error ? error.message : errorMessage);
       confirming.current = false;
@@ -102,7 +111,8 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
       ...(copyKey ? { copy_key: copyKey } : {}),
     }),
     updated => {
-      if (updated.status === "queued") notify(copyKey ? `Copy queued for ${row.title}` : `Search queued for ${row.title}`);
+      if (updated.status === "queued") notify(replacing ? `Replacement queued for ${row.title}`
+        : copyKey ? `Copy queued for ${row.title}` : `Search queued for ${row.title}`);
     },
     "Could not confirm the format.",
   );
@@ -110,7 +120,7 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
     () => postJson<RequestRow>("/api/requests/stop-search", {
       request_id: row.id, format_revision: row.format_revision,
     }),
-    () => notify(`Marked ${row.title} unavailable`),
+    () => notify(replacing ? `Replacement cancelled for ${row.title}` : `Marked ${row.title} unavailable`),
     "Could not stop the search.",
   );
   const dismiss = () => {
@@ -152,11 +162,11 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
           <RecordingChoices song={row} disabled={saving} onChoose={song => void changeRecording(song)} />
         </> : browsing ? <>
           <header className="format-dialog-header">
-            <DialogTitle>Choose a copy</DialogTitle>
+            <DialogTitle>{replacing ? "Choose a replacement copy" : "Choose a copy"}</DialogTitle>
             <RoomIconButton ref={browseBack} icon="close" label="Close copy choices" disabled={saving} onClick={close} />
           </header>
           <DialogDescription>{[row.title, row.artist].filter(Boolean).join(" · ")}</DialogDescription>
-          {browse.kind === "searching" && <p role="status">Searching for copies…</p>}
+          {browse.kind === "searching" && <LoadingStatus>Searching for copies…</LoadingStatus>}
           {browse.kind === "error" && <p role="alert">{browse.message}</p>}
           {browse.kind === "results" && (browse.matches.length ? <div className="copy-picker-list" aria-label="Available copies">
             {browse.matches.map(match => {
@@ -169,13 +179,13 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
                   {match.failure && <small className="copy-picker-failure">{match.failure}</small>}
                 </span>
                 <span className="copy-picker-action"><RoomIcon name={match.failure ? "refresh" : "download"} />
-                  {match.failure ? "Retry" : "Download"}</span>
+                  {match.failure ? "Retry" : replacing ? "Replace" : "Download"}</span>
               </button>;
             })}
           </div> : <p role="status">No copies found in this format.</p>)}
           {error && <p role="alert">{error}</p>}
           <footer className="dialog-actions">
-            {review && !store.member && <RoomAction ref={recordingsReturn} disabled={saving} onClick={() => {
+            {review && !replacing && !store.member && <RoomAction ref={recordingsReturn} disabled={saving} onClick={() => {
               restoreRecordingsFocus.current = true;
               setRecordingError("");
               setPanel("recordings");
@@ -183,16 +193,17 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
             <RoomAction disabled={saving} onClick={leaveMatches}>Change format</RoomAction>
             <RoomAction primary disabled={saving || browse.kind === "searching"}
               onClick={() => showMatches(browse.format, true)}>Search again</RoomAction>
-            {review && !store.member && <RoomAction data-stop-search disabled={saving} onClick={() => void stopSearch()}>
-              Stop searching
+            {(review || replacing) && !store.member && <RoomAction data-stop-search disabled={saving} onClick={() => void stopSearch()}>
+              {replacing ? "Cancel replacement" : "Stop searching"}
             </RoomAction>}
           </footer>
         </> : <>
         <header className="format-dialog-header">
-          <DialogTitle>Choose format</DialogTitle>
+          <DialogTitle>{replacing ? "Replace copy" : "Choose format"}</DialogTitle>
           <RoomIconButton icon="close" label="Later" disabled={saving} onClick={close} />
         </header>
         <DialogDescription>{[row.title, row.artist].filter(Boolean).join(" · ")}</DialogDescription>
+        {replacing && <p>The current copy stays playable until a replacement passes verification.</p>}
         <fieldset disabled={saving}>
           <legend>Audio format to search for</legend>
           {REQUEST_FORMATS.map(({ key, label }) => (
@@ -211,10 +222,11 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
         } />
         {error && <p role="alert">{error}</p>}
         <footer className="dialog-actions">
-          <RoomAction ref={browseButton} icon="catalogs" disabled={saving} onClick={() => showMatches(choice)}>Browse copies</RoomAction>
-          <RoomAction primary icon="search" disabled={saving} onClick={() => void confirm(choice)}>
+          {replacing && <RoomAction disabled={saving} onClick={() => void stopSearch()}>Cancel replacement</RoomAction>}
+          <RoomAction ref={browseButton} primary={replacing} icon="catalogs" disabled={saving} onClick={() => showMatches(choice)}>Browse copies</RoomAction>
+          {!replacing && <RoomAction primary icon="search" disabled={saving} onClick={() => void confirm(choice)}>
             {saving ? "Confirming…" : "Confirm and search"}
-          </RoomAction>
+          </RoomAction>}
         </footer>
         </>}
       </RoomDialogContent>

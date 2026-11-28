@@ -100,6 +100,11 @@ function Hero() {
           onClick={() => void store.sendSession("play_available", { playlist: store.playlist })}>
           {selected ? "Play playlist" : "Play library"}
         </RoomAction>
+        {selected && !store.member && selected.entries > selected.playable &&
+          <RoomAction icon="search" disabled={store.browsingSlice.searchingPlaylist !== null}
+            onClick={() => void store.browsingSlice.findPlaylistCopies(selected.id)}>
+            {store.browsingSlice.searchingPlaylist === selected.id ? "Queuing searches…" : "Find all copies"}
+          </RoomAction>}
         {selected?.can_add && <RoomAction icon="add" onClick={() => composer.open({ list: selected })}>Add song</RoomAction>}
         {selected && selected.can_merge && playlists.length > 1 && <PlaylistMerge key={selected.id}
           playlist={selected} playlists={playlists} />}

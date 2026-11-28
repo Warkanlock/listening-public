@@ -248,7 +248,7 @@
             <li>To join an existing room, enter its address or paste your invitation.</li>
             <li>To host your own, choose <strong>Install terminal command</strong> from the app menu. Open Terminal, run <code>~/.local/bin/listening setup</code>, and choose your music folder.</li>
           </ol>
-          <a href="https://github.com/Warkanlock/listening-public/releases/download/v1.0.0/listening-room-1.0.0.dmg">Download for Mac</a>
+          <a href="https://github.com/Warkanlock/listening-public/releases/download/v1.0.1/listening-room-1.0.1.dmg">Download for Mac</a>
           <a href="https://github.com/Warkanlock/listening-public/blob/main/clients/macos/README.md">Mac setup guide</a>
         </article>
         <article id="install-linux" data-install-panel>
@@ -259,12 +259,12 @@
               <button id="copy-docker-commands" type="button">Copy commands</button>
               <span id="docker-copy-status" role="status"></span>
             </div>
-            <pre><code id="docker-commands">docker pull ghcr.io/warkanlock/listening-public:1.0.0
+            <pre><code id="docker-commands">docker pull ghcr.io/warkanlock/listening-public:1.0.1
 docker run -d --name listening --restart unless-stopped \
   -p 127.0.0.1:8765:8765 \
   -e LISTENING_ROOM_REQUIRE_OWNER=1 \
   -v listening-config:/config -v listening-library:/library \
-  ghcr.io/warkanlock/listening-public:1.0.0
+  ghcr.io/warkanlock/listening-public:1.0.1
 docker exec -it listening /app/listening account set-owner owner</code></pre>
           </div>
           <p>Enter a password when prompted. On the Docker host, open <a href="http://127.0.0.1:8765">http://127.0.0.1:8765</a> and sign in as <code>owner</code>.</p>
@@ -288,7 +288,7 @@ docker exec -it listening /app/listening account set-owner owner</code></pre>
             <li>Open Listening and enter your room address or invitation. You can also open audio files already on the device.</li>
           </ol>
           <p>Use <strong>Search</strong> to find songs, artists, or albums. Check for a new APK from <strong>Settings → App updates</strong>.</p>
-          <a href="https://github.com/Warkanlock/listening-public/releases/download/v1.0.0/listening-room-1.0.0.apk">Download for Android</a>
+          <a href="https://github.com/Warkanlock/listening-public/releases/download/v1.0.1/listening-room-1.0.1.apk">Download for Android</a>
           <a href="https://github.com/Warkanlock/listening-public/blob/main/clients/android/README.md">Android guide</a>
         </article>
         <article id="install-web" data-install-panel>
