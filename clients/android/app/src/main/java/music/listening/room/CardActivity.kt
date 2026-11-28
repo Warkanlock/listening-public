@@ -541,7 +541,9 @@ class CardActivity : Activity() {
         }
         val controls = ui.column(8).apply {
             addView(ui.transport(back, transport, forward), LinearLayout.LayoutParams(-1, -2))
-            addView(queue)
+            addView(queue, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            })
         }
         val layout = ui.playerContent(sleeve, controls).apply {
             setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(8))

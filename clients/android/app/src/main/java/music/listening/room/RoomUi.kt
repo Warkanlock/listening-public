@@ -233,12 +233,7 @@ internal class RoomUi(private val context: Context) {
         button.setImageDrawable(controlMark(if (showPause) Mark.PAUSE else Mark.PLAY, 25, onAccent))
     }
 
-    fun queueButton(action: () -> Unit) = button("Queue", action = action).apply {
-        setCompoundDrawablesRelative(controlMark(Mark.QUEUE, 19), null, null, null)
-        compoundDrawablePadding = dp(8)
-        gravity = Gravity.START or Gravity.CENTER_VERTICAL
-        setPadding(dp(14), dp(4), dp(12), dp(4))
-    }
+    fun queueButton(action: () -> Unit) = iconButton("Open queue", Mark.QUEUE, outlined = false, action = action)
 
     data class NavigationTab(val title: String, val selected: Boolean, val open: () -> Unit)
 

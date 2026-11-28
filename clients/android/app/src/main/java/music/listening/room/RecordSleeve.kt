@@ -72,14 +72,11 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi) : FrameLay
         }
         ui.dp(minOf(limit, size.screenHeightDp * 37 / 100, size.screenWidthDp - 70).coerceAtLeast(80))
     }
-    private var heightLimit = preferredSize
-    private val coverSize get() = minOf(heightLimit, if (picture == null && ui.eInk) ui.dp(84) else preferredSize)
-
     init {
         val sleeve = ui.column().apply {
             val padding = ui.dp(8)
             setPadding(padding, 0, padding, 0)
-            addView(cover, LinearLayout.LayoutParams(coverSize, coverSize).apply {
+            addView(cover, LinearLayout.LayoutParams(preferredSize, preferredSize).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
                 bottomMargin = ui.dp(if (ui.eInk) 6 else 12)
             })
@@ -90,12 +87,7 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi) : FrameLay
     }
 
     fun limitArtworkHeight(maxHeight: Int) {
-        heightLimit = minOf(preferredSize, maxOf(ui.dp(80), maxHeight))
-        updateCoverSize()
-    }
-
-    private fun updateCoverSize() {
-        val size = coverSize
+        val size = maxHeight.coerceIn(ui.dp(80), preferredSize)
         val bounds = cover.layoutParams
         if (bounds.width != size) {
             bounds.width = size
@@ -108,7 +100,6 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi) : FrameLay
         if (picture === image) return
         viewer?.dismiss()
         picture = image
-        updateCoverSize()
         art.animate().cancel()
         art.alpha = 1f
         if (image == null) {

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.res.ColorStateList
 import android.text.TextUtils
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -47,7 +48,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
                            private val saveFavorite: ((FavoriteSong, Boolean, (Boolean?) -> Unit) -> Unit)?,
                            private val positionOpened: () -> Unit = {},
                            library: () -> Unit) : FrameLayout(activity) {
-    private val scroll = ScrollView(activity).apply {
+    private val idleScroll = ScrollView(activity).apply {
         overScrollMode = View.OVER_SCROLL_NEVER
         isVerticalScrollBarEnabled = !ui.eInk
         isSmoothScrollingEnabled = !ui.eInk
@@ -75,35 +76,24 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         super.onDetachedFromWindow()
     }
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        if (!ui.compactPlayerLandscape && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
-            sleeve.limitArtworkHeight(MeasureSpec.getSize(heightMeasureSpec) - ui.dp(if (ui.eInk) 212 else 304))
-        }
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-    }
     private var snapshot = JSONObject()
     private var playback = PlaybackTransport.Play
     private var dragging = false
     private var seconds = 0
     private var duration = 0
-    private val timeline = ui.column().apply {
-        visibility = View.GONE
-        if (ui.eInk) setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(12))
-    }
-    private val position = ui.button("Position", action = ::showPosition).apply {
-        contentDescription = "Show position"
+    private val timeline = SongDetailsStyle(ui).column()
+    private val position = ui.iconButton("Show position", Mark.POSITION, outlined = false, action = ::showPosition).apply {
+        isEnabled = false
     }
 
     private fun showPosition() {
-        if (positionDialog != null) return
+        if (positionDialog != null || duration <= 0) return
         val dialog = SongDetailsStyle(ui).dialog(activity, "Playback position", timeline,
             closeLabel = "Close position")
         positionDialog = dialog
-        timeline.visibility = View.VISIBLE
         dialog.setOnDismissListener {
             dragging = false
             positionDialog = null
-            timeline.visibility = View.GONE
             (timeline.parent as? ViewGroup)?.removeView(timeline)
         }
         updatePosition()
@@ -122,7 +112,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         },
         ui.column(8).apply {
             addView(playQueue)
-            addView(idleQueue)
+            addView(idleQueue, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
             addView(idleDevices)
         },
     )
@@ -215,25 +205,46 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     }
 
     init {
-        val body = ui.column().apply { setPadding(0, ui.dp(if (ui.eInk) 6 else 12), 0, ui.dp(8)) }
-        scroll.addView(body)
-        addView(scroll, LayoutParams(-1, -1))
-        val controls = ui.column(if (ui.eInk) 6 else 10).apply {
-            if (!ui.eInk) addView(timeline)
-            addView(ui.transport(previous, transport, next), LinearLayout.LayoutParams(-1, -2))
-            addView(ui.line())
-            addView(ui.row(6).apply {
-                addView(queue, LinearLayout.LayoutParams(-2, -2))
-                addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
-                if (ui.eInk) addView(position, LinearLayout.LayoutParams(-2, -2))
-                addView(more, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-            })
+        empty.setPadding(0, ui.dp(12), 0, ui.dp(8))
+        idleScroll.addView(empty)
+        addView(idleScroll, LayoutParams(-1, -1))
+
+        val artwork = object : ScrollView(activity) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+                    sleeve.limitArtworkHeight(MeasureSpec.getSize(heightMeasureSpec) - ui.dp(104))
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+        }.apply {
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = !ui.eInk
+            isSmoothScrollingEnabled = !ui.eInk
+            addView(FrameLayout(context).apply {
+                addView(sleeve, LayoutParams(-1, -2, Gravity.CENTER))
+            }, LayoutParams(-1, -2))
         }
-        details = ui.playerContent(sleeve, controls)
+        val controls = ui.scroll(ui.column(8).apply {
+            addView(ui.transport(previous, transport, next), LinearLayout.LayoutParams(-1, -2))
+            addView(ui.row(20).apply {
+                gravity = Gravity.CENTER
+                for (button in listOf(queue, position, more)) {
+                    addView(button, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+                }
+            })
+        }).apply { isVerticalScrollBarEnabled = !ui.eInk }
+        details = if (ui.compactPlayerLandscape) ui.row(12).apply {
+            addView(artwork, LinearLayout.LayoutParams(0, -1, 1f))
+            addView(controls, LinearLayout.LayoutParams(0, -2, 1f))
+        } else ui.column(8).apply {
+            addView(artwork, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(controls, LinearLayout.LayoutParams(-1, -2))
+        }
+        details.setPadding(0, ui.dp(8), 0, ui.dp(12))
         details.visibility = View.GONE
-        empty.visibility = View.GONE
-        body.addView(empty)
-        body.addView(details, LinearLayout.LayoutParams(-1, -2))
+        idleScroll.visibility = View.GONE
+        addView(details, LayoutParams(-1, -1))
         timeline.addView(bar, LinearLayout.LayoutParams(-1, ui.dp(48)))
         val times = ui.row()
         times.addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f))
@@ -270,7 +281,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
     }
 
     private fun updatePosition() {
-        if (timeline.visibility != View.VISIBLE || dragging) return
+        if (positionDialog == null || dragging) return
         bar.max = duration.coerceAtLeast(1)
         bar.progress = seconds
         elapsed.updateLabel(clockTime(seconds))
@@ -285,7 +296,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         val hasLyricsSource = track?.lyricRef() != null
         if (track != null && hasLyricsSource) lyricSheet?.update(track, snapshot.optInt("position"), !snapshot.optBoolean("radio_pending"))
         else lyricSheet?.close()
-        empty.visibility = if (track == null) View.VISIBLE else View.GONE
+        idleScroll.visibility = if (track == null) View.VISIBLE else View.GONE
         details.visibility = if (track == null) View.GONE else View.VISIBLE
         val upcoming = snapshot.optJSONArray("upcoming")
         val hasQueue = (upcoming?.length() ?: 0) > 0
@@ -301,9 +312,8 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         sleeve.bind(track, ref, RoomPlayback.artwork(room.id, ref))
         duration = track.optDouble("duration", 0.0).toInt()
         seconds = snapshot.optDouble("position", 0.0).toInt()
-        position.visibility = if (duration > 0) View.VISIBLE else View.GONE
+        position.isEnabled = duration > 0
         if (duration <= 0) positionDialog?.dismiss()
-        if (!ui.eInk) timeline.visibility = if (duration > 0) View.VISIBLE else View.GONE
         updatePosition()
         val nextPlayback = PlaybackTransport.forSnapshot(snapshot)
         if (nextPlayback != playback) {
