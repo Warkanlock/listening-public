@@ -33,7 +33,7 @@
 - **Manage sharing in Extensions.** Open the plugin that provides sharing to choose a folder and start or stop sharing. [Folder sharing setup](docs/download-engines.md#share-a-folder-through-a-plugin)
 - **Search and update on Android.** Use the dedicated **Search** screen to find songs, artists, and albums. Check for a new APK from **Settings → App updates**. [Android guide](clients/android/README.md)
 
-[2.0.8 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.8) · [2.0.7 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.7) · [2.0.6 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.6)
+[Read the 1.0.0 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v1.0.0)
 
 ## Your first run
 
@@ -67,7 +67,7 @@ Enter a password when prompted. On the Docker host, open [http://127.0.0.1:8765]
 2. To join a room, enter its address or paste your invitation.
 3. To host a new room, choose **Install terminal command** from the app menu. Open Terminal, run `~/.local/bin/listening setup`, and choose a music folder.
 
-[Download for Mac](https://github.com/Warkanlock/listening-public/releases/download/macos-v1.0.0/listening-room-macos-1.0.0.dmg) · [Mac setup guide](clients/macos/README.md)
+[Download for Mac](https://github.com/Warkanlock/listening-public/releases/download/v1.0.0/listening-room-1.0.0.dmg) · [Mac setup guide](clients/macos/README.md)
 
 </details>
 
@@ -87,7 +87,7 @@ Use a trusted HTTPS room and save the mix from the Home Screen app for offline C
 1. Download and open the Listening APK. Allow installation from your browser or Files app if prompted.
 2. Open Listening and enter your room address or invitation. You can also open music already on the device.
 
-[Download for Android](https://github.com/Warkanlock/listening-public/releases/download/v1.0.0/listening-room-2.0.9.apk) · [Android guide](clients/android/README.md)
+[Download for Android](https://github.com/Warkanlock/listening-public/releases/download/v1.0.0/listening-room-1.0.0.apk) · [Android guide](clients/android/README.md)
 
 </details>
 
