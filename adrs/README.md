@@ -1,6 +1,6 @@
 # Architecture decision records
 
-These records explain why Listening works the way it does. The [library format](../SPEC.md) specifies the interchange contract. The [README](../README.md) covers installation and use.
+These records explain why Listening works the way it does. See the [architecture overview](https://github.com/Warkanlock/listening-public/blob/main/ARCHITECTURE.md) for the current code map and data flow. The [library format](../SPEC.md) specifies the interchange contract. The [README](../README.md) covers installation and use.
 
 | Record | Decision | Status |
 | --- | --- | --- |

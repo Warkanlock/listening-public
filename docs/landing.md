@@ -45,4 +45,4 @@ The checked-in `frontend/react/vercel.json` builds the tour at `/` and `/about`.
 
 Keep the production domain public in Vercel. Check the production HTML and response headers for indexing directives from a signed-out session. `/` and both `/about` variants should declare the production root as their canonical URL.
 
-The standalone build adds Open Graph and X card metadata. It serves `frontend/react/about/listening-social.jpg` at `/listening-social.jpg`. When you update the card, check that the live image URL returns a 1200 × 630 JPEG without authentication.
+The standalone build adds Open Graph and X card metadata. It serves `frontend/react/about/listening-social.jpg` at `/listening-social.jpg`. When you update the card, check that the live image URL returns a 1200 × 630 JPEG without authentication. Check that the image, on-page wordmark, and sharing titles all read `listening.`. The old social image URL redirects to the current card.

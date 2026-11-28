@@ -1,5 +1,7 @@
 # Installation and module review
 
+For current setup and verification, use [Private installation](private-install.md) and the [public release runbook](public-release.md).
+
 The 1.5 setup rehearsal exercised a clean Compose room, a server upgrade, recovery from the previous image, and a signed download worker. The room upgraded with the same storage mounted. A paired device kept access, and an imported track remained playable after removing the import folder. A separate download test let the worker fetch a public-domain track into staging and ran Listening’s audio checks on the result.
 
 ## Keep each interface small

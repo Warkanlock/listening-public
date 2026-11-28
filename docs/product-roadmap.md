@@ -1,6 +1,8 @@
-# Listening private release roadmap
+# Listening private release roadmap archive
 
 ## Goal
+
+This document records the private preview plan. For the current feature set, see the [README](../README.md). For current release steps, use the [public release runbook](public-release.md).
 
 Give a household its own music across browsers and phones, with separate listening profiles and playback that works away from the server. The software should be installable from a private checkout or private release artifact. The operator supplies the server, the music they can use, and any network or service accounts they choose.
 

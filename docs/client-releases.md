@@ -18,7 +18,15 @@ GitHub Releases holds the installers, checksums, versioned source, and change no
    python3 scripts/release_clients.py --publish /path/to/release-notes.md
    ```
 
-Each release includes one Android APK, an Apple silicon DMG, SHA-256 checksums, and the source commit. The Mac build uses ad-hoc signing. Apple mobile users can use the browser or build the Apple project with their own signing. Compose images follow the existing [image release workflow](release-images.md).
+The helper creates a new draft release. To refresh an existing tag or its attachments, follow the [public release runbook](public-release.md#publish-in-order).
+
+The helper builds one signed Android APK and one Apple silicon DMG. It writes the manifest, SHA-256 checksums, and the source commit. The Mac build uses ad-hoc signing. For Simulator, run `listening build ios` and verify that ZIP separately before publishing it. For physical iPhones and iPads, use the web app or build the Apple project with your signing identity. Build the container images through the [image workflow](release-images.md).
+
+## Verify an Android update
+
+Keep the application ID and signing certificate across releases. Increase `versionCode` before publishing the next APK. The updater reads GitHub Latest, validates a matching `listening-room-VERSION.apk` asset with its reported size and SHA-256, then checks the APK's identity before opening Android's installer.
+
+For the move from a 2.x preview to 1.0.0, use the [direct installation procedure](public-release.md#move-from-a-2x-preview-to-100). Verify that an installed 1.x build recognizes a newer 1.x version before relying on automatic discovery.
 
 
 ## Offer the release from a room

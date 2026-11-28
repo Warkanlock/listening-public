@@ -20,7 +20,7 @@ python3 -m playwright install chromium
 make verify-ui
 ```
 
-Use an isolated Python environment for the Playwright tools. On macOS, the test and UI audit can verify that tests do not read the installed room’s data. See [AGENTS.md](AGENTS.md) for the repository’s verification rules and [the decision records](adrs/README.md) for architecture.
+Use an isolated Python environment for the Playwright tools. On macOS, the test and UI audit can verify that tests do not read the installed room’s data. See [AGENTS.md](AGENTS.md) for the repository’s verification rules and the [architecture overview](https://github.com/Warkanlock/listening-public/blob/main/ARCHITECTURE.md) for the code map.
 
 To work on the landing page without a room, run `yarn --cwd frontend/react dev` and open [the Vite preview](http://localhost:5173/about/). It uses bundled artwork and example moods.
 
