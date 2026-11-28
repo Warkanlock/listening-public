@@ -374,9 +374,10 @@ def matching_copies(recording, candidates):
     matching = []
     for copy in candidates:
         label = " " + credit_key(copy.get("label", "").rsplit(".", 1)[0]) + " "
-        if (copy.get("recommended") is not False or copy.get("identity_match") is True
-                or (f" {title} " in label and f" {artist} " in label)):
+        if copy.get("recommended") is not False or copy.get("identity_match") is True:
             matching.append(copy)
+        elif f" {title} " in label and f" {artist} " in label.replace(f" {title} ", " ", 1):
+            matching.append({**copy, "identity_match": True})
     return matching
 
 
@@ -386,7 +387,8 @@ def search_recording(selection, recording, *, timeout=None):
     if timeout is not None:
         budget = min(budget, timeout)
     with timed_stage(selection["search"], "search", budget):
-        query = " ".join(f"{recording['search_title'][:400]} {recording['artist'][:400]}".lower().split())
+        query = " ".join(" ".join(part.lower().split())[:400]
+                         for part in (recording["search_title"], recording["artist"])).strip()
         reply = manager_call("search", timeout=budget, engine=selection["search"],
                              recording={**recording, "search_query": query})
     candidates = list(candidates_from(reply))

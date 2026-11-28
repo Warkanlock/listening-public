@@ -21,6 +21,7 @@ vocabulary above is unchanged.
 import json
 import re
 import subprocess
+import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -206,15 +207,20 @@ def probe(path, *, local_audio_only=False, timeout=None):
 
 
 def title_is_generic(actual):
-    downloaded = normalize_title(actual)
+    downloaded = recording_words(actual or "")
     return not downloaded or re.fullmatch(_GENERIC_TAG, downloaded) is not None
 
 
 def title_matches(expected, actual):
+    if title_is_generic(actual):
+        return True
     target = normalize_title(expected)
     downloaded = normalize_title(actual)
-    if not downloaded or re.fullmatch(_GENERIC_TAG, downloaded):
-        return True
+    if not target or not downloaded:
+        target = recording_words(expected or "")
+        downloaded = recording_words(actual or "")
+    if not target:
+        return False
     return target in downloaded or SequenceMatcher(None, target, downloaded).ratio() >= TITLE_SIMILARITY
 
 
@@ -242,8 +248,9 @@ def judge(expected_title, expected_length, media):
 def request_identity(row):
     if row.get("musicbrainz_id"):
         return {"recording_id": row["musicbrainz_id"], "version": row.get("version", ""),
-                "expected_artist": row["artist"], "performance": row.get("performance", "")}
-    return {"expected_artist": row.get("artist", "")}
+                "expected_artist": row["artist"], "performance": row.get("performance", ""),
+                "require_identity": bool(row.get("replace_copy"))}
+    return {"expected_artist": row.get("artist", ""), "require_identity": bool(row.get("replace_copy"))}
 
 
 def judge_claim(title, length, facts, suffix, request=None):
@@ -254,7 +261,9 @@ def judge_claim(title, length, facts, suffix, request=None):
 
 
 def recording_words(value):
-    return " ".join(re.findall(r"[^\W_]+", value.casefold()))
+    text = unicodedata.normalize("NFC", value).casefold()
+    return " ".join("".join(char if char.isalnum() or unicodedata.category(char).startswith("M")
+                            else " " for char in text).split())
 
 
 _FEATURE_CREDIT = re.compile(r"\b(?:feat(?:uring)?|ft)\.?\s+", re.IGNORECASE)
@@ -313,7 +322,7 @@ def recording_mismatch(media, title, artist, length, recording_id, version, perf
 
 
 def judge_download(expected_title, expected_length, media, suffix, requested_format="any_lossless",
-                   *, recording_id="", version="", expected_artist="", performance=""):
+                   *, recording_id="", version="", expected_artist="", performance="", require_identity=False):
     """Verify the requested audio stream and container before landing a peer transfer."""
     suffix = suffix.lower()
     codec = media.get("codec") if media is not None else None
@@ -324,11 +333,35 @@ def judge_download(expected_title, expected_length, media, suffix, requested_for
         media = {**media, "bitrate": media.get("stream_bitrate", 0)}
     verdict = judge(expected_title, expected_length, media)
     if verdict.ok:
+        if require_identity:
+            if not expected_length or expected_length <= 0:
+                return Verdict(False, "A replacement needs the original song’s duration")
+            if title_is_generic(media["title"]) or (expected_artist and not media.get("artist")):
+                return Verdict(False, "A replacement needs matching title and artist tags")
+            if not recording_id:
+                title = recording_words(expected_title)
+                if recording_words(media["title"]) != title:
+                    return Verdict(False, "The replacement title tag does not match this song")
+                artist = recording_words(_FEATURE_CREDIT.sub("feat ", expected_artist))
+                tagged_artist = recording_words(_FEATURE_CREDIT.sub("feat ", media.get("artist") or ""))
+                if artist and artist != tagged_artist:
+                    return Verdict(False, "The replacement artist tag does not match this song")
+                raw_title = expected_title.strip()
+                edition_suffix = re.search(r"\(([^()]*)\)$|\[([^\[\]]*)\]$", raw_title)
+                if edition_suffix:
+                    edition = edition_suffix[1] or edition_suffix[2] or ""
+                else:
+                    parts = re.split(r"\s+[-–—]\s+", raw_title)
+                    edition = parts[-1] if len(parts) > 1 else ""
+                expected_edition = recording_words(edition)
+                editions = (recording_words(media.get(field) or "") for field in ("version", "subtitle"))
+                if any(edition != expected_edition for edition in editions if edition):
+                    return Verdict(False, "The replacement tags identify a different version")
         if recording_id:
             reason = recording_mismatch(media, expected_title, expected_artist, expected_length, recording_id, version, performance)
             if reason:
                 return Verdict(False, reason)
-        elif expected_artist and media.get("artist"):
+        elif not require_identity and expected_artist and media.get("artist"):
             if song_key(expected_artist, "")[0] != song_key(media["artist"], "")[0]:
                 return Verdict(False, "The artist tag does not identify this performer")
         containers = media.get("container", "").split(",")

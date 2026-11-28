@@ -54,7 +54,15 @@ export class RequestsSlice {
   constructor(private readonly host: SliceHost) {}
 
   get attentionRows() {
-    return this.requestRows.filter(row => requestNeedsAttention(requestStage(row)));
+    const seen = new Set<number>();
+    return this.requestRows.filter(row => {
+      const stage = requestStage(row);
+      if (row.track_index !== null && !(row.replace_copy && stage === "unavailable")) {
+        if (seen.has(row.track_index)) return false;
+        seen.add(row.track_index);
+      }
+      return requestNeedsAttention(stage);
+    });
   }
 
   get requestsBadge(): number {

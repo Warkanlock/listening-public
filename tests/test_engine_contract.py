@@ -453,11 +453,13 @@ class EngineRunnerTests(WorkspaceTestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_replacement_keeps_old_audio_until_a_verified_copy_takes_its_place(self):
-        record = self.record(1, "First Light", length=2)
+        record = self.record(1, "玻璃", length=2)
         self.write_manifest([record], {"mix": [1]})
-        self.make_audio("old.mp3", "First Light", duration=2, artist=record["artist"])
-        self.make_audio("wrong.mp3", "First Light", duration=2, artist="Another Artist")
-        self.make_audio("new.mp3", "First Light", duration=2, artist=record["artist"])
+        self.make_audio("old.mp3", "玻璃", duration=2, artist=record["artist"])
+        self.make_audio("uncredited.mp3", "玻璃", duration=2)
+        self.make_audio("wrong.mp3", "玻璃", duration=2, artist="Another Artist")
+        self.make_audio("other-title.mp3", "Another song", duration=2, artist=record["artist"])
+        self.make_audio("new.mp3", "玻璃", duration=2, artist=record["artist"])
         original = self.library / "1 - original.mp3"
         shutil.copyfile(self.media["old.mp3"], original)
         self.run_report()
@@ -468,7 +470,7 @@ class EngineRunnerTests(WorkspaceTestCase):
         self.assertEqual(store.prepare_copy_replacement(record)["id"], request["id"])
         with self.assertRaisesRegex(ValueError, "Choose a verified replacement"):
             store.confirm_format(request["id"], "mp3", 0)
-        for revision, name in enumerate(("wrong.mp3", "new.mp3")):
+        for revision, name in enumerate(("uncredited.mp3", "wrong.mp3", "other-title.mp3", "new.mp3")):
             current = store.get(request["id"])
             recording = engine_contract.request_recording(current, record, "mp3")
             matches = store.save_copy_matches(current["id"], "mp3", revision, recording, self.selection,
@@ -477,13 +479,47 @@ class EngineRunnerTests(WorkspaceTestCase):
             self.assertEqual(coverage.read_coverage()[0]["path"], initial)
             runner.run_requests()
             current = store.get(current["id"])
-            if name == "wrong.mp3":
+            if name != "new.mp3":
                 self.assertEqual(current["request_state"], "copy_unavailable")
                 self.assertEqual(coverage.read_coverage()[0]["path"], initial)
         self.assertEqual(current["track_index"], 1)
         self.assertEqual(current["status"], "downloaded")
         self.assertNotEqual(coverage.read_coverage()[0]["path"], initial)
         self.assertEqual((self.library / current["audio_path"]).read_bytes(), self.media["new.mp3"].read_bytes())
+
+    def test_replacement_rejects_conflicting_edition_credit_and_unicode_title(self):
+        facts = {"duration": 2, "bitrate": 320000, "stream_bitrate": 320000, "codec": "mp3",
+                 "container": "mp3", "title": "दिन", "artist": "Main artist feat. Right guest"}
+        def matches(media):
+            return runner.judge_download("दिन", 2, media, ".mp3", "mp3",
+                                         expected_artist=facts["artist"], require_identity=True).ok
+        self.assertTrue(matches(facts))
+        self.assertFalse(matches({**facts, "version": "Live"}))
+        self.assertFalse(matches({**facts, "artist": "Main artist feat. Wrong guest"}))
+        self.assertFalse(matches({**facts, "title": "दीन"}))
+        for title, accepted in (("Live and Let Die", False), ("Medley - Live and Let Die (Studio)", False),
+                                ("Song (Live)", True), ("Song - Live", True)):
+            self.assertEqual(runner.judge_download(
+                title, 2, {**facts, "title": title, "version": "Live"}, ".mp3", "mp3",
+                expected_artist=facts["artist"], require_identity=True).ok, accepted)
+
+    def test_cancelling_optional_replacement_keeps_future_missing_copy_search_available(self):
+        record = self.record(1, "First Light", length=2)
+        store = runner.requests_store()
+        row = store.prepare_copy_replacement(record)
+        self.assertEqual(store.stop_search(row["id"], row["format_revision"])["status"], "unavailable")
+        self.assertNotIn(1, store.by_track())
+        self.assertFalse(store.reserved_tracks(1, 1))
+        self.assertEqual(store.queue_tracks([record]), 1)
+        self.assertEqual(store.by_track()[1]["status"], "queued")
+
+    def test_large_batch_does_not_hide_an_older_copy_review(self):
+        store = runner.requests_store()
+        older = store.enqueue(1, "Fixture Artist", "Needs review", "", 2, "")
+        store.finish(older, "rejected", "Choose a copy to continue", "")
+        tracks = [self.record(index, f"Song {index}", length=2) for index in range(2, 84)]
+        self.assertEqual(store.queue_tracks(tracks), len(tracks))
+        self.assertIn(older, {row["id"] for row in store.recent() if row["request_state"] == "choose_copy"})
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_broad_request_searches_all_formats_once_and_lands_a_verified_aac(self):

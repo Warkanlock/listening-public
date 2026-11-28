@@ -294,7 +294,7 @@ class RequestsStore:
         row = conn.execute("SELECT * FROM requests WHERE id=?", (cursor.lastrowid,)).fetchone()
         return decode_request_row(row), True
 
-    def prepare_copy_replacement(self, track):
+    def prepare_copy_replacement(self, track, *, recording_id=""):
         def work(conn):
             conn.execute("BEGIN IMMEDIATE")
             index = track["index"]
@@ -305,8 +305,8 @@ class RequestsStore:
                 raise ValueError("This song already has an active copy request.")
             cursor = conn.execute(
                 "INSERT INTO requests (track_index,artist,title,album,length,search_title,status,"
-                "requested_format,replace_copy) VALUES (?,?,?,?,?,?,'waiting_format',NULL,1)",
-                (index, track["artist"], track["title"], track["album"], track["length"], track["title"]))
+                "requested_format,replace_copy,musicbrainz_id) VALUES (?,?,?,?,?,?,'waiting_format',NULL,1,?)",
+                (index, track["artist"], track["title"], track["album"], track["length"], track["title"], recording_id))
             return decode_request_row(conn.execute("SELECT * FROM requests WHERE id=?", (cursor.lastrowid,)).fetchone())
         return self._run(work)
 
@@ -700,8 +700,10 @@ class RequestsStore:
         def work(conn):
             return {row[0] for row in conn.execute(
                 "SELECT track_index FROM requests WHERE track_index BETWEEN ? AND ? "
+                "AND NOT (replace_copy=1 AND status='unavailable') "
                 "AND (status IN ('waiting_format','unavailable') OR format_confirmed=1) UNION "
                 "SELECT original_track_index FROM requests WHERE original_track_index BETWEEN ? AND ? "
+                "AND NOT (replace_copy=1 AND status='unavailable') "
                 "AND (status IN ('waiting_format','unavailable') OR format_confirmed=1)", (first, last, first, last))}
         return self._run(work)
 
@@ -739,8 +741,15 @@ class RequestsStore:
         """Recent requests and older ones that still need a choice or an explicit retry."""
         def work(conn):
             return [decode_request_row(row) for row in conn.execute(
-                "SELECT * FROM requests WHERE status IN ('waiting_format','unavailable') OR id IN "
-                "(SELECT id FROM requests ORDER BY id DESC LIMIT ?) ORDER BY id DESC", (limit,))]
+                "SELECT * FROM requests AS request WHERE request.status='waiting_format' OR "
+                "(request.status='unavailable' AND request.replace_copy=0) OR request.id IN "
+                "(SELECT id FROM requests ORDER BY id DESC LIMIT ?) OR "
+                "(request.status IN ('not_found','error','rejected') AND NOT EXISTS ("
+                "SELECT 1 FROM requests AS newer WHERE newer.id>request.id "
+                "AND NOT (newer.replace_copy=1 AND newer.status='unavailable') AND ("
+                "newer.track_index=request.track_index OR (request.track_index IS NULL AND newer.track_index IS NULL "
+                "AND newer.artist=request.artist AND newer.title=request.title "
+                "AND newer.musicbrainz_id=request.musicbrainz_id)))) ORDER BY request.id DESC", (limit,))]
         return self._run(work)
 
     def download_activity(self):
@@ -778,13 +787,16 @@ class RequestsStore:
 
         def work(conn):
             return {row["track_index"] or row["original_track_index"]: decode_request_row(row)
-                    for row in conn.execute(f"SELECT * FROM requests WHERE {where} ORDER BY id", params)}
+                    for row in conn.execute(f"SELECT * FROM requests WHERE ({where}) "
+                                            "AND NOT (replace_copy=1 AND status='unavailable') ORDER BY id", params)}
         return self._run(work)
 
     @staticmethod
     def _latest(conn, index, artist, title, musicbrainz_id, *, include_completed_origin=False):
         if index is not None:
-            condition, params = "(track_index=? OR (original_track_index=? AND status!='downloaded'))", (index, index)
+            condition = ("(track_index=? OR (original_track_index=? AND status!='downloaded')) "
+                         "AND NOT (replace_copy=1 AND status='unavailable')")
+            params = (index, index)
         else:
             condition, params = RequestsStore._pick_condition(
                 artist, title, musicbrainz_id, include_completed_origin=include_completed_origin)

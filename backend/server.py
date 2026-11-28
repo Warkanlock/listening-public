@@ -76,6 +76,7 @@ from library.library_protocol import (SUPPORTED, canonicalize_directory, canonic
                               xspf_files)
 from library.list_intake import place_lists
 from library import catalog_imports, playlist_edits, playlist_links, playlist_sharing, shared_music
+from metadata.music_profiles import recording_reference
 from library.local_sources import (discover_folders, is_music_list, list_files, source_mirror_kinds,
                                    sync_files, sync_folders)
 from adapters import opensubsonic, public_discovery, youtube_search
@@ -3655,7 +3656,10 @@ class Handler(BaseHTTPRequestHandler):
                     record = catalog.active_record_at(index) if type(index) is int else None
                     if not record or catalog.status_of(index) != "verified":
                         raise ValueError("Choose a playable song to replace its copy.")
-                    row = requests_store().prepare_copy_replacement(record)
+                    if not record["length"] or record["length"] <= 0:
+                        raise ValueError("Listening needs the song’s duration before it can verify a replacement.")
+                    row = requests_store().prepare_copy_replacement(
+                        record, recording_id=recording_reference(record))
                 return self.json_response(row)
             except ValueError as error:
                 return self.error_json(str(error))
