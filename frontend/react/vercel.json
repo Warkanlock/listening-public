@@ -7,6 +7,9 @@
   "installCommand": "yarn install --frozen-lockfile",
   "buildCommand": "yarn vite build --config vite.about.config.mjs",
   "outputDirectory": "landing-dist",
+  "redirects": [
+    { "source": "/listening-room-social.jpg", "destination": "/listening-social.jpg", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/about", "destination": "/index.html" },
     { "source": "/about/", "destination": "/index.html" }

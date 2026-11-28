@@ -692,7 +692,7 @@ def verify_landing(browser, base, output, errors, warnings):
             assert sleeve.locator("img").evaluate("img => img.complete && img.naturalWidth > 0")
             assert page.get_by_role("link", name="Explore listening features").get_attribute("href") == "#showcase"
             assert page.get_by_role("navigation").get_by_role("link", name="Features").get_attribute("href") == "#showcase"
-            logo = page.get_by_role("link", name="Listening", exact=True).first.locator("img")
+            logo = page.get_by_role("link", name="listening.", exact=True).first.locator("img")
             assert logo.evaluate("img => img.complete && img.naturalWidth > 0")
             hero_library = page.get_by_role("img", name="Library and queue in Listening")
             hero_library.evaluate("image => image.decode()")
