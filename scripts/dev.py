@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Development runner for Listening Room.
+"""Development runner for Listening.
 
 Runs `python3 backend/server.py` in the foreground, passing any
 arguments through (`make dev ARGS="--port 8899"`), and restarts the server

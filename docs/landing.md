@@ -41,8 +41,8 @@ Capture Spotify settings in a disposable room with a simulated connected account
 
 Create a Vercel project for the standalone tour. Connect this repository in the project's Git settings. Set **Root Directory** to `frontend/react` and **Production Branch** to `main`.
 
-The checked-in `frontend/react/vercel.json` builds the tour at `/` and `/about`. The repository links to [the Listening Room tour on Vercel](https://listening-room-tour.vercel.app/). Merge landing changes through a pull request and verify that the production deployment matches the merge commit.
+The checked-in `frontend/react/vercel.json` builds the tour at `/` and `/about`. The repository links to [the Listening tour on Vercel](https://listening-music.vercel.app/). Merge landing changes through a pull request and verify that the production deployment matches the merge commit.
 
 Keep the production domain public in Vercel. Check the production HTML and response headers for indexing directives from a signed-out session. `/` and both `/about` variants should declare the production root as their canonical URL.
 
-The standalone build adds Open Graph and X card metadata. It serves `frontend/react/about/listening-room-social.jpg` at `/listening-room-social.jpg`. When you update the card, check that the live image URL returns a 1200 × 630 JPEG without authentication.
+The standalone build adds Open Graph and X card metadata. It serves `frontend/react/about/listening-social.jpg` at `/listening-social.jpg`. When you update the card, check that the live image URL returns a 1200 × 630 JPEG without authentication.

@@ -1,4 +1,4 @@
-# Contributing to Listening Room
+# Contributing to Listening
 
 Use a disposable room for development. Keep collections, credentials, pairing links, and application settings outside the checkout. The project accepts fixes, install improvements, accessibility work, and new integrations that fit the existing domains.
 

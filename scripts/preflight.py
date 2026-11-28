@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Environment preflight for Listening Room.
+"""Environment preflight for Listening.
 
 Run by `make install` (the last step, inside the Poetry environment). Checks the
 few external tools the room leans on and says, in plain words, what is

@@ -1985,7 +1985,7 @@ class PairedFirstLoadTests(unittest.TestCase):
     def test_static_assets_travel_gzipped_and_keep_their_cache_rule(self):
         dist = Path(self.tmp.name) / "dist"
         (dist / "assets").mkdir(parents=True)
-        source = ("console.log('listening room');\n" * 200).encode()
+        source = ("console.log('listening');\n" * 200).encode()
         (dist / "assets" / "app-test.js").write_bytes(source)
         with mock.patch.object(server, "DIST", dist):
             status, headers, plain = self.request(

@@ -2119,8 +2119,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "GET" and parsed.path == "/pair" and invited:
             # Commit a same-site document before using the Strict cookie.
             # This URL is outside the service worker's cached app shell.
-            payload = (b'<!doctype html><meta charset="utf-8"><title>Listening Room</title>'
-                       b'<script>location.replace("/")</script><a href="/">Open Listening Room</a>')
+            payload = (b'<!doctype html><meta charset="utf-8"><title>Listening</title>'
+                       b'<script>location.replace("/")</script><a href="/">Open Listening</a>')
             self.send_response(HTTPStatus.OK)
             if self._cookie(MEMBER_COOKIE_NAME):
                 self.send_header("Set-Cookie", self._session_cookie(MEMBER_COOKIE_NAME, "", 0))
@@ -2236,7 +2236,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _account_action(self, body):
         if not owner_auth.enabled:
-            return self.error_json("Set the owner password on the server with the Listening Room CLI.",
+            return self.error_json("Set the owner password on the server with the Listening CLI.",
                                    HTTPStatus.SERVICE_UNAVAILABLE)
         try:
             if self.path == "/api/account/logout":
@@ -2846,7 +2846,7 @@ class Handler(BaseHTTPRequestHandler):
             raw = query.get("path", [""])[0].strip()
             target = Path(raw).expanduser().resolve() if raw else home
             if not browsable(target):
-                return self.error_json("That folder is outside the locations Listening Room can browse",
+                return self.error_json("That folder is outside the locations Listening can browse",
                                        HTTPStatus.FORBIDDEN)
             if not target.is_dir():
                 return self.error_json("Choose an existing folder")
@@ -4561,7 +4561,7 @@ def run_listener(httpd, control):
     threading.Thread(target=maintenance_watchdog, daemon=True, name="library-watchdog").start()
     threading.Thread(target=activity_watchdog, daemon=True, name="activity-tempos").start()
     print(f"State database: {DB} (SQLite is the source of state)", flush=True)
-    print(f"Listening room: http://127.0.0.1:{httpd.server_port}", flush=True)
+    print(f"Listening: http://127.0.0.1:{httpd.server_port}", flush=True)
     try:
         server_control.serve(httpd, control, drain=update_drain)
     finally:

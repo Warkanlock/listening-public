@@ -23,11 +23,11 @@ ENGINE_ACTIONS = ("install", "test", "enable", "disable", "update", "rollback", 
 
 
 def heading():
-    mark = "  ▂ ▆ █ ▅ ▂   LISTENING ROOM"
+    mark = "  ▂ ▆ █ ▅ ▂   LISTENING"
     try:
         mark.encode(sys.stdout.encoding or "ascii")
     except UnicodeEncodeError:
-        mark = "  .:|:.   LISTENING ROOM"
+        mark = "  .:|:.   LISTENING"
     if sys.stdout.isatty() and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb":
         return "\033[1;36m" + mark + "\033[0m"
     return mark
@@ -174,7 +174,7 @@ def api(port, route, body=None, *, host="127.0.0.1", owner_token=None):
                            headers=headers)
         response = connection.getresponse()
         if not response.getheader("Server", "").startswith("ListeningRoom/"):
-            raise RuntimeError("The selected address did not answer as a Listening Room server.")
+            raise RuntimeError("The selected address did not answer as a Listening server.")
         if response.status in (401, 403):
             raise RuntimeError("Manage the room on its server. If owner sign-in is required, run listening account set-owner.")
         if response.status != 200:
@@ -363,7 +363,7 @@ def compose_result(args, manager, command, ready):
         urls = [listener_url(host, manager["port"]) for host in compose_bindings(command, manager["port"])]
         url = next((address for address in urls if ready(address)), None)
         if not url:
-            raise RuntimeError("The published Listening Room server did not answer at " + ", ".join(urls))
+            raise RuntimeError("The published Listening server did not answer at " + ", ".join(urls))
         data = compose_action(command, args)
         if data.get("state") == "stopped":
             raise RuntimeError("The container is active but its room listener is unavailable.")

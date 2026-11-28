@@ -1,6 +1,6 @@
 # Client releases
 
-GitHub Releases holds the installers, checksums, versioned source, and change notes together. Releases follow the repository's current visibility. The unified APK uses the Listening Room application ID. A signed update retains the existing Room app’s local data and pairing.
+GitHub Releases holds the installers, checksums, versioned source, and change notes together. Releases follow the repository's current visibility. The unified APK uses the Listening application ID. A signed update retains the app’s local data and pairing.
 
 ## Build and publish
 

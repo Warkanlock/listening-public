@@ -94,7 +94,7 @@ internal class Room(val origin: String, val id: String, private val token: Strin
             } catch (error: IOException) {
                 throw RoomUnreachable(network.tailscale, error)
             }
-            throw IOException("No Listening Room found at this URL. Check the address and port.")
+            throw IOException("No Listening server found at this URL. Check the address and port.")
         }
 
         fun pair(context: Context, link: String, recover: PhoneLibrary? = null, homeWifi: Boolean = false,

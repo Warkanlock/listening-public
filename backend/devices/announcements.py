@@ -1,4 +1,4 @@
-"""Short, in-memory messages for browsers paired with a Listening Room host."""
+"""Short, in-memory messages for browsers paired with a Listening host."""
 
 import threading
 import time
@@ -19,7 +19,7 @@ class AnnouncementBoard:
             raise ValueError("Announcement contains unsupported characters")
         with self.lock:
             item = {"id": self.next_id, "message": message, "recipient": recipient,
-                    "sent_at": self.now(), "sender": "Listening Room host"}
+                    "sent_at": self.now(), "sender": "Listening host"}
             self.next_id += 1
             self.messages.append(item)
             self.messages = self.messages[-50:]

@@ -117,7 +117,7 @@ export function Jams() {
 
         {problem && <p className="jams-problem" role="alert">{problem}</p>}
         {!nearby ? <p role="status">Checking who’s nearby…</p> : !nearby.available
-          ? <p>Connect directly to Listening Room on your local network to find Jams.</p> : <>
+          ? <p>Connect directly to Listening on your local network to find Jams.</p> : <>
             {following && <section className="jams-section" aria-label="Your Jam">
               <div className="jams-row">
                 <div><strong>Listening with {following.host}</strong><small>{store.session?.current ? songLabel(store.session.current) : "Waiting for the host"}</small></div>

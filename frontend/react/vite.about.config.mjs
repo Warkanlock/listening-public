@@ -5,18 +5,18 @@ import { defineConfig } from "vite";
 
 const root = new URL("./", import.meta.url);
 const output = new URL("landing-dist/", root);
-const tourUrl = new URL(process.env.LISTENING_LANDING_URL || "https://listening-room-tour.vercel.app/");
+const tourUrl = new URL(process.env.LISTENING_LANDING_URL || "https://listening-music.vercel.app/");
 if (!["http:", "https:"].includes(tourUrl.protocol) || tourUrl.username || tourUrl.password ||
     tourUrl.search || tourUrl.hash) {
   throw new Error("LISTENING_LANDING_URL must be a public HTTP(S) URL with no credentials, query, or fragment.");
 }
 if (!tourUrl.pathname.endsWith("/")) tourUrl.pathname += "/";
-const socialImage = "listening-room-social.jpg";
+const socialImage = "listening-social.jpg";
 const socialPreview = {
-  title: "Listening Room",
+  title: "Listening",
   description: "Stream the records you own. Host your music library and listen across your devices.",
   image: new URL(socialImage, tourUrl).href,
-  "image:alt": "Listening Room logo beside a screenshot of the music library and playback queue.",
+  "image:alt": "Listening logo beside a screenshot of the music library and playback queue.",
 };
 const socialTags = [
   { tag: "link", injectTo: "head", attrs: { rel: "canonical", href: tourUrl.href } },
@@ -46,9 +46,9 @@ export default defineConfig({
           const standalone = html
             .replace(/<section data-room-only[\s\S]*?<\/section>/, "")
             .replaceAll(/<a [^>]*data-room-only[^>]*>[\s\S]*?<\/a>/g, "")
-            .replace('class="about-room-link" href="%BASE_URL%">Open the room',
+            .replace('class="about-room-link" href="%BASE_URL%">Open the app',
               'class="about-room-link" href="https://github.com/Warkanlock/listening-public">GitHub')
-            .replaceAll('href="%BASE_URL%">Open the room', 'href="#connect">Connect a device');
+            .replaceAll('href="%BASE_URL%">Open the app', 'href="#connect">Connect a device');
           return { html: standalone, tags: socialTags };
         },
       },

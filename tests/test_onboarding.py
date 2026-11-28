@@ -131,7 +131,7 @@ class OnboardingTests(unittest.TestCase):
                 sys.stdin, "isatty", return_value=True
             ), patch.object(onboarding, "getpass", return_value="fixture-password-123") as password, patch.object(
                 music_intake, "scan_folder", return_value=music_intake.FolderScan(
-                    [{"title": "First light", "artist": "Listening Room", "album": "First listen",
+                    [{"title": "First light", "artist": "Listening", "album": "First listen",
                       "duration_ms": 8000}], {}, 262144)
             ), redirect_stdout(io.StringIO()) as out:
                 command = ["setup", "--music", str(source), "--origin", "http://listening-fixture.test:8765",

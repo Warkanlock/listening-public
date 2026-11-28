@@ -45,7 +45,7 @@ def copy_room(resources):
     shutil.copytree(ROOT / "frontend/dist", room / "frontend/dist")
     shutil.copy2(MAC / "listening", resources / "bin/listening")
     notices = resources / "Notices"
-    shutil.copy2(ROOT / "LICENSE", notices / "Listening-Room-LICENSE")
+    shutil.copy2(ROOT / "LICENSE", notices / "Listening-LICENSE")
     shutil.copy2(ROOT / "THIRD_PARTY.md", notices)
     modules = ROOT / "frontend/react/node_modules"
     for name in ("react", "react-dom", "scheduler", "@ui-sdk/react", "@ui-sdk/core"):
@@ -54,19 +54,19 @@ def copy_room(resources):
 
 def make_app(app, version):
     contents = app / "Contents"
-    binary = contents / "MacOS/ListeningRoom"
+    binary = contents / "MacOS/Listening"
     binary.parent.mkdir(parents=True)
     resources = contents / "Resources"
     resources.mkdir()
     info = {
-        "CFBundleName": "Listening Room", "CFBundleDisplayName": "Listening Room",
+        "CFBundleName": "Listening", "CFBundleDisplayName": "Listening",
         "CFBundleIdentifier": "com.warkanlock.listeningroom.client",
-        "CFBundleExecutable": "ListeningRoom", "CFBundlePackageType": "APPL",
+        "CFBundleExecutable": "Listening", "CFBundlePackageType": "APPL",
         "CFBundleIconFile": "Room.icns",
         "CFBundleVersion": version, "CFBundleShortVersionString": version,
         "LSMinimumSystemVersion": "13.0", "NSPrincipalClass": "NSApplication",
         "NSHighResolutionCapable": True, "LSApplicationCategoryType": "public.app-category.music",
-        "NSLocalNetworkUsageDescription": "Listening Room connects to the music server you pair with.",
+        "NSLocalNetworkUsageDescription": "Listening connects to the music server you pair with.",
         "NSAppTransportSecurity": {"NSAllowsArbitraryLoadsInWebContent": True,
                                    "NSAllowsLocalNetworking": True},
     }
@@ -87,7 +87,7 @@ def verify_volume(image, mount, version):
     subprocess.run(["hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", mount, image],
                    check=True, stdout=subprocess.DEVNULL)
     try:
-        app = mount / "Listening Room.app"
+        app = mount / "Listening.app"
         resources = app / "Contents/Resources"
         subprocess.run(["codesign", "--verify", "--deep", "--strict", app], check=True)
         # Isolate even help/version checks from the builder's settings.
@@ -127,10 +127,10 @@ def build(output):
     with tempfile.TemporaryDirectory(prefix=".listening-dmg-", dir=output) as temporary:
         stage = Path(temporary)
         volume = stage / "volume"
-        make_app(volume / "Listening Room.app", version)
+        make_app(volume / "Listening.app", version)
         (volume / "Applications").symlink_to("/Applications")
         image = stage / name
-        subprocess.run(["hdiutil", "create", "-volname", "Listening Room", "-srcfolder", volume,
+        subprocess.run(["hdiutil", "create", "-volname", "Listening", "-srcfolder", volume,
                         "-format", "UDZO", "-fs", "HFS+", image], check=True)
         mount = stage / "mounted"
         mount.mkdir()

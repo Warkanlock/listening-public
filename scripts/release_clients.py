@@ -33,7 +33,7 @@ def release_version():
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["poetry"]["version"]
     expected = json.loads((ROOT / "frontend/react/package.json").read_text())["version"]
     android = (ROOT / "clients/android/app/build.gradle").read_text()
-    apple = (ROOT / "clients/ipad/ListeningRoom.xcodeproj/project.pbxproj").read_text()
+    apple = (ROOT / "clients/ipad/Listening.xcodeproj/project.pbxproj").read_text()
     if (not re.fullmatch(r"\d+\.\d+\.\d+", version) or expected != version
             or re.findall(r"versionName '([^']+)'", android) != [version]
             or set(re.findall(r"MARKETING_VERSION = ([^;]+);", apple)) != {version}):
@@ -112,7 +112,7 @@ def publish(output, version, commit, notes):
         raise ValueError(f"The GitHub tag {tag} points at another commit.")
     uploads = [*files, output / MANIFEST, output / "SHA256SUMS", output / "release-source.txt"]
     run("gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--target", commit,
-        "--title", f"Listening Room {version}",
+        "--title", f"Listening {version}",
         "--notes-file", notes, "--draft", *uploads)
     result = json.loads(read("gh", "release", "view", tag, "--repo", repo, "--json", "assets,isDraft"))
     received = {asset["name"]: asset.get("digest") for asset in result["assets"]}

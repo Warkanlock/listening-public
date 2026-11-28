@@ -103,7 +103,7 @@ export function StoragePanel({
       }));
       notify("Settings loaded. Review and save the values in their settings panels.");
     } catch {
-      notify("Choose the settings.json inside a Listening Room export");
+      notify("Choose the settings.json inside a Listening export");
     }
   };
 

@@ -1,4 +1,4 @@
-# Listening Room
+# Listening
 
 The room's own vocabulary: the places it keeps things, the processes that do its long work, and the checks that guard its changes. Terms are what they are, not how they are built.
 

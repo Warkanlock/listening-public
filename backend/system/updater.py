@@ -45,7 +45,7 @@ BREW_PACKAGE = ("This copy was installed as a package; update it with "
 DOCKER_IMAGE = ("This copy runs as a container image; updates arrive "
                 "as new images: `docker compose pull`, then "
                 "`docker compose up -d`.")
-MAC_APP = "Update this copy by replacing Listening Room.app with the app from the new DMG."
+MAC_APP = "Quit Listening, then install the app from the new DMG."
 _PACKAGE_REFUSALS = {"brew": BREW_PACKAGE, "docker": DOCKER_IMAGE, "app": MAC_APP}
 
 
@@ -57,7 +57,7 @@ def install_kind(environ=None):
     return kind if kind in _PACKAGE_REFUSALS else "checkout"
 
 
-NOT_A_CHECKOUT = ("This copy of Listening Room is not a git checkout, "
+NOT_A_CHECKOUT = ("This copy of Listening is not a git checkout, "
                   "so it cannot update itself")
 DIRTY_TREE = ("The update needs a clean app folder; there are "
               "uncommitted changes, so nothing was changed")

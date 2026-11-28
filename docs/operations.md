@@ -1,4 +1,4 @@
-# Listening Room operations
+# Listening operations
 
 [Install a room](private-install.md) · [Project overview](../README.md)
 
@@ -6,7 +6,7 @@
 
 ### Listen on the go
 
-On Android, join the room’s private Wi-Fi and open **Save for offline → Connect over Wi-Fi** in Listening Room. Paste a private invitation from the room’s Devices settings on the first connection. Pick a playlist and grant write access to the microSD card’s **Music** folder. Once the playlist is ready, it plays from **Device files → Saved playlists**. Open the same playlist again to pick up changes or finish an interrupted save. Use an invitation for an address reachable from that Wi-Fi network.
+On Android, join the room’s private Wi-Fi and open **Save for offline → Connect over Wi-Fi** in Listening. Paste a private invitation from the room’s Devices settings on the first connection. Pick a playlist and grant write access to the microSD card’s **Music** folder. Once the playlist is ready, it plays from **Device files → Saved playlists**. Open the same playlist again to pick up changes or finish an interrupted save. Use an invitation for an address reachable from that Wi-Fi network.
 
 **Mobile audio** defaults to **Original**. Select **Compact Opus** on Android for smaller files, or **Compact AAC** for broader player compatibility. In the browser and Apple clients, enable **Settings → Playback → Compact mobile audio** for AAC streams. As a rough guide, an hour of encoded music uses about 58 MB in Opus or 86 MB in AAC. Actual size depends on the source. The server keeps a bounded cache of Compact copies and can reuse a compatible, already-small original.
 
@@ -32,7 +32,7 @@ Start prints the room address after the server answers. Use `listening server st
 
 The root Compose file publishes to localhost by default.
 
-For an existing Compose installation, run `listening server configure compose --file /path/to/docker-compose.yml --project PROJECT` once on the host. Use the project's actual Compose name and add `--port PORT` for a nondefault published port. The lifecycle commands then operate on the Listening Room service in that project. Use `listening server configure local` to return to native hosting.
+For an existing Compose installation, run `listening server configure compose --file /path/to/docker-compose.yml --project PROJECT` once on the host. Use the project's actual Compose name and add `--port PORT` for a nondefault published port. The lifecycle commands then operate on the Listening service in that project. Use `listening server configure local` to return to native hosting.
 
 ### Use the terminal
 
@@ -147,7 +147,7 @@ Three layers tell you what is wrong, in order:
 New rooms keep their catalog and audio in the room’s `collection.sqlite3`. The application folder holds host settings, jobs, caches and credentials. Legacy rooms retain their existing layout until you select a verified copy.
 How you upgrade depends on how you installed:
 
-- **DMG:** Replace Listening Room.app on the server with the app from the new DMG.
+- **DMG:** Quit Listening, then move the app from the new DMG into Applications. Open the new app and confirm it uses your existing setup. If you host locally, choose **Install terminal command…** from the app menu before removing the older copy.
 - **Homebrew:** `brew upgrade listening-room`. The in-app update
   card defers to it.
 - **Docker:** With the Compose host updater enabled, choose **Settings → Room setup → App updates** as the owner. The host builds the latest revision from `main` and restarts the room. Registry and archive installs use their existing image update procedure. [Compose updates](private-install.md#update-a-source-built-compose-room-from-the-browser)
@@ -195,7 +195,7 @@ When you stop linking or the source file disappears, the last imported copy stay
 
 ### Upgrading an existing CSV library
 
-On the first launch after upgrading, Listening Room copies CSV lists from the
+On the first launch after upgrading, Listening copies CSV lists from the
 old configured CSV directory into XSPF files under the library's `lists/`
 directory. The source CSV files remain where they were. Existing audio and
 M3U8 export paths stay configured; catalog IDs and verified matches remain
@@ -211,10 +211,10 @@ folder and one shared catalog.
 
 1. **Import files in the app.** In **Sources**, import CSV (any tool's
    export that matches the criteria in SPEC.md), M3U/M3U8, or XSPF files,
-   or a whole Listening Room ZIP bundle. A browser file import is a
+   or a whole Listening ZIP bundle. A browser file import is a
    one-time copy.
 2. **Drop files into a folder.** Put list files in the `lists/` folder, or
-   in any folder you ask **Sources** to watch. Listening Room recognizes
+   in any folder you ask **Sources** to watch. Listening recognizes
    song-list files by their contents, copies them into the portable
    library, and checks watched folders for changes automatically. The
    original files stay in place. You can watch up to 20 folders.
@@ -251,7 +251,7 @@ If the songs on your lists already live on this computer, you do not
 need to download anything. Import a list (any route above), then point
 **Audio files** in Settings at the folder holding your audio. Choose
 **Check for changes** in Sources, or just wait for the next automatic
-check. Listening Room probes each file's tags, matches it to a catalog
+check. Listening probes each file's tags, matches it to a catalog
 song by artist, title, and album, and applies the same verification as
 a download: a matched song that passes becomes playable where it sits.
 Files are never renamed or moved, files that match no song are left
@@ -270,7 +270,7 @@ The library works fully without this adapter; connect it only if you want
 your Spotify account mirrored into the local catalog. Spotify sync is
 optional. In the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard),
 create a Web API app for your own account. Add the Redirect URI shown in
-Listening Room's **Spotify** tab exactly, such as
+Listening's **Spotify** tab exactly, such as
 `http://127.0.0.1:8765/api/spotify/callback`. Enter the app's Client ID in
 the **Spotify** tab and choose **Connect Spotify** on the host computer. Each person
 running a fork can enter their own Client ID and connect their own account.
@@ -372,7 +372,7 @@ short message to everyone or one currently connected device. Paired browsers
 show new messages in an in-app notification; the envelope in the top bar opens
 recent announcements. The server keeps the latest 50 messages for up to 24
 hours in memory, so announcements clear when the server restarts. Notifications
-appear while the Listening Room page is open; they do not require browser or
+appear while the Listening page is open; they do not require browser or
 OS notification permission. Device selection routes a message to that
 browser's inbox, but it is not a private-messaging system; do not send secrets.
 
@@ -383,7 +383,7 @@ can resume the session. Press `?` for shortcuts: Space toggles playback,
 `Ctrl/⌘ K` focuses search, left and right arrows skip tracks, and `Q`
 toggles the queue.
 
-Listening Room is a PWA. On the host, open the localhost page in Chrome or
+Listening is a PWA. On the host, open the localhost page in Chrome or
 Edge and choose **Install app** from the browser menu. The app shell installs
 and is cached by a service worker, while audio and library APIs still need the
 local server to be running. PWA installation on other devices generally

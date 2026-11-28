@@ -52,7 +52,7 @@ function Preview() {
       {scene === "Device handoff" && <>
         <div className="about-scene-heading"><small>Playback preview</small><h3>From laptop to phone.</h3>
           <p>The room remembers where a library track stopped, including a song on Library Radio. Live stations return to their current broadcast.</p></div>
-        <div className="about-mini" data-device={phone ? "phone" : "laptop"}><img src={sleeve} alt="" width="76" height="76" /><div><strong>First light</strong><span>Listening Room</span></div>
+        <div className="about-mini" data-device={phone ? "phone" : "laptop"}><img src={sleeve} alt="" width="76" height="76" /><div><strong>First light</strong><span>Listening</span></div>
           <small aria-live="polite">{phone ? "Phone" : "Laptop"} · 0:04 / 0:08</small><meter min={0} max={8} value={4} aria-label="Saved playback position, four seconds" /></div>
         <button className="about-demo-action" onClick={() => setPhone(!phone)}>Resume on {phone ? "laptop" : "phone"} <RoomIcon name="forward" /></button>
       </>}

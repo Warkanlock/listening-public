@@ -40,7 +40,7 @@ class RoomCliTests(unittest.TestCase):
         with patch.object(cli, "request", side_effect=AssertionError):
             code, text = self.invoke()
         self.assertEqual(code, 0)
-        for item in ("LISTENING ROOM", "setup", "status", "invite", "settings", "config"):
+        for item in ("LISTENING", "setup", "status", "invite", "settings", "config"):
             self.assertIn(item, text)
         self.assertNotIn("\033", text)
         self.assertFalse(self.config.exists())

@@ -1,17 +1,17 @@
-# SPEC: the Listening Room library format
+# SPEC: the Listening library format
 
 This document is the specification of how music information enters, lives in,
-and leaves Listening Room.
+and leaves Listening.
 
 ## Principle: vendor-agnostic by design
 
-Listening Room is not built around any music vendor. Its reason to exist is a
+Listening is not built around any music vendor. Its reason to exist is a
 portable library: lists you own, in open formats, matched to audio files you
 own, on a computer you control. Anything that can describe songs with the
 fields in this spec can feed it, and everything in it can leave again in open
 formats.
 
-Listening Room supports Spotify playlist files and an optional account
+Listening supports Spotify playlist files and an optional account
 connection.
 
 - Its playlist CSV export shape is one of the CSV dialects the CSV adapter
@@ -35,14 +35,14 @@ from a folder the operator authorizes on the plugin host.
 
 ## The interchange format
 
-Listening Room uses [XSPF version 1](https://xspf.org/spec) as its interchange
+Listening uses [XSPF version 1](https://xspf.org/spec) as its interchange
 format. XSPF is an open playlist specification with ordered tracks, human
 readable song fields, persistent identifiers, optional artwork, and optional
 file locations. A list can describe music that has not been downloaded yet.
 
 This is a protocol for **library metadata and playlist order**. Audio files
 stay in their original codecs. An XSPF file does not contain audio or grant
-access to a streaming service. When a song has no local copy, Listening Room
+access to a streaming service. When a song has no local copy, Listening
 can search for one through its configured engines.
 
 ## What a source must contain: the acceptance criteria
@@ -129,7 +129,7 @@ until the owner explicitly migrates them. [Collection ownership](adrs/0006-colle
 
 ## Track mapping
 
-| XSPF track element | Listening Room meaning |
+| XSPF track element | Listening meaning |
 | --- | --- |
 | `title`, `creator` | Required song title and artist |
 | `album` | Optional album |
@@ -187,7 +187,7 @@ Minimal example:
   tracks; a player needs an audio copy before it can play them.
 
 Use audio export for standalone music files, or snapshot and restore for
-the full Listening Room collection. Only share files you have the right
+the full Listening collection. Only share files you have the right
 to distribute.
 
 ## Multiple local sources
@@ -210,7 +210,7 @@ file leaves the last imported copy in place.
 
 ## Appendix: legacy migration from Spotify CSV directories
 
-On first launch after the upgrade, Listening Room creates `lists/` and writes
+On first launch after the upgrade, Listening creates `lists/` and writes
 XSPF copies of CSVs in the previously configured CSV directory. Originals
 remain in place. The new `lists_folder` setting replaces `csv_folder`; existing
 audio and M3U8 output paths remain configured. Catalog indexes and verified

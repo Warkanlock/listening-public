@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 
-PROJECT = Path(__file__).resolve().parents[1] / "clients/ipad/ListeningRoom.xcodeproj"
+PROJECT = Path(__file__).resolve().parents[1] / "clients/ipad/Listening.xcodeproj"
 
 
 def build(output):
@@ -21,10 +21,10 @@ def build(output):
     team = os.environ.get("LISTENING_APPLE_TEAM", "").strip()
     with tempfile.TemporaryDirectory(dir=output, prefix=".listening-ipad-") as temporary:
         work = Path(temporary)
-        xcode = ["xcodebuild", "-quiet", "-project", str(PROJECT), "-scheme", "ListeningRoom",
+        xcode = ["xcodebuild", "-quiet", "-project", str(PROJECT), "-scheme", "Listening",
                  "-configuration", "Release", "-derivedDataPath", str(work / "derived")]
         if team:
-            archive = work / "ListeningRoom.xcarchive"
+            archive = work / "Listening.xcarchive"
             subprocess.run([*xcode, "-destination", "generic/platform=iOS", "-archivePath", archive,
                             f"DEVELOPMENT_TEAM={team}", "-allowProvisioningUpdates", "archive"], check=True)
             options = work / "Export.plist"
@@ -35,11 +35,11 @@ def build(output):
                             "-exportPath", export, "-exportOptionsPlist", options,
                             "-allowProvisioningUpdates"], check=True)
             artifact, = export.glob("*.ipa")
-            app = archive / "Products/Applications/ListeningRoom.app"
+            app = archive / "Products/Applications/Listening.app"
             suffix = "ios.ipa"
         else:
             subprocess.run([*xcode, "-destination", "generic/platform=iOS Simulator", "build"], check=True)
-            app = work / "derived/Build/Products/Release-iphonesimulator/ListeningRoom.app"
+            app = work / "derived/Build/Products/Release-iphonesimulator/Listening.app"
             artifact = work / "simulator.zip"
             subprocess.run(["ditto", "-c", "-k", "--keepParent", app, artifact], check=True)
             suffix = "ios-simulator.zip"
@@ -57,7 +57,7 @@ def build(output):
         checksum.replace(output / (name + ".sha256"))
     print(f"Built {output / name}")
     if not team:
-        print("For a physical iPhone or iPad, open clients/ipad/ListeningRoom.xcodeproj in Xcode and select your signing team.")
+        print("For a physical iPhone or iPad, open clients/ipad/Listening.xcodeproj in Xcode and select your signing team.")
 
 
 if __name__ == "__main__":

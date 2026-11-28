@@ -1,4 +1,4 @@
-# Listening Room private release roadmap
+# Listening private release roadmap
 
 ## Goal
 
@@ -25,7 +25,7 @@ Build the install, demo, and recovery work first because every path depends on i
 
 ## Product and implementation decisions
 
-- Keep the default room usable with internet access disconnected. External services require an explicit action or configuration. For Tailscale and WireGuard, use the operator's existing private network and client apps. Listening Room stores an origin and validates hostnames. VPN installation, keys, network membership, firewall policy, and router configuration stay with the operator.
+- Keep the default room usable with internet access disconnected. External services require an explicit action or configuration. For Tailscale and WireGuard, use the operator's existing private network and client apps. Listening stores an origin and validates hostnames. VPN installation, keys, network membership, firewall policy, and router configuration stay with the operator.
 - Run release automation against disposable rooms. Keep private install archives restricted to authorized users. The versioned image workflow publishes from a public fork only after an explicit tagged release run. Verify source and container installs with an original byte-for-byte export and an offline phone save before calling the release ready for new households.
 - Keep the shared media payload content-addressed. Give owner and member identities stable IDs. Migrate unscoped personal data to the first owner and make the migration resumable. Store salted password hashes in the private application database and use separately revocable sessions and device credentials. Verify role boundaries across HTML, the API, native clients, playback, and offline replicas.
 - Start Fediverse sharing with an explicit export. Include a preview, ordered track metadata, and public recording identifiers where available. Let the owner upload the result or post using an existing Fediverse account. An export contains no room address, credentials, audio, or listening history.

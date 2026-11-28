@@ -91,7 +91,7 @@ export function ConnectionsPanel({
         <div data-settings-list-head>
           <div>
             <h3 id="spotify-account-heading">Account connection</h3>
-            <p>Listening Room checks Spotify every {syncMinutes} minutes.</p>
+            <p>Listening checks Spotify every {syncMinutes} minutes.</p>
           </div>
           <span
             className="status-pill"

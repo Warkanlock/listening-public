@@ -1,4 +1,4 @@
-# Listening Room: the one command surface (plan 035).
+# Listening: the one command surface (plan 035).
 #
 # Everything from a checkout goes through these targets, and every
 # Python invocation goes through Poetry, so the interpreter is the
@@ -22,7 +22,7 @@
 .PHONY: help install start dev build dev-ui test verify-ui
 
 help:
-	@echo 'Listening Room: make targets'
+	@echo 'Listening: make targets'
 	@echo ''
 	@echo '  make install            Set the room up: Poetry install (creates the'
 	@echo '                          project venv), then the preflight inside the'

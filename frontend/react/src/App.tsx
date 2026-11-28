@@ -112,7 +112,7 @@ function Sidebar({ named }: { named: boolean }) {
     <aside ref={sidebar} className="sidebar" onBlur={event => {
       if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setNavOpen(false);
     }}>
-      <div className="brand" aria-label="Listening Room">
+      <div className="brand" aria-label="Listening">
         <span className="brand-mark" aria-hidden="true">
           <i />
           <i />

@@ -131,7 +131,7 @@ class Library:
         if argument(query, "musicFolderId", "1") != "1":
             raise SubsonicError(70, "Music folder not found.")
         if method == "getMusicFolders":
-            return {"musicFolders": {"musicFolder": [{"id": 1, "name": "Listening Room"}]}}
+            return {"musicFolders": {"musicFolder": [{"id": 1, "name": "Listening"}]}}
         if method == "getArtists":
             groups = defaultdict(list)
             for identifier in sorted(self.artists, key=lambda item: self.artists[item]["name"].casefold()):

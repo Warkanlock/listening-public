@@ -1,4 +1,4 @@
-# Listening Room for Android
+# Listening for Android
 
 Download the signed Android APK from [GitHub Releases](https://github.com/Warkanlock/listening-public/releases). It includes room streaming, offline sync, and local file playback. After installing, enter your **Server URL** and tap **Connect**, then paste a pairing link from that room’s **Settings → Devices**. You can also paste the full pairing link in the first step, or choose **Device files** for local playback.
 
@@ -10,7 +10,7 @@ Open **Library → Downloads** to check active transfers, review requests that n
 
 ### Update the app
 
-Open **Settings → App updates → Check for APK updates**. You can also check from the **Connect to a room** screen. When a newer release is available, tap **Update and install**. Listening downloads and verifies the APK, then opens Android's installation screen. Android may ask you to allow installs from Listening Room the first time.
+Open **Settings → App updates → Check for APK updates**. You can also check from the **Connect to a room** screen. When a newer release is available, tap **Update and install**. Listening downloads and verifies the APK, then opens Android's installation screen. Android may ask you to allow installs from Listening the first time.
 
 If your phone requires a desktop installer, open the GitHub release on your computer and install the APK using that tool. On Mudita Kompakt, use Mudita Center.
 
@@ -24,7 +24,7 @@ A magnet identifies a playlist that follows a source. The label identifies Spoti
 
 Open **Device files** and select a music folder on internal or removable storage. Choose a file or saved playlist to listen without a connection. To save room songs into a music folder, open **Device files → Save for offline** and connect to the room over Wi-Fi. The app can use a private VPN carried over Wi-Fi. If the saved hostname is unreachable, choose **Wi-Fi address or invitation** and enter the room’s local URL including its port. A paired phone verifies the room before reusing its device credential. Reopen the same playlist to resume a transfer or pick up newer tracks.
 
-Existing Listening Room installations update in place. The old Listening Offline app has its own app ID. If you used it, open the same music folder in **Device files** and pair the unified app with a fresh room invitation. You can keep the old app installed while you check access to your files.
+Existing Listening installations update in place. The old Listening Offline app has its own app ID. If you used it, open the same music folder in **Device files** and pair the unified app with a fresh room invitation. You can keep the old app installed while you check access to your files.
 
 ### Stream from your room
 
