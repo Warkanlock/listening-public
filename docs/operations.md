@@ -57,11 +57,11 @@ For scripting, append `--json` to status, pairing, settings, and configuration i
 
 ### Browse by mood and discover music
 
-Open **Mood map**, or **Explore → Mood Map** on Android. Tap a mood to start playing, or drag between moods and release to play a blend. With a keyboard, focus **Blend moods**, use the arrow keys, and press Enter to play. On Android, TalkBack offers directional actions on the map. Use the regular player to pause, skip, or switch devices.
+Open **Mood map**, or **Listen → Moods → Mood Map** on Android. Tap a mood to start playing, or drag between moods and release to play a blend. With a keyboard, focus **Blend moods**, use the arrow keys, and press Enter to play. On Android, TalkBack offers directional actions on the map. Use the regular player to pause, skip, or switch devices.
 
 Open **Map settings** to choose a genre. On the web, Mac, and iPad, you can also adjust brightness and energy, play your selection, or change **Tune from** to YouTube or a public catalog. Room owners can select a single mood and use **Edit genres** in Map settings to change the genres it draws from.
 
-**Deep Dive** offers weekly picks based on favorite artists. On Android it lives under **Explore → Deep Dive**. Tap a pick to see why it was recommended. **Find a copy** saves a request, and **Confirm and search** starts the search in the lossless format you selected.
+**Deep Dive** offers weekly picks based on favorite artists. On Android it lives under **Listen → Deep Dive**. Tap a pick to see why it was recommended. **Find a copy** saves a request, and **Confirm and search** starts the search in the lossless format you selected.
 
 ### Build clients
 
@@ -155,11 +155,7 @@ How you upgrade depends on how you installed:
   card in Settings → Room setup, or pull the new code and run
   `./listening setup` again.
 
-**Upgrading from a pre-1.2.0 version:** stop the workers in the Jobs
-view before you update. Earlier versions ran the workers in tmux
-sessions; the new server supervises its workers itself and does not
-adopt ones the old server started, so a worker left running would
-keep going unmanaged alongside the new server.
+If your old room still runs its workers in tmux, stop them in **Jobs** before you update. The supervisor only re-adopts its own processes.
 
 The first run after upgrading moves any state still sitting in the
 library folder into the application folder, and imports any
@@ -182,8 +178,10 @@ copying the library and application folders.
 | Devices | Pair browsers, name them, and send announcements. |
 | Extensions | Configure sources and manage sharing for plugins that support it. |
 | Storage | Change the Library folder and export or import host settings. |
+| Appearance | Set your display theme. |
+| Connect a device | Find the room address, pairing options, and available client installers. |
 
-Paired web and Mac clients have access to Playback, Radio, and Devices. Open Settings on the server to manage the room.
+Paired clients see controls for their permissions. Sign in as the owner to manage room settings. A household member manages their own listening profile.
 
 Source discovery checks common locations under Downloads, Music, Documents,
 and Desktop on the **server computer**. It reads likely list headers locally
@@ -274,7 +272,7 @@ Listening's **Spotify** tab exactly, such as
 `http://127.0.0.1:8765/api/spotify/callback`. Enter the app's Client ID in
 the **Spotify** tab and choose **Connect Spotify** on the host computer. Each person
 running a fork can enter their own Client ID and connect their own account.
-Spotify's development mode requires a Premium app owner and allowlisted users.
+Spotify's development mode has its own account and access requirements. Check the Spotify Developer Dashboard before connecting.
 
 The adapter reads your saved tracks and playlists you own or collaborate on. To edit them from Listening, reconnect once after upgrading and grant Spotify’s library and playlist modification permissions. Older read-only connections can keep importing. Authorization uses PKCE. Tokens stay in the host’s private application folder.
 
@@ -291,7 +289,7 @@ automatically searches new catalog entries.
 
 ## Weekly Discovery
 
-Open **Deep Dive → Weekly Discovery** from the web player, Mac app or iPad app. On Android, open **Explore → Deep Dive → Weekly Discovery**.
+Open **Deep Dive → Weekly Discovery** from the web player, Mac app or iPad app. On Android, open **Listen → Weekly Discovery**.
 
 The room prepares a new edition each Monday when someone opens Weekly Discovery. It starts with artists played in the room, explores up to three artist connections, and leaves out songs already in the room’s library. Related picks show the artist trail that led to them.
 

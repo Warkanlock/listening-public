@@ -6,7 +6,7 @@
   <p>
     <a href="https://listening-music.vercel.app/">Website</a> ·
     <a href="#your-first-run">Get started</a> ·
-    <a href="https://github.com/Warkanlock/listening-public/releases/tag/v1.0.0">Get Listening 1.0.0</a> ·
+    <a href="https://github.com/Warkanlock/listening-public/releases/tag/v1.0.0">Downloads</a> ·
     <a href="#documentation">Docs</a>
   </p>
   <a href="frontend/react/public/assets/about-showcase/room/library.webp"><img src="frontend/react/public/assets/about-showcase/room/library.webp" alt="Listening library and playback queue with a demo collection" width="840"></a>
@@ -23,17 +23,15 @@
 
 ## What's new
 
-- **Less room for dialogs.** Copy review, playlist sharing, and related actions use more compact controls.
 - **Better tablet listening.** On iPad, playlist artwork anchors the header, and the player background reaches the bottom edge.
 - **A tour you can host anywhere.** The landing leads with installation and discovery features. Download the static site from the release.
-
 - **Review copies at a glance.** Copy-review actions line up in a row on desktop and in two columns on web and Android phones.
 - **Stop searching on web and Android.** In **Review copies**, choose **Stop searching** to mark a request **Unavailable** and remove it from automatic searches. The request stays visible. Select **Retry now** to search again.
 - **Find your way around Settings.** Use a sidebar on a computer or scroll the tabs on a phone. Spotify account controls and playlist tools have their own sections. In **Sources → Playlist matches**, open a suggested match to compare recordings before linking playlists.
 - **Manage sharing in Extensions.** Open the plugin that provides sharing to choose a folder and start or stop sharing. [Folder sharing setup](docs/download-engines.md#share-a-folder-through-a-plugin)
 - **Search and update on Android.** Use the dedicated **Search** screen to find songs, artists, and albums. Check for a new APK from **Settings → App updates**. [Android guide](clients/android/README.md)
 
-[2.0.8 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.8) · [2.0.7 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.7) · [2.0.6 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v2.0.6)
+[Read the 1.0.0 release notes](https://github.com/Warkanlock/listening-public/releases/tag/v1.0.0)
 
 ## Your first run
 
@@ -110,6 +108,8 @@ Use a collection snapshot to move your catalog and original audio to another hos
 
 ## Documentation
 
+Start with the [documentation index](docs/README.md) or browse the [wiki](https://github.com/Warkanlock/listening-public/wiki).
+
 | Guide | Covers |
 | --- | --- |
 | [Server installation](docs/private-install.md) | Owner setup, music import, private access, and updates |
@@ -122,6 +122,7 @@ Use a collection snapshot to move your catalog and original audio to another hos
 | [Operations](docs/operations.md) | CLI, backups, sharing, and troubleshooting |
 | [Portable formats](SPEC.md) | CSV, M3U, XSPF, and other portable formats |
 | [Client releases](docs/client-releases.md) | Build, sign, and verify installers |
+| [Architecture](https://github.com/Warkanlock/listening-public/blob/main/ARCHITECTURE.md) | Code map, data flow, and extension boundaries |
 | [Public release preparation](docs/public-release.md) | Review the source, history, and release assets before publication |
 
 ## Contributing

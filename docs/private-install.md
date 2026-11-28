@@ -6,9 +6,9 @@ The server keeps your catalog and media on its own disk. On the same computer, o
 
 The [illustrated setup walkthrough](onboarding-walkthrough.md) shows what a clean install looks like through the first track and device connection.
 
-A new installation starts with your music folders. Use the core image on amd64 or arm64. Use a released image archive or the matching registry image. Existing rooms should follow [Update a source-built Compose room](#update-a-source-built-compose-room-from-the-browser) and keep the current files, secrets and installed extensions.
+For a quick Docker install, use [Your first run](../README.md#your-first-run). To use Compose with the public registry, follow [Install from a registry](release-images.md#install-from-a-registry). Use the core image on amd64 or arm64. Existing rooms should follow [Update a source-built Compose room](#update-a-source-built-compose-room-from-the-browser) and keep the current files, secrets and installed extensions.
 
-Load the release archive for your server architecture after comparing it with its matching SHA-256 checksum. Copy `release.env` to `.env`. If you are building from a checkout, run `docker compose build` instead. Use the release's Compose files with its image.
+For an install from a saved release image, verify the archive's SHA-256 before loading it. Copy `release.env` to `.env`. If you build from a checkout, use `docker compose build`. Use the release's Compose files with its image.
 
 ```sh
 docker load -i listening-room-core-amd64.tar

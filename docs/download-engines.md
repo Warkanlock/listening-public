@@ -71,12 +71,18 @@ Use a catalog with this structure. Replace the image digest with the published i
 }
 ```
 
-Sign the exact file bytes. Keep the private key on the signing machine. Publish `catalog.json` and `catalog.sig` together on your HTTPS host or release. Distribute the public key separately.
+Sign the exact file bytes with the publisher key that current installations trust. Keep the private key on the signing machine. Publish `catalog.json` and `catalog.sig` together on your HTTPS host or release. Distribute the public key separately.
+
+```sh
+openssl dgst -sha256 -sign catalog-private.pem -out catalog.sig catalog.json
+openssl dgst -sha256 -verify catalog-public.pem -signature catalog.sig catalog.json
+```
+
+If you are setting up a new publisher, generate a key pair and distribute its verified public key before installing the first catalog.
 
 ```sh
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out catalog-private.pem
 openssl pkey -in catalog-private.pem -pubout -out catalog-public.pem
-openssl dgst -sha256 -sign catalog-private.pem -out catalog.sig catalog.json
 ```
 
 ## Upgrade a room with an existing engine
