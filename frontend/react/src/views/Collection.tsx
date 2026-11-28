@@ -362,7 +362,7 @@ function LibraryTracks({ libraryCount }: { libraryCount: number | null }) {
         <Tabs
           value={store.filter}
           onValueChange={(value) => {
-            if (value) store.setFilter(value);
+            if (value && value !== store.filter) store.setFilter(value);
           }}
         >
           <TabsList className="filter-tabs" aria-label="Track availability">

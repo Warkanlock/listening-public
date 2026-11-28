@@ -58,17 +58,22 @@ export class BrowsingSlice {
   searchingPlaylist: string | null = null;
 
   private loadSeq = 0;
+  private loadedTrackScope: string | null = null;
+  private loadingTrackScope: string | null = null;
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly host: SliceHost) {}
 
-  async loadTracks(reset = false, background = false) {
-    if (this.tracksLoading && (!reset || (background && this.tracksResetting))) return;
-    const keepVisible = reset && background && this.tracksLoaded;
+  async loadTracks(reset = false) {
+    const scope = JSON.stringify([this.view, this.playlist, this.query, this.filter, this.genres]);
+    if (this.tracksLoading && (!reset || (this.tracksResetting && this.loadingTrackScope === scope))) return;
+    const keepVisible = reset && this.loadedTrackScope === scope;
     const visible = keepVisible ? this.loadedTrackCount : 0;
     this.tracksLoading = true;
+    this.loadingTrackScope = scope;
     const sequence = ++this.loadSeq;
     if (reset && !keepVisible) {
+      this.loadedTrackScope = null;
       this.tracks = [];
       this.downloadFavorites = [];
       this.tracksError = null;
@@ -112,6 +117,7 @@ export class BrowsingSlice {
       this.tracksError = null;
       this.tracksTotal = result.total;
       this.tracksLoaded = true;
+      this.loadedTrackScope = scope;
     } catch (error) {
       if (sequence !== this.loadSeq) return;
       const message = errorMessage(error, "Songs could not load");
@@ -122,6 +128,7 @@ export class BrowsingSlice {
     } finally {
       if (sequence === this.loadSeq) {
         this.tracksLoading = false;
+        this.loadingTrackScope = null;
         this.tracksResetting = false;
         this.host.bump();
       }
@@ -378,7 +385,7 @@ export class BrowsingSlice {
         track_ids: ids,
       });
       notify(`${result.added} broader searches queued`);
-      void this.loadTracks(true, true);
+      void this.loadTracks(true);
       void this.host.loadRequests();
     } catch (error) {
       notify(errorMessage(error, "Request failed"));
@@ -395,7 +402,7 @@ export class BrowsingSlice {
     try {
       const { added } = await postJson<{ added: number }>("/api/requests/batch", { playlist });
       notify(added ? `Queued ${added} ${added === 1 ? "copy search" : "copy searches"}` : "No new copy searches to queue");
-      if (this.playlist === playlist) void this.loadTracks(true, true);
+      if (this.playlist === playlist) void this.loadTracks(true);
       void this.host.loadRequests();
     } catch (error) {
       notify(errorMessage(error, "Couldn’t search the playlist"));

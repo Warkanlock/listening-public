@@ -374,7 +374,7 @@ export class Store implements SliceHost {
     const after = next.playlists.find(list => list.id === this.playlist);
     const membershipChanged = before?.revision !== after?.revision || before?.entries !== after?.entries;
     if ((this.view === "all" || this.view === "moods") && (coverageChanged || membershipChanged || previous.total !== next.total))
-      await this.browsingSlice.loadTracks(true, true);
+      await this.loadTracks(true);
     if (coverageChanged && this.view === "requests") void this.loadRequests();
   }
 

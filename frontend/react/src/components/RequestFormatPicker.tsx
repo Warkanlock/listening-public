@@ -97,7 +97,7 @@ export function RequestFormatPicker({ row }: { row: RequestRow }) {
       close();
       success(updated);
       void store.loadRequests();
-      if (store.view === "all" || store.view === "moods") void store.browsingSlice.loadTracks(true, true);
+      if (store.view === "all" || store.view === "moods") void store.loadTracks(true);
     } catch (error) {
       setError(error instanceof Error ? error.message : errorMessage);
       confirming.current = false;
