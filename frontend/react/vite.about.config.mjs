@@ -13,7 +13,7 @@ if (!["http:", "https:"].includes(tourUrl.protocol) || tourUrl.username || tourU
 if (!tourUrl.pathname.endsWith("/")) tourUrl.pathname += "/";
 const socialImage = "listening-social.jpg";
 const socialPreview = {
-  title: "Listening",
+  title: "listening.",
   description: "Stream the records you own. Host your music library and listen across your devices.",
   image: new URL(socialImage, tourUrl).href,
   "image:alt": "Listening logo beside a screenshot of the music library and playback queue.",

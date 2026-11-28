@@ -1,6 +1,6 @@
 # Set up Listening
 
-These screens come from a clean Listening 1.5.0 installation with a demo track. If you already have a room, review [backup and recovery](private-install.md#update-and-recover). For source-built Compose rooms, follow the [Compose update guide](private-install.md#update-a-source-built-compose-room-from-the-browser). Rooms with a download engine can follow the [engine upgrade guide](download-engines.md#upgrade-a-room-with-an-existing-engine).
+This walkthrough uses a disposable room with a demo track. If you already have a room, review [backup and recovery](private-install.md#update-and-recover). For source-built Compose rooms, follow the [Compose update guide](private-install.md#update-a-source-built-compose-room-from-the-browser). Rooms with a download engine can follow the [engine upgrade guide](download-engines.md#upgrade-a-room-with-an-existing-engine).
 
 ## Start the server
 
@@ -30,7 +30,7 @@ Open **Library** and select **Owned music**. Play a track and listen for a few s
 | iPhone or iPad | Open the address or invitation in Safari. Use **Share → Add to Home Screen** to open Listening from its own icon. Use the room’s trusted HTTPS address for offline Camping playback. |
 | Other computers | Open the address or invitation in a browser on the room’s private network. |
 
-If Android and Mac installers are missing from **Connect a device**, sign in to GitHub and download the installers matching your server version from [Releases](https://github.com/Warkanlock/listening-public/releases). The host can also [stage them on the server](private-install.md#stage-the-client-installers).
+If Android and Mac installers are missing from **Connect a device**, download the available public installers from [Releases](https://github.com/Warkanlock/listening-public/releases). The host can also [stage them on the server](private-install.md#stage-the-client-installers).
 
 [![Pairing screen on a new browser](../frontend/react/public/assets/about-showcase/onboarding/pairing.webp)](../frontend/react/public/assets/about-showcase/onboarding/pairing.webp)
 
