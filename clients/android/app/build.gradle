@@ -13,8 +13,8 @@ android {
         applicationId 'music.listening.room'
         minSdk 26
         targetSdk 35
-        versionCode 20016
-        versionName '1.0.4'
+        versionCode 20017
+        versionName '1.0.5'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

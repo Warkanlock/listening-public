@@ -135,9 +135,9 @@ internal class RoomUi(private val context: Context) {
         text = name
         isAllCaps = false
         typeface = medium
-        textSize = 15f
+        textSize = 14f
+        gravity = Gravity.CENTER
         minWidth = 0; minimumWidth = 0; minHeight = dp(48); minimumHeight = dp(48)
-        setPadding(dp(10), dp(4), dp(10), dp(4))
         stateListAnimator = null
         val disabled = intArrayOf(-android.R.attr.state_enabled)
         val focus = intArrayOf(android.R.attr.state_focused)
@@ -145,13 +145,14 @@ internal class RoomUi(private val context: Context) {
         val selected = intArrayOf(android.R.attr.state_selected)
         setTextColor(ColorStateList(arrayOf(disabled, focus, down, selected, intArrayOf()),
             intArrayOf(secondary, accentInk, accentInk, onAccent, if (solid) onAccent else accentInk)))
-        background = StateListDrawable().apply {
+        background = InsetDrawable(StateListDrawable().apply {
             addState(disabled, surface(fog))
             addState(down, surface(pressed, accent))
             addState(focus, surface(pressed, accent))
             addState(selected, surface(accent, accent))
             addState(intArrayOf(), surface(if (solid) accent else paper, if (solid) accent else controlEdge))
-        }
+        }, 0, dp(3), 0, dp(3))
+        setPadding(dp(9), dp(5), dp(9), dp(5))
         setOnClickListener { action() }
     }
 
@@ -159,7 +160,7 @@ internal class RoomUi(private val context: Context) {
         setBounds(0, 0, intrinsicWidth, intrinsicHeight)
     }
 
-    fun controlMark(glyph: Mark, size: Int, color: Int = ink) = mark(glyph, size * 4 / 5, color)
+    fun controlMark(glyph: Mark, size: Int, color: Int = ink) = mark(glyph, size * 7 / 10, color)
 
     fun iconButton(name: String, glyph: Mark, solid: Boolean = false, outlined: Boolean = true,
                    compact: Boolean = false, action: () -> Unit) =
@@ -191,7 +192,8 @@ internal class RoomUi(private val context: Context) {
                 addState(selected, disc(accent, true))
                 addState(intArrayOf(), disc(rest))
             }
-            background = if (compact) InsetDrawable(buttonBackground, dp(5)) else buttonBackground
+            background = InsetDrawable(buttonBackground, dp(if (compact) 6 else 4))
+            setPadding(0, 0, 0, 0)
             minimumWidth = dp(48); minimumHeight = dp(48)
             setOnClickListener { action() }
         }
@@ -199,16 +201,16 @@ internal class RoomUi(private val context: Context) {
     fun actionStrip(actions: List<ImageButton>, alignEnd: Boolean = false) = HorizontalScrollView(context).apply {
         isFillViewport = true
         if (eInk) overScrollMode = View.OVER_SCROLL_NEVER
-        addView(row(6).apply {
+        addView(row(4).apply {
             gravity = (if (alignEnd) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
             actions.forEach { addView(it, LinearLayout.LayoutParams(dp(48), dp(48))) }
         }, FrameLayout.LayoutParams(-2, -2))
     }
 
-    fun transport(previous: ImageButton, play: ImageButton, next: ImageButton) = row(16).apply {
+    fun transport(previous: ImageButton, play: ImageButton, next: ImageButton) = row(10).apply {
         gravity = Gravity.CENTER
         addView(previous, LinearLayout.LayoutParams(dp(48), dp(48)))
-        val playSize = dp(if (compact) 56 else 64)
+        val playSize = dp(if (compact) 50 else 56)
         addView(play, LinearLayout.LayoutParams(playSize, playSize))
         addView(next, LinearLayout.LayoutParams(dp(48), dp(48)))
     }

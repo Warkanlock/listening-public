@@ -25,7 +25,6 @@
   border-top: 1px solid var(--dark-rule);
 }
 .about-hero-install .about-actions { margin-top: 0; gap: .4rem 1.1rem; }
-.about-hero-install .about-primary { min-height: 48px; }
 .about-page .about-hero-install .about-primary:hover { background: #daefdf; }
 .about-hero-install p { margin-top: .25rem; color: #d1dfd7; font-size: .95rem; }
 .about-hero-install p a { display: inline-flex; align-items: center; min-height: 44px; color: var(--paper); }
@@ -231,8 +230,8 @@
 #feature-status:not(:empty) { margin-top: .45rem; font-size: .9rem; }
 .about-install-tabs { display: flex; flex-wrap: wrap; gap: .2rem .6rem; border-bottom: 1px solid var(--light-rule); }
 .about-install-tabs button {
-  min-height: 44px;
-  padding: .45rem .55rem;
+  min-height: var(--action-height);
+  padding: .35rem .5rem;
   border: 0;
   border-bottom: 2px solid transparent;
   background: none;
@@ -258,8 +257,8 @@
   border-bottom: 1px solid var(--dark-rule);
 }
 .about-docker-toolbar button {
-  min-height: 44px;
-  padding-inline: .85rem;
+  min-height: var(--action-height);
+  padding-inline: .65rem;
   border: 1px solid #819b8e;
   border-radius: 6px;
   background: transparent;
