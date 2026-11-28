@@ -55,6 +55,7 @@ export default defineConfig({
       async closeBundle() {
         await cp(new URL("about/index.html", output), new URL("index.html", output));
         await cp(new URL("public/assets/about-showcase/room/", root), new URL("assets/about-showcase/room/", output), { recursive: true });
+        await cp(new URL("public/assets/about-showcase/sources/", root), new URL("assets/about-showcase/sources/", output), { recursive: true });
         for (const screenshot of ["owned-music.webp", "connect-a-device.webp"]) {
           await cp(new URL(`public/assets/about-showcase/onboarding/${screenshot}`, root),
             new URL(`assets/about-showcase/onboarding/${screenshot}`, output));
