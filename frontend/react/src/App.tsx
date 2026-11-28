@@ -11,7 +11,7 @@ import {
 } from "./store";
 import { DESTINATION_DESCRIPTORS } from "./destinations";
 import { notify, toaster } from "./toasts";
-import { RequestAttentionButton } from "./components/RequestAttentionButton";
+import { DownloadUpdatesButton } from "./components/DownloadUpdatesButton";
 import { RequestFormatPicker } from "./components/RequestFormatPicker";
 import type { RoomRole } from "./components/RoomLogin";
 import { ActivityDialog } from "./components/ActivityDialog";
@@ -43,21 +43,28 @@ import { Insights } from "./views/Insights";
 import { Hiking } from "./views/Hiking";
 import { isTripPlanningHash, setOfflineAccount } from "./hikingStorage";
 
-const NAV: { view: View; icon: RoomIconName; label: string }[] = [
-  { view: "all", icon: "library", label: "Library" },
-  { view: "discover", icon: "discover", label: "Deep Dive" },
-  { view: "radio", icon: "radio", label: "Radio" },
-  { view: "moods", icon: "moods", label: "Mood map" },
-  { view: "activities", icon: "listen", label: "Activities" },
-  { view: "insights", icon: "insights", label: "Insights" },
-  { view: "hiking", icon: "camping", label: "Camping mode" },
-  { view: "browse", icon: "catalogs", label: "Browse catalogs" },
-  { view: "private-playlists", icon: "playlists", label: "My playlists" },
-  { view: "my-devices", icon: "devices", label: "My devices" },
-  { view: "requests", icon: "requests", label: "Requests" },
-  { view: "jobs", icon: "jobs", label: "Jobs" },
-  { view: "extensions", icon: "extensions", label: "Extensions" },
-  { view: "settings", icon: "settings", label: "Settings" },
+type NavItem = { view: View; icon: RoomIconName; label: string; access?: "host" | "named"; dock?: true };
+
+const NAV_GROUPS: readonly { title: string; items: readonly NavItem[] }[] = [
+  { title: "Your music", items: [
+    { view: "all", icon: "library", label: "Library", dock: true },
+    { view: "private-playlists", icon: "playlists", label: "My playlists", access: "named" },
+  ] },
+  { title: "Discover", items: [
+    { view: "discover", icon: "discover", label: "Deep Dive", access: "host", dock: true },
+    { view: "radio", icon: "radio", label: "Radio", dock: true },
+    { view: "browse", icon: "catalogs", label: "Browse catalogs" },
+    { view: "moods", icon: "moods", label: "Mood map" },
+    { view: "activities", icon: "listen", label: "Activities" },
+    { view: "hiking", icon: "camping", label: "Camping mode" },
+  ] },
+  { title: "Room", items: [
+    { view: "requests", icon: "requests", label: "Requests", access: "host" },
+    { view: "jobs", icon: "jobs", label: "Jobs", access: "host" },
+    { view: "my-devices", icon: "devices", label: "My devices", access: "named" },
+    { view: "extensions", icon: "extensions", label: "Extensions" },
+    { view: "settings", icon: "settings", label: "Settings" },
+  ] },
 ];
 
 function Sidebar({ named }: { named: boolean }) {
@@ -89,14 +96,17 @@ function Sidebar({ named }: { named: boolean }) {
     recent: () => store.showRecentlyPlayed(),
     most: () => store.showMostPlayed(),
   };
-  function navLink(item: typeof NAV[number]) {
+  const groups = NAV_GROUPS.map(({ title, items }) => ({
+    title, items: items.filter(item => item.access === "named" ? named : item.access !== "host" || !store.member),
+  }));
+  function navLink(item: NavItem) {
     const active = item.view === store.view && (item.view !== "all" ||
       (store.playlist === "all" && !isDestinationFilter(store.filter)));
     return (
       <button key={item.view} aria-label={item.label}
         aria-description={item.view === "requests" && store.requestsBadge > 0
           ? `${store.requestsBadge} pending` : undefined}
-        className={`nav-link${active ? " is-active" : ""}`} type="button"
+        className={`nav-link${active ? " is-active" : ""}`} type="button" data-dock={item.dock}
         aria-current={active ? "page" : undefined}
         onClick={() => {
           if (item.view === "all") store.clearSearch();
@@ -135,25 +145,20 @@ function Sidebar({ named }: { named: boolean }) {
             navButton.current?.focus({ preventScroll: true });
           }
         }}>
-        <div className="nav-core">{(store.member ? NAV.slice(0, 3).filter(item => item.view !== "discover") : NAV.slice(0, 3)).map(navLink)}</div>
+        <div className="nav-core">{groups.flatMap(({ items }) => items.filter(item => item.dock).map(navLink))}</div>
         <div className="nav-overflow">
-          {NAV.slice(3).filter((item) => {
-            if (item.view === "private-playlists" || item.view === "my-devices") return named;
-            return !store.member || item.view === "extensions" || item.view === "browse" || item.view === "moods" || item.view === "activities" || item.view === "hiking" || item.view === "insights" || item.view === "settings";
-          }).map(navLink)}
-          {(Object.keys(destinations) as (keyof typeof destinations)[]).map((key) => {
-            const active = store.view === "all" && store.filter === key;
-            const item = DESTINATION_DESCRIPTORS[key];
-            return (
-              <button key={key} type="button"
-                className={`nav-link listening-link${active ? " is-active" : ""}`}
-                aria-current={active ? "page" : undefined}
-                onClick={destinations[key]}>
+          {groups.map(({ title, items }, index) => <section className="nav-group" key={title} aria-labelledby={`nav-group-${index}`}>
+            <h2 id={`nav-group-${index}`}>{title}</h2>
+            {items.map(navLink)}
+            {index === 0 && (Object.keys(destinations) as (keyof typeof destinations)[]).map(key => {
+              const active = store.view === "all" && store.filter === key;
+              return <button key={key} type="button" className={`nav-link${active ? " is-active" : ""}`}
+                aria-current={active ? "page" : undefined} onClick={destinations[key]}>
                 <span className="nav-icon"><RoomIcon name={key} /></span>
-                {item.navLabel}
-              </button>
-            );
-          })}
+                {DESTINATION_DESCRIPTORS[key].navLabel}
+              </button>;
+            })}
+          </section>)}
         </div>
       </nav>
     </aside>
@@ -181,7 +186,7 @@ function Topbar({
       <div className="topbar-actions">
         {(role === "owner" || role === "member") && <Jams />}
         {!store.member && <ActivityBar />}
-        {!store.member && <RequestAttentionButton toolbar />}
+        {!store.member && <DownloadUpdatesButton toolbar />}
         {!store.member && <button
           className="announcements-button"
           type="button"

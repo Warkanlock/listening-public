@@ -4,7 +4,7 @@ import { RoomAction } from "../components/RoomControls";
 import { RoomIconButton } from "../components/RoomIcon";
 import { RequestStatus, RetryRequestButton } from "../components/RequestStatus";
 import { canChangeRecording, canChooseFormat, needsCopyChoice, requestStage } from "../requestState";
-import { RequestAttentionButton } from "../components/RequestAttentionButton";
+import { DownloadUpdatesButton } from "../components/DownloadUpdatesButton";
 import { RecordingVersions } from "../components/RecordingVersions";
 import { useStore } from "../store";
 
@@ -164,7 +164,7 @@ export function WeeklyDiscovery() {
         <progress aria-label="Playlist downloads" max={100} value={progress.percent} />
         <div className="weekly-progress-caption">
           <p>{progress.downloaded} of {progress.total} downloaded · {progress.percent}%</p>
-          <RequestAttentionButton weeklyRows={forAttention} />
+          <DownloadUpdatesButton weeklyRows={forAttention} />
         </div>
       </div>}
       {error ? <p role="status">{error} <RoomAction onClick={() => setRevision(value => value + 1)}>Try again</RoomAction></p>

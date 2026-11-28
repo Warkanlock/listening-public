@@ -165,7 +165,7 @@ internal class SearchFeedback(private val ui: RoomUi, openCatalogs: (() -> Unit)
             setPaddingRelative(0, dp(8), dp(4), dp(8))
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
             compoundDrawablePadding = dp(8)
-            setCompoundDrawablesRelative(null, null, mark(Mark.BROWSE, 16), null)
+            setCompoundDrawablesRelative(null, null, controlMark(Mark.BROWSE, 16), null)
         }
 }
 

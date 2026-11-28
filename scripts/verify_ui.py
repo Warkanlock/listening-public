@@ -1202,7 +1202,11 @@ def verify_mobile_queue_and_shuffle(browser, server, errors, warnings):
         shuffle.tap()
         phone.wait_for_function("previous => document.querySelector('.player-shuffle').getAttribute('aria-pressed') !== previous",
                                 arg=pressed)
-        player.get_by_role("button", name="Open now playing", exact=True).tap()
+        now_playing = player.get_by_role("button", name="Open now playing", exact=True)
+        phone.set_viewport_size({"width": 320, "height": 740})
+        assert now_playing.bounding_box()["width"] >= 44
+        assert player.get_by_role("button", name="Insights").bounding_box()["y"] > now_playing.bounding_box()["y"]
+        now_playing.tap()
         modal = phone.get_by_role("dialog", name="Now playing")
         modal_shuffle = modal.get_by_role("button", name="Shuffle play", exact=True)
         assert modal_shuffle.is_visible()
@@ -1391,7 +1395,9 @@ def verify_insights(browser, server, output, errors, warnings):
         phone.get_by_role("button", name="Play Atlas Air", exact=True).tap()
         assert not polls
         phone.get_by_role("button", name="Menu", exact=True).tap()
-        phone.get_by_role("button", name="Insights", exact=True).tap()
+        assert not phone.get_by_role("navigation", name="Main").get_by_role("button", name="Insights").count()
+        phone.keyboard.press("Escape")
+        phone.get_by_role("contentinfo", name="Audio player").get_by_role("button", name="Insights").tap()
         phone.get_by_role("heading", name="Playback traffic", exact=True).wait_for()
         phone.get_by_text("3 songs queued", exact=True).wait_for()
         phone.get_by_text("Asleep", exact=True).wait_for()
@@ -1412,8 +1418,7 @@ def verify_insights(browser, server, output, errors, warnings):
         number_of_polls = len(polls)
         phone.wait_for_timeout(1200)
         assert len(polls) == number_of_polls
-        phone.get_by_role("button", name="Menu", exact=True).tap()
-        phone.get_by_role("button", name="Insights", exact=True).tap()
+        phone.get_by_role("contentinfo", name="Audio player").get_by_role("button", name="Insights").tap()
         phone.wait_for_function(idle_with_history, timeout=12000)
 
 
@@ -1520,8 +1525,7 @@ def verify_queue_buffer(browser, server, errors, warnings):
         phone.get_by_role("tab", name="Playback", exact=True).tap()
         phone.get_by_role("combobox", name="Buffer ahead").tap()
         phone.get_by_role("option", name="3 upcoming songs").tap()
-        phone.get_by_role("button", name="Menu", exact=True).tap()
-        phone.get_by_role("button", name="Insights", exact=True).tap()
+        phone.get_by_role("contentinfo", name="Audio player").get_by_role("button", name="Insights").tap()
         phone.get_by_text("4 songs buffered on this device.", exact=True).wait_for()
 
         def playing(title, minimum=0, cached=False):
@@ -1797,7 +1801,9 @@ def verify_room_layout(browser, server, output):
             library = page.get_by_role("heading", name="Library", exact=True)
             library.wait_for()
             origin = library.bounding_box()
-            library_style = library.evaluate("(el) => getComputedStyle(el).fontSize")
+            heading_style = "(el) => [getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight]"
+            library_style = library.evaluate(heading_style)
+            nav = page.get_by_role("navigation", name="Main", exact=True)
             views = [
                 ("Radio", "Radio"), ("Mood map", "How do you feel?"), ("Activities", "Activities"), ("Insights", "Insights"),
                 ("Camping mode", "Camping mode"), ("Deep Dive", "Deep Dive"),
@@ -1805,15 +1811,18 @@ def verify_room_layout(browser, server, output):
                 ("Jobs", "Jobs"), ("Settings", "Settings"),
             ]
             for menu_label, title in views:
-                if phone:
-                    page.get_by_role("button", name="Menu", exact=True).tap()
-                page.get_by_role("navigation", name="Main", exact=True).get_by_role("button", name=menu_label, exact=True).click()
+                if menu_label == "Insights":
+                    page.get_by_role("contentinfo", name="Audio player").get_by_role("button", name="Insights").click()
+                else:
+                    if phone:
+                        page.get_by_role("button", name="Menu", exact=True).tap()
+                    nav.get_by_role("button", name=menu_label, exact=True).click()
                 heading = page.get_by_role("heading", name=title, exact=True, level=1)
                 heading.wait_for()
                 box = heading.bounding_box()
                 assert abs(box["x"] - origin["x"]) < 2 and abs(box["y"] - origin["y"]) < 2, (
                     f"{title} at {box['x']}, {box['y']} drifts from Library at {origin['x']}, {origin['y']}")
-                assert heading.evaluate("(el) => getComputedStyle(el).fontSize") == library_style
+                assert heading.evaluate(heading_style) == library_style
                 assert page.locator(".main-area").evaluate("(el) => el.scrollWidth <= el.clientWidth + 1")
                 if menu_label in {"Mood map", "Radio", "Insights"}:
                     layout = "phone" if phone else "desktop"
@@ -2682,14 +2691,14 @@ def verify_discovery_trail(page, screenshot):
         assert not page.get_by_role("button", name="Other recordings: Recording to review").count()
         attention = page.get_by_role("button", name="1 needs attention", exact=True)
         attention.press("Enter")
-        tray = page.get_by_role("dialog", name="Weekly Discovery needs attention")
+        tray = page.get_by_role("dialog", name="Download updates")
         assert not tray.get_by_text("Weekly edition track", exact=True).count()
         tray.get_by_role("button", name="Review copies Recording to review").click()
         copies = page.get_by_role("dialog", name="Choose a copy")
         copies.get_by_role("button", name=re.compile("Possible copy")).wait_for()
         copies.get_by_role("button", name="Change format").click()
         page.get_by_role("button", name="Later", exact=True).click()
-        tray.get_by_role("button", name="Close attention list").click()
+        tray.get_by_role("button", name="Close download updates").click()
         hold_weekly_refresh = True
         page.get_by_role("button", name="Remove Recording to review from Weekly Discovery").click()
         page.get_by_text("Song removed from this week’s playlist.").wait_for()
@@ -3709,7 +3718,9 @@ def run_browser(server, output):
                 page.set_viewport_size({"width": 1440, "height": 900})
                 progress_row = {"id": 10000, "title": "Transfer fixture", "artist": "Fixture Artist",
                                 "status": "searching", "phase": "testing", "download_percent": 42,
-                                "requested_format": "mp3", "format_revision": 3}
+                                "track_index": None, "requested_format": "mp3", "format_revision": 3}
+                missing_row = {"id": 10002, "title": "Missing fixture", "artist": "Fixture Artist",
+                               "status": "not_found", "request_state": "no_matches", "track_index": None, "format_revision": 1}
                 notify_downloads = False
                 recording_id = "2cd685e9-24bc-4aad-8394-4cc05bf713b4"
                 recording_attempts = []
@@ -3729,7 +3740,7 @@ def run_browser(server, output):
                         return
                     upstream = route.fetch()
                     data = upstream.json()
-                    data["requests"].append(progress_row)
+                    data["requests"].extend([progress_row, missing_row])
                     if notify_downloads:
                         ready_row = {"id": 10001, "title": "Saved fixture", "artist": "Fixture Artist",
                                      "status": "downloaded", "request_state": "ready"}
@@ -3790,11 +3801,11 @@ def run_browser(server, output):
                     try:
                         status_route = "**/api/requests?id=10000"
                         page.route(status_route, lambda route: route.fulfill(json={"requests": [progress_row]}))
-                        page.get_by_role("button", name=re.compile(r"^Needs review, \d+ requests?$")).click()
-                        attention_tray = page.get_by_role("dialog", name="Requests needing attention")
+                        page.get_by_role("button", name=re.compile(r"^Download updates, \d+ needs? attention$")).click()
+                        attention_tray = page.get_by_role("dialog", name="Download updates")
                         attention_tray.get_by_role("button", name="Review copies Transfer fixture").wait_for()
-                        assert not attention_tray.get_by_role("region", name="Ready to play").count()
-                        attention_tray.get_by_role("button", name="Close attention list").click()
+                        attention_tray.get_by_role("button", name="Mark Missing fixture as unavailable").wait_for()
+                        attention_tray.get_by_role("button", name="Close download updates").click()
                         notify_downloads = True
                         refresh_requests.click()
                         toast = page.get_by_role("button", name="1 ready to play · 1 needs review")
@@ -3802,6 +3813,29 @@ def run_browser(server, output):
                         toast.press("Enter")
                         tray = page.get_by_role("dialog", name="Download updates")
                         tray.get_by_role("region", name="Ready to play").get_by_role("button", name="Play Saved fixture").wait_for()
+                        tray.get_by_role("button", name="Dismiss Saved fixture").click()
+                        tray.get_by_role("button", name="Play Saved fixture").wait_for(state="detached")
+                        tray.get_by_role("button", name="Close download updates").click()
+                        page.get_by_role("button", name=re.compile(r"^Download updates,")).click()
+                        assert not tray.get_by_role("button", name="Play Saved fixture").count()
+
+                        missing_status_route = "**/api/requests?id=10002"
+                        stop_route = "**/api/requests/stop-search"
+
+                        def mark_unavailable(route):
+                            assert route.request.post_data_json == {"request_id": 10002, "format_revision": 1}
+                            missing_row.update(status="unavailable", request_state="unavailable", format_revision=2)
+                            route.fulfill(json=missing_row)
+
+                        page.route(missing_status_route, lambda route: route.fulfill(json={"requests": [missing_row]}))
+                        page.route(stop_route, mark_unavailable)
+                        try:
+                            tray.get_by_role("button", name="Mark Missing fixture as unavailable").click()
+                            tray.get_by_role("status").filter(has_text="Missing fixture marked as unavailable.").wait_for()
+                            assert not tray.get_by_text("Missing fixture", exact=True).count()
+                        finally:
+                            page.unroute(stop_route)
+                            page.unroute(missing_status_route)
                         tray.get_by_role("button", name="Review copies Transfer fixture").click()
                         notified_copies = page.get_by_role("dialog", name="Choose a copy")
                         notified_copies.get_by_text("The source could not deliver this file.", exact=True).wait_for()

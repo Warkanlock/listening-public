@@ -136,7 +136,7 @@ internal class CatalogBrowser(private val activity: Activity, private val ui: Ro
             choices(activity, "Choose a catalog", items)
         }.apply {
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            setCompoundDrawablesRelative(null, null, mark(Mark.BROWSE, 17, accentInk), null)
+            setCompoundDrawablesRelative(null, null, controlMark(Mark.BROWSE, 17, accentInk), null)
         })
         (searchBar.view.parent as? LinearLayout)?.removeView(searchBar.view)
         choices.section(searchBar.view)

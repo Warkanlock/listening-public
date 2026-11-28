@@ -11,7 +11,7 @@ import { YouTubeLink } from "../components/YouTubeLink";
 import { TryMp3Button } from "../components/TryMp3Button";
 import { RequestStatus, RetryRequestButton } from "../components/RequestStatus";
 import { canChangeRecording, canChooseFormat, needsCopyChoice, requestStage } from "../requestState";
-import { RequestAttentionButton } from "../components/RequestAttentionButton";
+import { DownloadUpdatesButton } from "../components/DownloadUpdatesButton";
 import { RecordingVersions } from "../components/RecordingVersions";
 import { RefreshButton } from "../components/RefreshButton";
 
@@ -156,7 +156,7 @@ export function Requests() {
         <div className="section-header">
           <h2>Recent requests</h2>
           <div className="request-actions">
-            <RequestAttentionButton />
+            <DownloadUpdatesButton />
             <div className="request-actions requests-toolbar-icons">
               <FindCopyExtensionsButton />
               <RefreshButton target="requests" onRefresh={() => store.loadRequests()} />

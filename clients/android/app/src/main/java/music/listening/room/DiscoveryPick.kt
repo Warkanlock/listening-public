@@ -312,9 +312,14 @@ internal fun Activity.chooseDiscoveryFormat(row: JSONObject, room: Room, confirm
                     }
                 })
                 add(search)
-                if (row.needsCopyReview()) add(button("Stop searching") {
-                    submit("Stopping search…") { room.stopCopySearch(row) }
-                })
+                if (row.needsCopyReview()) {
+                    val replacement = row.optBoolean("replace_copy")
+                    add(button(if (replacement) "Cancel replacement" else "Mark as unavailable") {
+                        submit(if (replacement) "Cancelling replacement…" else "Marking as unavailable…") {
+                            room.stopCopySearch(row)
+                        }
+                    })
+                }
             }
             copyPanel.section(column(6).apply {
                 for (pair in actions.chunked(2)) {

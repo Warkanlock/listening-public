@@ -280,6 +280,9 @@ export function Player() {
       </div>
         </>
       )}
+      <button type="button" className="player-insights" aria-label="Insights" title="Playback insights"
+        aria-current={store.view === "insights" ? "page" : undefined}
+        onClick={() => store.setView("insights")}><RoomIcon name="insights" /></button>
       {!store.radioSounding && track && duration > 0 &&
         <progress className="tablet-progress" aria-hidden="true" max={duration} value={shownTime} />}
       <audio ref={audioRefA} preload="metadata" />

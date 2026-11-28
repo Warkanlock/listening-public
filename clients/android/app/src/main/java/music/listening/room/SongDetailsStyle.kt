@@ -61,7 +61,7 @@ internal class SongDetailsStyle(private val ui: RoomUi) {
                     if (detail.isNotBlank()) addView(label(detail, 14f, secondary))
                 }, LinearLayout.LayoutParams(0, -2, 1f))
                 addView(android.widget.ImageView(context).apply {
-                    setImageDrawable(mark(Mark.BROWSE, 17))
+                    setImageDrawable(controlMark(Mark.BROWSE, 17))
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 })
                 isFocusable = true

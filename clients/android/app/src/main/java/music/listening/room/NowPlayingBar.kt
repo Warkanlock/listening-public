@@ -101,7 +101,7 @@ internal class NowPlayingBar(context: Context, private val ui: RoomUi, open: () 
         val label = "Open now playing: $subtitle"
         if (!TextUtils.equals(summary.contentDescription, label)) summary.contentDescription = label
         if (this.transport == transport) return
-        if (this.transport.mark != transport.mark) control.setImageDrawable(ui.mark(transport.mark, 23, ui.accentInk))
+        if (this.transport.mark != transport.mark) control.setImageDrawable(ui.controlMark(transport.mark, 23, ui.accentInk))
         this.transport = transport
         control.contentDescription = transport.label
         control.tooltipText = transport.label

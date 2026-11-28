@@ -64,3 +64,9 @@ export const canChangeRecording = (state: RequestState) => canChooseFormat(state
   ["queued_search", "queued_copy", "retry_search", "retry_copy"].includes(state);
 export const requestNeedsAttention = (state: RequestState) => canChooseFormat(state) || state === "copy_missing";
 export const requestAttentionLabel = (count: number) => `${count} ${count === 1 ? "needs" : "need"} attention`;
+
+export function canMarkUnavailable(row: RequestRow) {
+  const stage = requestStage(row);
+  return !row.replace_copy && (needsCopyChoice(stage) ||
+    ["no_matches", "search_failed", "verification_failed"].includes(stage));
+}

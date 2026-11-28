@@ -32,7 +32,7 @@ internal class RecordSleeve(context: Context, private val ui: RoomUi) : FrameLay
     }
     private val expand = ImageView(context).apply {
         scaleType = ImageView.ScaleType.CENTER
-        setImageDrawable(ui.mark(Mark.EXPAND, if (ui.eInk) 15 else 18))
+        setImageDrawable(ui.controlMark(Mark.EXPAND, if (ui.eInk) 15 else 18))
         background = ui.surface(ui.paper, ui.ink)
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         visibility = View.GONE

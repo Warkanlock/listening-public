@@ -204,6 +204,47 @@ class FormatSelectionTests(StoreTestCase):
             self.store.stop_search(request_id, revision)
         self.assertEqual(self.store.get(request_id), restarted)
 
+    def test_failed_searches_can_be_marked_unavailable_and_explicitly_retried(self):
+        for index, status in enumerate(("not_found", "error", "rejected"), 1):
+            with self.subTest(status=status):
+                request_id = self.enqueue_track(index)
+                revision = self.store.get(request_id)["format_revision"]
+                self.assertTrue(self.store.claim(request_id))
+                self.store.finish(request_id, status, "No playable copy was found", "")
+
+                stopped = self.store.stop_search(request_id, revision)
+                reopened = RequestsStore(self.path)
+                self.assertEqual(stopped["request_state"], "unavailable")
+                self.assertEqual(stopped["format_revision"], revision + 1)
+                self.assertEqual(reopened.get(request_id), stopped)
+                self.assertEqual(reopened.stop_search(request_id, revision), stopped)
+                self.assertNotIn(request_id, {row["id"] for row in reopened.download_activity()[0]})
+                self.assertIn(index, reopened.reserved_tracks(index, index))
+                self.assertFalse(reopened.claim(request_id))
+
+                self.assertTrue(reopened.retry(request_id, revision=revision + 1))
+                with self.assertRaisesRegex(ValueError, "changed"):
+                    reopened.stop_search(request_id, revision)
+                self.assertEqual(reopened.get(request_id)["request_state"], "queued_search")
+
+    def test_work_in_progress_and_verified_copies_cannot_be_marked_unavailable(self):
+        row, _ = self.create()
+        request_id, revision = row["id"], row["format_revision"]
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.store.stop_search(request_id, revision)
+
+        queued, _ = self.store.confirm_format(request_id, "mp3", revision)
+        revision = queued["format_revision"]
+        self.assertTrue(self.store.claim(request_id))
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.store.stop_search(request_id, revision)
+
+        self.store.finish(request_id, "downloaded", "Verified", "song.mp3")
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.store.stop_search(request_id, revision)
+        ready = self.store.get(request_id)
+        self.assertEqual((ready["request_state"], ready["audio_path"]), ("ready", "song.mp3"))
+
     def test_stopped_replacement_marks_the_original_catalog_track_unavailable(self):
         row, _ = self.create()
         request_id = row["id"]

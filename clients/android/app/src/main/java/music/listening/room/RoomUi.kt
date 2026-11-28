@@ -105,7 +105,7 @@ internal class RoomUi(private val context: Context) {
         setTextColor(color)
     }
 
-    fun heading(value: String, size: Float = 24f) = label(value, size).apply {
+    fun heading(value: String, size: Float = 26f) = label(value, size).apply {
         typeface = headline
         if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
     }
@@ -159,13 +159,15 @@ internal class RoomUi(private val context: Context) {
         setBounds(0, 0, intrinsicWidth, intrinsicHeight)
     }
 
+    fun controlMark(glyph: Mark, size: Int, color: Int = ink) = mark(glyph, size * 4 / 5, color)
+
     fun iconButton(name: String, glyph: Mark, solid: Boolean = false, outlined: Boolean = true,
                    compact: Boolean = false, action: () -> Unit) =
         ImageButton(context).apply {
             contentDescription = name
             tooltipText = name
             val size = if (solid) 25 else 23
-            setImageDrawable(mark(glyph, if (compact) size * 4 / 5 else size, if (solid) onAccent else accentInk))
+            setImageDrawable(controlMark(glyph, if (compact) size * 4 / 5 else size, if (solid) onAccent else accentInk))
             scaleType = ImageView.ScaleType.CENTER
             val disabled = intArrayOf(-android.R.attr.state_enabled)
             val selected = intArrayOf(android.R.attr.state_selected)
@@ -228,11 +230,11 @@ internal class RoomUi(private val context: Context) {
         if (button.contentDescription == name) return
         button.contentDescription = name
         button.tooltipText = name
-        button.setImageDrawable(mark(if (showPause) Mark.PAUSE else Mark.PLAY, 25, onAccent))
+        button.setImageDrawable(controlMark(if (showPause) Mark.PAUSE else Mark.PLAY, 25, onAccent))
     }
 
     fun queueButton(action: () -> Unit) = button("Queue", action = action).apply {
-        setCompoundDrawablesRelative(mark(Mark.QUEUE, 19), null, null, null)
+        setCompoundDrawablesRelative(controlMark(Mark.QUEUE, 19), null, null, null)
         compoundDrawablePadding = dp(8)
         gravity = Gravity.START or Gravity.CENTER_VERTICAL
         setPadding(dp(14), dp(4), dp(12), dp(4))
@@ -240,7 +242,7 @@ internal class RoomUi(private val context: Context) {
 
     data class NavigationTab(val title: String, val selected: Boolean, val open: () -> Unit)
 
-    fun navigation(tabs: List<NavigationTab>) = column().apply {
+    fun navigation(tabs: List<NavigationTab>, utility: ImageButton? = null) = column().apply {
         addView(line())
         addView(row().apply {
             tabs.forEach { tab ->
@@ -261,6 +263,7 @@ internal class RoomUi(private val context: Context) {
                     isSelected = tab.selected
                 }, LinearLayout.LayoutParams(0, dp(48), 1f))
             }
+            utility?.let { addView(it, LinearLayout.LayoutParams(dp(48), dp(48))) }
         })
     }
 
@@ -269,7 +272,7 @@ internal class RoomUi(private val context: Context) {
             if (eInk) {
                 if (selected) paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
             } else {
-                setCompoundDrawables(null, mark(glyph, 18), null, null)
+                setCompoundDrawables(null, controlMark(glyph, 18), null, null)
                 compoundDrawableTintList = textColors
                 compoundDrawablePadding = dp(2)
             }
@@ -307,7 +310,7 @@ internal class RoomUi(private val context: Context) {
             dialog.dismiss()
             option.open?.invoke()
         }.apply {
-            option.mark?.let { setCompoundDrawablesRelative(mark(it, 19, accent), null, null, null) }
+            option.mark?.let { setCompoundDrawablesRelative(controlMark(it, 19, accent), null, null, null) }
             if (option.subtitle.isNotEmpty()) text = option.title + "\n" + option.subtitle
         }, gap = 6)
         dialog.show()
@@ -347,7 +350,7 @@ internal class RoomUi(private val context: Context) {
             override fun getView(position: Int, reused: View?, parent: ViewGroup): View {
                 val item = items[position]
                 if (item.open == null) {
-                    return ((reused as? TextView) ?: label("", 17f).apply {
+                    return ((reused as? TextView) ?: label("", 18f).apply {
                         typeface = headline
                         setPadding(dp(8), dp(5), dp(8), dp(5))
                         setBackgroundColor(fog)
@@ -376,7 +379,7 @@ internal class RoomUi(private val context: Context) {
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         private val leading = ImageView(context).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
-        private val arrow = ImageView(context).apply { setImageDrawable(mark(Mark.BROWSE, 17)); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        private val arrow = ImageView(context).apply { setImageDrawable(controlMark(Mark.BROWSE, 17)); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         private val detail = label("", 14f, secondary).apply {
             maxWidth = dp(92)
             gravity = Gravity.END
@@ -418,7 +421,8 @@ internal class RoomUi(private val context: Context) {
             info.visibility = if (item.info == null) View.GONE else View.VISIBLE
             info.contentDescription = "Song information for ${item.title}"
             title.text = item.title
-            leading.setImageDrawable(item.leadingMark?.let { mark(it, 20, accentInk) })
+            title.typeface = if (item.destination) medium else headline
+            leading.setImageDrawable(item.leadingMark?.let { controlMark(it, 20, accentInk) })
             leading.visibility = if (item.leadingMark == null) View.GONE else View.VISIBLE
             subtitle.text = item.subtitle
             profileLink(subtitle, item.openArtist)

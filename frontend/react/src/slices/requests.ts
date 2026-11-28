@@ -3,13 +3,20 @@ import { notify, notifyDownloadUpdates } from "../toasts";
 import { canChooseFormat, requestNeedsAttention, requestStage, requestStageLabel } from "../requestState";
 import { errorMessage, type SliceHost } from "./host";
 
-type TrayRequest = Pick<RequestRow, "id" | "title" | "artist" | "status" | "request_state"> &
-  Partial<Pick<RequestRow, "copy_review" | "message" | "format_revision" | "phase" | "retry_at" | "download_percent">>;
+export type DownloadTray = { kind: "room" } | { kind: "weekly"; rows: readonly RequestRow[] };
 
-export type DownloadTray = {
-  source: "updates" | "requests" | "weekly";
-  rows: readonly TrayRequest[];
-};
+type TrayRequest = RequestRow | DownloadOutcome;
+const dismissedUpdatesKey = "listening-dismissed-download-updates";
+
+function updateKey(row: TrayRequest) {
+  const revision = "format_revision" in row ? row.format_revision : row.key.split("/")[2];
+  return `${row.id}/${revision}/${requestStage(row)}`;
+}
+
+function readDismissedUpdates() {
+  try { return localStorage.getItem(dismissedUpdatesKey)?.split("\n") ?? []; }
+  catch { return []; }
+}
 
 const requestsSignature = (rows: RequestRow[]) =>
   JSON.stringify(
@@ -50,6 +57,8 @@ export class RequestsSlice {
   private renderedRequestsSignature: string | null = null;
   private readRevision = 0;
   private seenOutcomes: string[] | null = null;
+  private outcomes: DownloadOutcome[] = [];
+  private dismissedUpdates = new Set(readDismissedUpdates());
 
   constructor(private readonly host: SliceHost) {}
 
@@ -63,6 +72,31 @@ export class RequestsSlice {
       }
       return requestNeedsAttention(stage);
     });
+  }
+
+  updateRows(tray: DownloadTray) {
+    const live = new Map(this.requestRows.map(row => [row.id, row]));
+    const rows = new Map<number, TrayRequest>();
+    const attention = tray.kind === "weekly" ? tray.rows : this.attentionRows;
+    for (const seed of attention) {
+      const row = live.get(seed.id) ?? seed;
+      if (requestNeedsAttention(requestStage(row))) rows.set(row.id, row);
+    }
+    if (tray.kind === "room") {
+      for (const outcome of this.outcomes.filter(row => requestStage(row) === "ready")) {
+        const row = live.get(outcome.id) ?? outcome;
+        if (requestStage(row) === "ready") rows.set(row.id, row);
+      }
+    }
+    return [...rows.values()].filter(row => !this.dismissedUpdates.has(updateKey(row)));
+  }
+
+  dismissUpdate(row: TrayRequest) {
+    const keys = new Set([updateKey(row), ...readDismissedUpdates(), ...this.dismissedUpdates]);
+    this.dismissedUpdates = new Set([...keys].slice(0, 256));
+    try { localStorage.setItem(dismissedUpdatesKey, [...this.dismissedUpdates].join("\n")); }
+    catch {}
+    this.host.bump();
   }
 
   get requestsBadge(): number {
@@ -85,10 +119,14 @@ export class RequestsSlice {
       if (revision !== this.readRevision) return true;
       this.requestRows = result.requests;
       this.recentDownloads = result.downloads ?? [];
-      if (result.outcomes) this.announceOutcomes(result.outcomes);
+      this.outcomes = (result.outcomes ?? []).flatMap(row => {
+        const id = row.id ?? Number(row.key.split("/", 1)[0]);
+        return Number.isSafeInteger(id) && id > 0 ? [{ ...row, id, artist: row.artist ?? "" }] : [];
+      });
+      if (result.outcomes) this.announceOutcomes(this.outcomes);
       this.requestsLoaded = true;
       this.requestsError = null;
-      const signature = requestsSignature(result.requests) + JSON.stringify(this.recentDownloads);
+      const signature = requestsSignature(result.requests) + JSON.stringify([this.recentDownloads, this.outcomes]);
       if (signature !== this.renderedRequestsSignature) {
         this.renderedRequestsSignature = signature;
         this.host.bump();
@@ -103,18 +141,15 @@ export class RequestsSlice {
     }
   }
 
-  private announceOutcomes(outcomes: DownloadOutcomePayload[]) {
+  private announceOutcomes(outcomes: DownloadOutcome[]) {
     const storageKey = "listening-download-outcomes-v1";
     try { this.seenOutcomes = localStorage.getItem(storageKey)?.split("\n") ?? this.seenOutcomes; } catch { /* Storage is optional. */ }
     const previous = this.seenOutcomes;
     this.seenOutcomes = [...new Set([...outcomes.map(row => row.key), ...(previous ?? [])])].slice(0, 96);
     try { localStorage.setItem(storageKey, this.seenOutcomes.join("\n")); } catch { /* Storage is optional. */ }
     if (previous === null) return;
-    const fresh = outcomes.flatMap(row => {
-      if (previous.includes(row.key)) return [];
-      const id = row.id ?? Number(row.key.split("/", 1)[0]);
-      return Number.isSafeInteger(id) && id > 0 ? [{ ...row, id, artist: row.artist ?? "" }] : [];
-    });
+    const visible = new Set(this.updateRows({ kind: "room" }).map(updateKey));
+    const fresh = outcomes.filter(row => !previous.includes(row.key) && visible.has(updateKey(row)));
     if (!fresh.length) return;
     const [latest] = fresh;
     const ready = fresh.filter(row => row.status === "downloaded").length;
@@ -124,10 +159,10 @@ export class RequestsSlice {
       ? `${latest.title} · ${latest.status === "downloaded" ? "Ready to play" : requestStageLabel(latest)}`
       : [ready && `${ready} ready to play`, missing && `${missing} no copy found`,
         review && `${review} ${review === 1 ? "needs" : "need"} review`].filter(Boolean).join(" · ");
-    notifyDownloadUpdates(summary, () => this.openDownloadTray({ source: "updates", rows: fresh }));
+    notifyDownloadUpdates(summary, () => this.openDownloadTray());
   }
 
-  openDownloadTray(tray: DownloadTray) {
+  openDownloadTray(tray: DownloadTray = { kind: "room" }) {
     this.downloadTray = tray;
     this.host.bump();
   }
@@ -148,10 +183,6 @@ export class RequestsSlice {
     this.readRevision++;
     this.requestRows = existing ? this.requestRows.map(request => request.id === row.id ? row : request)
       : [row, ...this.requestRows];
-    if (this.downloadTray?.rows.some(request => request.id === row.id)) {
-      this.downloadTray = { ...this.downloadTray,
-        rows: this.downloadTray.rows.map(request => request.id === row.id ? row : request) };
-    }
     this.resetRequestsSignature();
     this.host.bump();
   }

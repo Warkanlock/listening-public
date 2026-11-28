@@ -307,7 +307,7 @@ internal class PlayerPanel(private val activity: Activity, private val ui: RoomU
         updatePosition()
         val nextPlayback = PlaybackTransport.forSnapshot(snapshot)
         if (nextPlayback != playback) {
-            if (nextPlayback.mark != playback.mark) transport.setImageDrawable(ui.mark(nextPlayback.mark, 25, ui.onAccent))
+            if (nextPlayback.mark != playback.mark) transport.setImageDrawable(ui.controlMark(nextPlayback.mark, 25, ui.onAccent))
             playback = nextPlayback
             transport.contentDescription = playback.label
             transport.tooltipText = playback.label

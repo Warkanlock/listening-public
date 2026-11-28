@@ -7,5 +7,4 @@ internal enum class RoomSetting(val title: String, val detail: String) {
     OFFLINE("Offline library", "Sync and play music on this phone"),
     CONNECTION("Room connection", "Server address and device access"),
     EXTENSIONS("Extensions", "Download sources and health"),
-    INSIGHTS("Playback insights", "Traffic, queue, and buffer"),
 }

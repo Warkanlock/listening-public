@@ -229,7 +229,7 @@ private class ArtistConnectionsDialog(
                         section(label("MusicBrainz has no additional connections for this credit.", color = secondary), gap = 8)
                     }
                     addView(button("MusicBrainz") { openSource(root) }.apply {
-                        setCompoundDrawables(null, null, mark(Mark.EXTERNAL, 16, accentInk), null)
+                        setCompoundDrawables(null, null, controlMark(Mark.EXTERNAL, 16, accentInk), null)
                         compoundDrawablePadding = dp(6)
                     })
                 })

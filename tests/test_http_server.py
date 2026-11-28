@@ -781,14 +781,15 @@ class LandingAccessTests(ServerFixture, unittest.TestCase):
 
 
 class PostDefenseTests(ServerFixture, unittest.TestCase):
-    def framed_request(self, headers, body=b"{}"):
+    def framed_request(self, headers, body=b"{}", *, incomplete=False):
         with closing(http.client.HTTPConnection("127.0.0.1", self.loop_port, timeout=10)) as connection:
             connection.putrequest("POST", "/api/device")
             connection.putheader("Content-Type", "application/json")
             for name, value in headers:
                 connection.putheader(name, value)
             connection.endheaders(body)
-            connection.sock.shutdown(socket.SHUT_WR)
+            if incomplete:
+                connection.sock.shutdown(socket.SHUT_WR)
             response = connection.getresponse()
             return response.status, json.load(response)
 
@@ -846,7 +847,7 @@ class PostDefenseTests(ServerFixture, unittest.TestCase):
                 self.assertEqual(self.framed_request(headers), (400, {"error": "Invalid request size"}))
 
     def test_request_requires_the_full_declared_body(self):
-        status, data = self.framed_request([("Content-Length", "3")])
+        status, data = self.framed_request([("Content-Length", "3")], incomplete=True)
         self.assertEqual((status, data["error"]), (400, "Incomplete request body"))
 
     def test_json_routes_require_an_object(self):

@@ -80,11 +80,11 @@ class CardActivity : Activity() {
             }
             val entry = entries[position]
             val mark = when {
-                entry.folder -> ui.mark(Mark.FOLDER, 20)
-                entry.playlist -> ui.mark(Mark.ALBUM, 20)
+                entry.folder -> ui.controlMark(Mark.FOLDER, 20)
+                entry.playlist -> ui.controlMark(Mark.ALBUM, 20)
                 else -> null
             }
-            row.setCompoundDrawablesRelative(mark, null, if (entry.folder) ui.mark(Mark.BROWSE, 16) else null, null)
+            row.setCompoundDrawablesRelative(mark, null, if (entry.folder) ui.controlMark(Mark.BROWSE, 16) else null, null)
             row.compoundDrawablePadding = ui.dp(10)
             row.text = entry.title
             row.contentDescription = when {

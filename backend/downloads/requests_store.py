@@ -543,13 +543,17 @@ class RequestsStore:
         return self._run(work)
 
     def stop_search(self, request_id, revision):
-        """Dismiss a copy review and invalidate any copies still being browsed."""
+        """Mark a failed search unavailable or cancel a pending replacement."""
         def work(conn):
             row = self._lock_request(conn, request_id)
             if row["status"] == "unavailable" and row["format_revision"] == revision + 1:
                 return decode_request_row(row)
-            if row["format_revision"] != revision or (request_state(dict(row)) not in COPY_REVIEW_STATES
-                    and not (row["replace_copy"] and row["status"] == "waiting_format")):
+            status = row["status"]
+            if row["replace_copy"]:
+                can_stop = status == "waiting_format" or request_state(dict(row)) in COPY_REVIEW_STATES
+            else:
+                can_stop = status in FAILED_SEARCHES
+            if row["format_revision"] != revision or not can_stop:
                 raise ValueError("This request changed. Reopen it before stopping the search.")
             conn.execute(
                 "UPDATE requests SET status='unavailable', message=?, "

@@ -86,7 +86,7 @@ internal fun RoomUi.addSongForm(activity: Activity, destination: RoomPlaylist, d
     if (destination.targetName.isNotBlank() && destination.targetName != destination.name)
         body.section(label(destination.targetName), gap = 4)
     if (destination.linked) body.section(label(destination.syncLabel, 14f, secondary).apply {
-        setCompoundDrawablesRelative(mark(Mark.MAGNET, 17, accent), null, null, null)
+        setCompoundDrawablesRelative(controlMark(Mark.MAGNET, 17, accent), null, null, null)
         compoundDrawablePadding = dp(6)
     })
     body.section(label("Save the song details now. You can find an audio copy later.", 14f, secondary))
