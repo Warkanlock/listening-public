@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "listening"
-version = "1.0.3"
+version = "1.0.4"
 description = "A self-hosted music library and player."
 authors = ["Listening"]
 package-mode = false
